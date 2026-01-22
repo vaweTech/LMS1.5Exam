@@ -1,0 +1,1266 @@
+"use client";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { auth, firebaseAuth, db, firestoreHelpers } from "../../../lib/firebase";
+
+export default function TakeInterviewExamPage() {
+  const router = useRouter();
+  const { examId } = useParams();
+  const [exam, setExam] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [answers, setAnswers] = useState({});
+  const [timeLeftMs, setTimeLeftMs] = useState(null);
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [reviewMap, setReviewMap] = useState({});
+  const [showPanel, setShowPanel] = useState(false);
+  const [section, setSection] = useState("mcq"); // mcq | descriptive | coding
+  const [activeSection, setActiveSection] = useState("All");
+  const [started, setStarted] = useState(false);
+  const [acceptedRules, setAcceptedRules] = useState(false);
+  const [userId, setUserId] = useState(null);
+  const [pendingStart, setPendingStart] = useState(false);
+  const [codeLanguages, setCodeLanguages] = useState({});
+  const [runResults, setRunResults] = useState({});
+  const [runLoading, setRunLoading] = useState({});
+  const [lastRunAtMap, setLastRunAtMap] = useState({});
+  const timerRef = useRef(null);
+  const [showResults, setShowResults] = useState(false);
+  const [examResults, setExamResults] = useState(null);
+  const resultsTimerRef = useRef(null);
+  const countdownIntervalRef = useRef(null);
+  const [countdown, setCountdown] = useState(10);
+  const [processing, setProcessing] = useState(false);
+  const [processingCountdown, setProcessingCountdown] = useState(10);
+  const processingIntervalRef = useRef(null);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const ref = firestoreHelpers.doc(db, "interviewExams", String(examId));
+        const snap = await firestoreHelpers.getDoc(ref);
+        if (snap.exists()) {
+          const data = snap.data();
+          setExam({ id: snap.id, ...data });
+          // Choose default section based on available questions
+          const hasMcq = (data.questions || []).some((q) => q?.type === "mcq");
+          const hasDesc = (data.questions || []).some((q) => q?.type === "descriptive");
+          const hasCoding = (data.questions || []).some((q) => q?.type === "coding");
+          if (hasMcq) setSection("mcq");
+          else if (hasDesc) setSection("descriptive");
+          else if (hasCoding) setSection("coding");
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [examId]);
+
+  useEffect(() => {
+    return firebaseAuth.onAuthStateChanged(auth, (user) => {
+      setUserId(user?.uid || null);
+    });
+  }, []);
+
+  const formatTime = (ms) => {
+    if (ms == null) return null;
+    const total = Math.floor(ms / 1000);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const pad = (n) => String(n).padStart(2, "0");
+    if (h > 0) {
+      return `${h}:${pad(m)}:${pad(s)}`;
+    }
+    return `${pad(m)}:${pad(s)}`;
+  };
+
+  const judgeLanguages = {
+    javascript: "javascript",
+    python: "python",
+    java: "java",
+    c: "c",
+    cpp: "cpp",
+  };
+
+  const transformForCompiler = (input) => {
+    return String(input || "")
+      .split("\n")
+      .map((line) =>
+        line
+          .replace(/\[/g, "")
+          .replace(/\]/g, "")
+          .replace(/,/g, " ")
+          .replace(/#/g, "")
+          .replace(/\s+/g, " ")
+          .trim()
+      )
+      .join("\n");
+  };
+
+  const handleMcq = (qIndex, optionIndex, multiple) => {
+    setAnswers((prev) => {
+      if (multiple) {
+        const cur = Array.isArray(prev[qIndex]) ? prev[qIndex] : [];
+        const next = cur.includes(optionIndex)
+          ? cur.filter((i) => i !== optionIndex)
+          : [...cur, optionIndex];
+        return { ...prev, [qIndex]: next };
+      }
+      return { ...prev, [qIndex]: optionIndex };
+    });
+  };
+
+  const handleText = (qIndex, value) => {
+    setAnswers((prev) => ({ ...prev, [qIndex]: value }));
+  };
+
+  const handleLanguageChange = (qIndex, value) => {
+    setCodeLanguages((prev) => ({ ...prev, [qIndex]: value }));
+  };
+
+  const runAllTestCases = async (qIndex, testCases) => {
+    if (!Array.isArray(testCases) || testCases.length === 0) {
+      setRunResults((prev) => ({ ...prev, [qIndex]: [] }));
+      return;
+    }
+    const code = answers[qIndex] || "";
+    if (!String(code).trim()) {
+      alert("Please write your solution before running.");
+      return;
+    }
+    const language = codeLanguages[qIndex] || "javascript";
+    setRunLoading((prev) => ({ ...prev, [qIndex]: true }));
+    const results = [];
+    for (const tc of testCases) {
+      try {
+        const res = await fetch("/api/compile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            language: judgeLanguages[language] || "javascript",
+            source: code,
+            stdin: transformForCompiler(tc?.input || ""),
+          }),
+        });
+        const data = await res.json();
+        const actual = (data.stdout || "").trim();
+        const expected = String(tc?.output || "").trim();
+        results.push({
+          input: tc?.input || "",
+          expected,
+          actual,
+          status: data.status || "Error",
+          pass: actual.toLowerCase() === expected.toLowerCase(),
+        });
+      } catch (err) {
+        results.push({
+          input: tc?.input || "",
+          expected: String(tc?.output || "").trim(),
+          actual: "Error",
+          status: "Error",
+          pass: false,
+        });
+      }
+    }
+    setRunResults((prev) => ({ ...prev, [qIndex]: results }));
+    setLastRunAtMap((prev) => ({ ...prev, [qIndex]: Date.now() }));
+    setRunLoading((prev) => ({ ...prev, [qIndex]: false }));
+  };
+
+  const progress = useMemo(() => {
+    const total = exam?.questions?.length || 0;
+    if (total === 0) return { answered: 0, total, percent: 0 };
+    let answered = 0;
+    for (let i = 0; i < total; i++) {
+      const a = answers[i];
+      if (Array.isArray(a)) {
+        if (a.length > 0) answered += 1;
+      } else if (a !== undefined && a !== null && String(a).trim() !== "") {
+        answered += 1;
+      }
+    }
+    return { answered, total, percent: Math.round((answered / total) * 100) };
+  }, [answers, exam]);
+
+  const isAnswered = useCallback((index) => {
+    const a = answers[index];
+    if (Array.isArray(a)) return a.length > 0;
+    return a !== undefined && a !== null && String(a).trim() !== "";
+  }, [answers]);
+
+  const toggleReview = useCallback((idx) => {
+    setReviewMap((prev) => ({ ...prev, [idx]: !prev[idx] }));
+  }, []);
+
+  const mcqIndices = useMemo(() => {
+    return (exam?.questions || [])
+      .map((q, i) => ({ q, i }))
+      .filter(({ q }) => q?.type === "mcq")
+      .map(({ i }) => i);
+  }, [exam]);
+  const descIndices = useMemo(() => {
+    return (exam?.questions || [])
+      .map((q, i) => ({ q, i }))
+      .filter(({ q }) => q?.type === "descriptive")
+      .map(({ i }) => i);
+  }, [exam]);
+  const codingIndices = useMemo(() => {
+    return (exam?.questions || [])
+      .map((q, i) => ({ q, i }))
+      .filter(({ q }) => q?.type === "coding")
+      .map(({ i }) => i);
+  }, [exam]);
+  const mcqSections = useMemo(() => {
+    const set = new Set();
+    (exam?.questions || []).forEach((q) => {
+      if (q?.type !== "mcq") return;
+      const s = String(q?.section || "").trim();
+      if (s) set.add(s);
+    });
+    return Array.from(set);
+  }, [exam]);
+  const descSections = useMemo(() => {
+    const set = new Set();
+    (exam?.questions || []).forEach((q) => {
+      if (q?.type !== "descriptive") return;
+      const s = String(q?.section || "").trim();
+      if (s) set.add(s);
+    });
+    return Array.from(set);
+  }, [exam]);
+  const codingSections = useMemo(() => {
+    const set = new Set();
+    (exam?.questions || []).forEach((q) => {
+      if (q?.type !== "coding") return;
+      const s = String(q?.section || "").trim();
+      if (s) set.add(s);
+    });
+    return Array.from(set);
+  }, [exam]);
+  const activeSectionList =
+    section === "mcq" ? mcqSections : section === "coding" ? codingSections : descSections;
+  const filteredIndices = useMemo(() => {
+    const base = section === "mcq" ? mcqIndices : section === "coding" ? codingIndices : descIndices;
+    if (activeSection === "All") return base;
+    return base.filter((i) => {
+      const q = (exam?.questions || [])[i];
+      return String(q?.section || "").trim() === activeSection;
+    });
+  }, [section, mcqIndices, descIndices, codingIndices, activeSection, exam]);
+
+  const indicesForSection = useCallback((sectionName) => {
+    const base = section === "mcq" ? mcqIndices : section === "coding" ? codingIndices : descIndices;
+    if (sectionName === "All") return base;
+    return base.filter((i) => {
+      const q = (exam?.questions || [])[i];
+      return String(q?.section || "").trim() === sectionName;
+    });
+  }, [section, mcqIndices, descIndices, codingIndices, exam]);
+
+  useEffect(() => {
+    setActiveSection("All");
+  }, [section]);
+
+  useEffect(() => {
+    if (!filteredIndices.includes(activeIndex) && filteredIndices.length > 0) {
+      setActiveIndex(filteredIndices[0]);
+    }
+  }, [section, filteredIndices, activeIndex]);
+
+  const totalInSection = filteredIndices.length;
+  const currentPos = filteredIndices.indexOf(activeIndex);
+
+  const requestFullscreen = () => {
+    if (typeof document === "undefined") return;
+    const el = document.documentElement;
+    if (document.fullscreenElement || !el?.requestFullscreen) return;
+    el.requestFullscreen().catch(() => {
+      // Ignore if browser blocks without user gesture.
+    });
+  };
+
+  const startTimer = useCallback((initialMs) => {
+    if (timerRef.current) return;
+    const duration = Number(exam?.durationMinutes) || 0;
+    if (duration > 0) {
+      const startingMs = Number.isFinite(initialMs) ? initialMs : duration * 60 * 1000;
+      const endAt = Date.now() + startingMs;
+      setTimeLeftMs(startingMs);
+      timerRef.current = setInterval(() => {
+        setTimeLeftMs((prev) => {
+          const next = Math.max(0, (prev ?? endAt - Date.now()) - 1000);
+          if (next <= 0) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          return next;
+        });
+      }, 1000);
+    }
+  }, [exam]);
+
+  const resetExamState = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setStarted(false);
+    setPendingStart(false);
+    setTimeLeftMs(null);
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const handleFullscreenChange = () => {
+      if (pendingStart && document.fullscreenElement) {
+        setPendingStart(false);
+        setStarted(true);
+        startTimer(timeLeftMs);
+        return;
+      }
+      if (started && !document.fullscreenElement) {
+        resetExamState();
+      }
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, [pendingStart, started, startTimer, resetExamState]);
+
+  const prepareAttempt = useCallback(async (phoneDigits) => {
+    const duration = Number(exam?.durationMinutes) || 0;
+    // Block if already submitted for this phone
+    const subCol = firestoreHelpers.collection(db, "interviewExams", String(examId), "submissions");
+    const qPhone = firestoreHelpers.query(subCol, firestoreHelpers.where("phone", "==", phoneDigits));
+    const existingPhone = await firestoreHelpers.getDocs(qPhone);
+    if (!existingPhone.empty) {
+      alert("A submission has already been received for this phone number.");
+      return { blocked: true };
+    }
+    if (duration <= 0) {
+      return { blocked: false, remainingMs: null };
+    }
+    const attemptsCol = firestoreHelpers.collection(db, "interviewExams", String(examId), "attempts");
+    const qAttempt = firestoreHelpers.query(attemptsCol, firestoreHelpers.where("phone", "==", phoneDigits));
+    const attemptSnap = await firestoreHelpers.getDocs(qAttempt);
+    let startedAt = null;
+    let attemptDocRef = null;
+    if (!attemptSnap.empty) {
+      const firstDoc = attemptSnap.docs[0];
+      startedAt = firstDoc.data()?.startedAt || null;
+      attemptDocRef = firestoreHelpers.doc(db, "interviewExams", String(examId), "attempts", firstDoc.id);
+    } else {
+      startedAt = Date.now();
+      const createdRef = await firestoreHelpers.addDoc(attemptsCol, { phone: phoneDigits, startedAt });
+      attemptDocRef = firestoreHelpers.doc(db, "interviewExams", String(examId), "attempts", createdRef.id);
+    }
+    let remainingMs = duration * 60 * 1000 - (Date.now() - Number(startedAt || Date.now()));
+    if (remainingMs <= 0 && attemptDocRef) {
+      // Reset timer for a fresh attempt when time is already over
+      startedAt = Date.now();
+      await firestoreHelpers.updateDoc(attemptDocRef, { startedAt });
+      remainingMs = duration * 60 * 1000;
+    }
+    setTimeLeftMs(remainingMs);
+    return { blocked: false, remainingMs };
+  }, [exam, examId]);
+
+  const startExam = async () => {
+    // Validate before starting
+    const phoneDigits = phone.replace(/\D/g, "");
+    if (!fullName.trim()) {
+      alert("Please enter your name.");
+      return;
+    }
+    if (phoneDigits.length < 10) {
+      alert("Please enter a valid phone number (10+ digits).");
+      return;
+    }
+    if (!acceptedRules) {
+      alert("Please accept the rules to proceed.");
+      return;
+    }
+    const attempt = await prepareAttempt(phoneDigits);
+    if (attempt.blocked) return;
+    if (typeof document !== "undefined" && !document.fullscreenElement) {
+      setPendingStart(true);
+      requestFullscreen();
+      return;
+    }
+    setStarted(true);
+    startTimer(attempt.remainingMs);
+  };
+
+  // Cleanup timers
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (resultsTimerRef.current) clearTimeout(resultsTimerRef.current);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+      if (processingIntervalRef.current) clearInterval(processingIntervalRef.current);
+    };
+  }, []);
+
+  const handleSubmit = async () => {
+    // Basic validation
+    if (!fullName.trim()) {
+      alert("Please enter your name.");
+      return;
+    }
+    const phoneDigits = phone.replace(/\D/g, "");
+    if (phoneDigits.length < 10) {
+      alert("Please enter a valid phone number (10+ digits).");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      // Prevent duplicate submissions per user
+      const subCol = firestoreHelpers.collection(db, "interviewExams", String(examId), "submissions");
+      if (userId) {
+        const qUser = firestoreHelpers.query(subCol, firestoreHelpers.where("userId", "==", userId));
+        const existingUser = await firestoreHelpers.getDocs(qUser);
+        if (!existingUser.empty) {
+          alert("A submission has already been received for this user.");
+          setSubmitting(false);
+          return;
+        }
+      } else {
+        const qPhone = firestoreHelpers.query(subCol, firestoreHelpers.where("phone", "==", phoneDigits));
+        const existingPhone = await firestoreHelpers.getDocs(qPhone);
+        if (!existingPhone.empty) {
+          alert("A submission has already been received for this phone number.");
+          setSubmitting(false);
+          return;
+        }
+      }
+      // MCQ score: 1 per correct answer
+      let mcqCorrect = 0;
+      let mcqTotal = 0;
+      (exam?.questions || []).forEach((q, i) => {
+        if (!q || q.type !== "mcq") return;
+        mcqTotal += 1;
+        const ans = answers[i];
+        const corrArr = Array.isArray(q.correctAnswers) ? q.correctAnswers : [];
+        if (corrArr.length > 1) {
+          const aSet = new Set(Array.isArray(ans) ? ans : []);
+          const cSet = new Set(corrArr);
+          if (aSet.size === cSet.size && [...aSet].every((x) => cSet.has(x))) mcqCorrect += 1;
+        } else if (corrArr.length === 1) {
+          if (ans === corrArr[0]) mcqCorrect += 1;
+        } else if (typeof q.correctAnswer === "number") {
+          if (ans === q.correctAnswer) mcqCorrect += 1;
+        }
+      });
+      const mcqScore = { correct: mcqCorrect, total: mcqTotal, score: mcqCorrect };
+
+      // Coding score: for each question, maxScore * (passed / total test cases)
+      let codingScore = 0;
+      (exam?.questions || []).forEach((q, i) => {
+        if (!q || q.type !== "coding") return;
+        const maxScore = Number.isFinite(Number(q.maxScore)) ? Number(q.maxScore) : 10;
+        const runs = runResults[i];
+        if (!Array.isArray(runs) || runs.length === 0) return;
+        const passCount = runs.filter((r) => r?.pass).length;
+        const total = runs.length;
+        codingScore += maxScore * (passCount / total);
+      });
+
+      const payload = {
+        name: fullName.trim(),
+        phone: phoneDigits,
+        userId: userId || null,
+        submittedAt: Date.now(),
+        answers,
+        mcqScore,
+        codingScore,
+        lastRunSummary: Object.fromEntries(
+          Object.entries(runResults || {}).map(([qIndex, runs]) => {
+            const list = Array.isArray(runs) ? runs : [];
+            const passCount = list.filter((r) => r?.pass).length;
+            const total = list.length;
+            return [qIndex, { passCount, failCount: Math.max(0, total - passCount), total }];
+          })
+        ),
+        lastRunAt: lastRunAtMap,
+      };
+      await firestoreHelpers.addDoc(subCol, payload);
+      
+      // Calculate total score and percentage
+      const totalScore = mcqScore.score + codingScore;
+      const maxMcqScore = mcqScore.total;
+      const maxCodingScore = (exam?.questions || [])
+        .filter((q) => q?.type === "coding")
+        .reduce((sum, q) => sum + (Number.isFinite(Number(q.maxScore)) ? Number(q.maxScore) : 10), 0);
+      const maxTotalScore = maxMcqScore + maxCodingScore;
+      const percentage = maxTotalScore > 0 ? Math.round((totalScore / maxTotalScore) * 100) : 0;
+      
+      // Store results but don't show yet
+      setExamResults({
+        mcqScore,
+        codingScore,
+        totalScore,
+        maxMcqScore,
+        maxCodingScore,
+        maxTotalScore,
+        percentage,
+      });
+      setStarted(false);
+      setProcessing(true);
+      setProcessingCountdown(10);
+      
+      // Processing countdown timer
+      processingIntervalRef.current = setInterval(() => {
+        setProcessingCountdown((prev) => {
+          if (prev <= 1) {
+            if (processingIntervalRef.current) {
+              clearInterval(processingIntervalRef.current);
+              processingIntervalRef.current = null;
+            }
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      
+      // Wait 10 seconds before showing results
+      setTimeout(() => {
+        // Exit fullscreen if active
+        if (typeof document !== "undefined" && document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {
+            // Ignore if exit fails
+          });
+        }
+        
+        // Stop processing and show results
+        setProcessing(false);
+        setShowResults(true);
+        setCountdown(10);
+        
+        // Countdown timer for results display
+        countdownIntervalRef.current = setInterval(() => {
+          setCountdown((prev) => {
+            if (prev <= 1) {
+              if (countdownIntervalRef.current) {
+                clearInterval(countdownIntervalRef.current);
+                countdownIntervalRef.current = null;
+              }
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+        
+        // Auto-redirect after 10 seconds of showing results
+        resultsTimerRef.current = setTimeout(() => {
+          if (countdownIntervalRef.current) {
+            clearInterval(countdownIntervalRef.current);
+            countdownIntervalRef.current = null;
+          }
+          router.push("/interview");
+        }, 10000);
+      }, 10000);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
+  if (!exam) {
+    return <div className="min-h-screen flex items-center justify-center">Exam not found.</div>;
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-sky-50 to-cyan-50">
+      {/* Processing Screen - Shows for 10 seconds after submission */}
+      {processing && (
+        <div className="fixed inset-0 z-50 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 mb-6 animate-pulse">
+              <svg className="w-10 h-10 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Processing Your Submission</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Please wait while we process your exam results...
+            </p>
+            <div className="mt-6">
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-full">
+                <span className="text-lg font-semibold text-blue-600">{processingCountdown}</span>
+                <span className="text-sm text-gray-600">
+                  {processingCountdown === 1 ? 'second' : 'seconds'} remaining
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Results Screen */}
+      {showResults && examResults && (
+        <div className="fixed inset-0 z-50 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 sm:p-8 animate-in fade-in zoom-in duration-300">
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 mb-4 animate-bounce">
+                <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Exam Submitted Successfully!</h2>
+              <p className="text-sm text-gray-600">Your results are displayed below</p>
+            </div>
+
+            {/* Overall Score Card */}
+            <div className="bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl p-6 mb-6 text-white shadow-lg">
+              <div className="text-center">
+                <p className="text-sm font-medium opacity-90 mb-2">Total Score</p>
+                <div className="flex items-baseline justify-center gap-2 mb-1">
+                  <span className="text-5xl sm:text-6xl font-bold">{examResults.totalScore}</span>
+                  <span className="text-2xl sm:text-3xl font-semibold opacity-80">/ {examResults.maxTotalScore}</span>
+                </div>
+                <div className="mt-4">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/20 rounded-full backdrop-blur-sm">
+                    <span className="text-lg sm:text-xl font-bold">{examResults.percentage}%</span>
+                    <span className="text-sm opacity-90">Percentage</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Score Breakdown */}
+            <div className="grid sm:grid-cols-2 gap-4 mb-6">
+              {/* MCQ Score Card */}
+              <div className="bg-gradient-to-br from-emerald-50 to-green-50 border-2 border-emerald-200 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded-lg bg-emerald-500 flex items-center justify-center">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <span className="font-semibold text-gray-900">MCQ Section</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-bold text-emerald-700">{examResults.mcqScore.score}</span>
+                    <span className="text-lg text-gray-600">/ {examResults.mcqScore.total}</span>
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    {examResults.mcqScore.correct} correct out of {examResults.mcqScore.total} questions
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5 mt-3">
+                    <div 
+                      className="bg-emerald-500 h-2.5 rounded-full transition-all duration-500"
+                      style={{ width: `${examResults.mcqScore.total > 0 ? (examResults.mcqScore.score / examResults.mcqScore.total) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Coding Score Card */}
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                      </svg>
+                    </div>
+                    <span className="font-semibold text-gray-900">Coding Section</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-bold text-blue-700">{examResults.codingScore.toFixed(1)}</span>
+                    <span className="text-lg text-gray-600">/ {examResults.maxCodingScore}</span>
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    Based on test case results
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5 mt-3">
+                    <div 
+                      className="bg-blue-500 h-2.5 rounded-full transition-all duration-500"
+                      style={{ width: `${examResults.maxCodingScore > 0 ? (examResults.codingScore / examResults.maxCodingScore) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Performance Indicator */}
+            <div className="bg-gray-50 rounded-xl p-4 mb-6">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">Performance</span>
+                <span className={`text-sm font-bold ${
+                  examResults.percentage >= 80 ? 'text-green-600' :
+                  examResults.percentage >= 60 ? 'text-yellow-600' :
+                  examResults.percentage >= 40 ? 'text-orange-600' :
+                  'text-red-600'
+                }`}>
+                  {examResults.percentage >= 80 ? 'Excellent' :
+                   examResults.percentage >= 60 ? 'Good' :
+                   examResults.percentage >= 40 ? 'Average' :
+                   'Needs Improvement'}
+                </span>
+              </div>
+            </div>
+
+            {/* Auto-redirect notice */}
+            <div className="text-center">
+              <p className="text-sm text-gray-600 mb-4">
+                Redirecting to interview page in <span className="font-semibold text-cyan-600 text-lg">{countdown}</span> {countdown === 1 ? 'second' : 'seconds'}...
+              </p>
+              <button
+                onClick={() => {
+                  if (resultsTimerRef.current) {
+                    clearTimeout(resultsTimerRef.current);
+                    resultsTimerRef.current = null;
+                  }
+                  if (countdownIntervalRef.current) {
+                    clearInterval(countdownIntervalRef.current);
+                    countdownIntervalRef.current = null;
+                  }
+                  router.push("/interview");
+                }}
+                className="px-6 py-2.5 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg font-medium transition-colors"
+              >
+                Go to Interview Page Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Exam Content - Hidden when showing results or processing */}
+      {!showResults && !processing && (
+        <>
+          {/* Sticky Header */}
+          <div className="sticky top-0 z-20 border-b bg-white/80 backdrop-blur">
+            <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{exam.title}</h1>
+                {exam.description && <p className="text-xs sm:text-sm text-gray-600">{exam.description}</p>}
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:block text-sm text-gray-700">{progress.answered}/{progress.total} answered</div>
+                <div className="w-28 sm:w-44">
+                  <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-full bg-cyan-600" style={{ width: `${progress.percent}%` }} />
+                  </div>
+                </div>
+                {timeLeftMs != null && (
+                  <span className="px-3 py-1 rounded-md bg-black text-white text-xs sm:text-sm font-medium">
+                    {formatTime(timeLeftMs)}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+
+        {/* Pre-Exam Info (visible until started) */}
+        {!started && (
+          <div className="bg-white rounded-xl shadow p-4 sm:p-6 mb-6">
+            <h2 className="text-base sm:text-lg font-semibold mb-3 text-gray-900">Candidate Details</h2>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <input
+                type="text"
+                placeholder="Full Name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-cyan-500"
+              />
+              <input
+                type="tel"
+                placeholder="Phone Number"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-cyan-500"
+              />
+            </div>
+            <div className="mt-6">
+              <h3 className="font-semibold text-gray-900 mb-2">Rules & Exam Pattern</h3>
+              <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
+                <li>Time Limit: {Number(exam?.durationMinutes) || 0} minutes.</li>
+                <li>Total Questions: {exam?.questions?.length || 0} (MCQ: {mcqIndices.length}, Descriptive: {descIndices.length}).</li>
+                <li>Only one submission is allowed. After submission, edits or resubmissions will be not be allowed.</li>
+                <li>You can navigate between questions and mark them for review.</li>
+                <li>Do not refresh or close the tab during the exam.</li>
+              </ul>
+              <label className="mt-3 flex items-center gap-2 text-sm text-gray-800">
+                <input
+                  type="checkbox"
+                  checked={acceptedRules}
+                  onChange={(e) => setAcceptedRules(e.target.checked)}
+                  className="w-4 h-4 text-cyan-600"
+                />
+                I have read and agree to the rules above.
+              </label>
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={startExam}
+                  className="px-5 py-2 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg disabled:opacity-60"
+                >
+                  Proceed to Test
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Section Selector (only after start) */}
+        {started && (
+          <div className="bg-white rounded-xl shadow p-3 sm:p-4 mb-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm text-gray-700 mr-2">Sections:</span>
+              {mcqIndices.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSection("mcq")}
+                  className={`px-3 py-1.5 rounded-full text-sm border ${
+                    section === "mcq" ? "bg-cyan-600 text-white border-cyan-600" : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  MCQ ({mcqIndices.length})
+                </button>
+              )}
+              {descIndices.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSection("descriptive")}
+                  className={`px-3 py-1.5 rounded-full text-sm border ${
+                    section === "descriptive" ? "bg-cyan-600 text-white border-cyan-600" : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  Descriptive ({descIndices.length})
+                </button>
+              )}
+              {codingIndices.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSection("coding")}
+                  className={`px-3 py-1.5 rounded-full text-sm border ${
+                    section === "coding" ? "bg-cyan-600 text-white border-cyan-600" : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  Coding ({codingIndices.length})
+                </button>
+              )}
+            </div>
+            {activeSectionList.length > 0 && (
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-gray-600 mr-1">Topics:</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveSection("All")}
+                  className={`px-3 py-1 rounded-full text-xs border ${
+                    activeSection === "All"
+                      ? "bg-gray-900 text-white border-gray-900"
+                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  All
+                </button>
+                {activeSectionList.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setActiveSection(s)}
+                    className={`px-3 py-1 rounded-full text-xs border ${
+                      activeSection === s
+                        ? "bg-cyan-600 text-white border-cyan-600"
+                        : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Question Area */}
+        {started && (
+          <div className="bg-white rounded-xl shadow p-4 sm:p-6">
+          {(() => {
+            if (totalInSection === 0) {
+              return (
+                <div className="text-center py-10">
+                  <p className="text-gray-600">
+                    No questions in this section.
+                  </p>
+                </div>
+              );
+            }
+            const q = (exam.questions || [])[activeIndex];
+            if (!q) return null;
+            const multiFromCorrectAnswers = Array.isArray(q.correctAnswers)
+              ? q.correctAnswers.length > 1
+              : typeof q.correctAnswers === "string"
+              ? q.correctAnswers.split(/[,\s]+/).filter(Boolean).length > 1
+              : false;
+            const multiFromCorrectAnswer = Array.isArray(q.correctAnswer)
+              ? q.correctAnswer.length > 1
+              : typeof q.correctAnswer === "string"
+              ? q.correctAnswer.split(/[,\s]+/).filter(Boolean).length > 1
+              : false;
+            const multiple = Boolean(
+              q?.allowMultiple ||
+                q?.multiSelect ||
+                q?.multipleAnswers ||
+                multiFromCorrectAnswers ||
+                multiFromCorrectAnswer
+            );
+            return (
+              <div className="">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <p className="font-semibold text-gray-900 text-base sm:text-lg">
+                    Question {currentPos + 1} of {totalInSection}
+                  </p>
+                </div>
+                <div className="text-gray-800 mb-4 whitespace-pre-wrap">{q.question}</div>
+                {q.type === "coding" && (
+                  <div className="mb-3 text-xs text-gray-600">
+                    Level:{" "}
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-800 border border-gray-200">
+                      {String(q.section || "easy")}
+                    </span>
+                  </div>
+                )}
+                {q.type === "mcq" ? (
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    {(q.options || []).map((opt, oIndex) => {
+                      const selected = multiple
+                        ? Array.isArray(answers[activeIndex]) && answers[activeIndex].includes(oIndex)
+                        : answers[activeIndex] === oIndex;
+                      return (
+                        <button
+                          key={oIndex}
+                          type="button"
+                          onClick={() => handleMcq(activeIndex, oIndex, multiple)}
+                          className={`text-left px-3 py-2 rounded-lg border transition ${
+                            selected
+                              ? "border-cyan-600 bg-cyan-50 text-cyan-900"
+                              : "border-gray-300 hover:border-cyan-300 hover:bg-gray-50"
+                          }`}
+                        >
+                          <span className="font-medium mr-2">{String.fromCharCode(65 + oIndex)}.</span>
+                          <span className="whitespace-pre-wrap">{opt}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : q.type === "descriptive" ? (
+                  <textarea
+                    value={answers[activeIndex] || ""}
+                    onChange={(e) => handleText(activeIndex, e.target.value)}
+                    placeholder="Write your answer..."
+                    className="w-full border rounded-lg px-3 py-2 min-h-[140px] focus:ring-2 focus:ring-cyan-500"
+                  />
+                ) : (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border bg-gray-50 p-3 text-xs text-gray-700">
+                      <p className="font-semibold mb-1">Test Cases</p>
+                      {(q.testCases || []).length === 0 ? (
+                        <p className="text-gray-500">No test cases provided.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {(q.testCases || []).map((tc, i) => (
+                            <div key={i} className="grid sm:grid-cols-2 gap-2">
+                              <div className="bg-white border rounded p-2">
+                                <p className="text-[11px] text-gray-500 mb-1">Input {i + 1}</p>
+                                <pre className="whitespace-pre-wrap text-xs text-gray-800">{tc.input || "—"}</pre>
+                              </div>
+                              <div className="bg-white border rounded p-2">
+                                <p className="text-[11px] text-gray-500 mb-1">Output {i + 1}</p>
+                                <pre className="whitespace-pre-wrap text-xs text-gray-800">{tc.output || "—"}</pre>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="text-sm text-gray-700">Language</label>
+                      <select
+                        value={codeLanguages[activeIndex] || "javascript"}
+                        onChange={(e) => handleLanguageChange(activeIndex, e.target.value)}
+                        className="border rounded-lg px-3 py-2 text-sm bg-white"
+                      >
+                        <option value="javascript">JavaScript</option>
+                        <option value="python">Python</option>
+                        <option value="java">Java</option>
+                        <option value="c">C</option>
+                        <option value="cpp">C++</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => runAllTestCases(activeIndex, q.testCases || [])}
+                        disabled={runLoading[activeIndex]}
+                        className={`px-4 py-2 rounded-lg text-white text-sm ${
+                          runLoading[activeIndex] ? "bg-gray-400" : "bg-blue-600 hover:bg-blue-700"
+                        }`}
+                      >
+                        {runLoading[activeIndex] ? "Running..." : "Run All Test Cases"}
+                      </button>
+                    </div>
+                    <textarea
+                      value={answers[activeIndex] || ""}
+                      onChange={(e) => handleText(activeIndex, e.target.value)}
+                      placeholder="Write your solution..."
+                      className="w-full border rounded-lg px-3 py-2 min-h-[160px] focus:ring-2 focus:ring-cyan-500"
+                    />
+                    {Array.isArray(runResults[activeIndex]) && runResults[activeIndex].length > 0 && (
+                      <div className="rounded-lg border p-3 text-xs text-gray-700">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="font-semibold">Run Results</p>
+                          <span className="text-[11px] text-gray-500">
+                            {runResults[activeIndex].filter((r) => r.pass).length}/
+                            {runResults[activeIndex].length} passed
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {runResults[activeIndex].map((r, i) => (
+                            <div
+                              key={i}
+                              className={`rounded border p-2 ${
+                                r.pass ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between text-[11px] mb-1">
+                                <span>Test Case {i + 1}</span>
+                                <span className={r.pass ? "text-green-700" : "text-red-700"}>
+                                  {r.pass ? "PASS" : "FAIL"}
+                                </span>
+                              </div>
+                              <div className="grid sm:grid-cols-2 gap-2">
+                                <div>
+                                  <div className="text-[11px] text-gray-500 mb-1">Expected</div>
+                                  <pre className="whitespace-pre-wrap text-xs text-gray-800">{r.expected || "—"}</pre>
+                                </div>
+                                <div>
+                                  <div className="text-[11px] text-gray-500 mb-1">Actual</div>
+                                  <pre className="whitespace-pre-wrap text-xs text-gray-800">{r.actual || "—"}</pre>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Navigation */}
+                <div className="mt-6 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (currentPos > 0) {
+                        const prevPos = Math.max(0, currentPos - 1);
+                        setActiveIndex(filteredIndices[prevPos]);
+                        return;
+                      }
+                      if (activeSection !== "All" && activeSectionList.length > 0) {
+                        const idx = activeSectionList.indexOf(activeSection);
+                        if (idx > 0) {
+                          const prevSection = activeSectionList[idx - 1];
+                          const prevIndices = indicesForSection(prevSection);
+                          if (prevIndices.length > 0) {
+                            setActiveSection(prevSection);
+                            setActiveIndex(prevIndices[prevIndices.length - 1]);
+                          }
+                        }
+                      }
+                    }}
+                    disabled={currentPos <= 0 && (activeSection === "All" || activeSectionList.indexOf(activeSection) <= 0)}
+                    className={`px-4 py-2 rounded-lg border ${
+                      currentPos <= 0 && (activeSection === "All" || activeSectionList.indexOf(activeSection) <= 0)
+                        ? "bg-gray-100 text-gray-400 border-gray-200"
+                        : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
+                    }`}
+                  >
+                    Previous
+                  </button>
+
+                  <div className="hidden sm:flex items-center gap-1">
+                    {filteredIndices.map((qi, i) => (
+                      <button
+                        key={i}
+                        aria-label={`Go to question ${i + 1} in section`}
+                        onClick={() => setActiveIndex(qi)}
+                        className={`h-2.5 w-2.5 rounded-full ${
+                          i === currentPos ? "bg-cyan-600" : "bg-gray-300 hover:bg-gray-400"
+                        }`}
+                      />
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (currentPos < totalInSection - 1) {
+                        const nextPos = Math.min(totalInSection - 1, currentPos + 1);
+                        setActiveIndex(filteredIndices[nextPos]);
+                        return;
+                      }
+                      if (activeSection !== "All" && activeSectionList.length > 0) {
+                        const idx = activeSectionList.indexOf(activeSection);
+                        if (idx >= 0 && idx < activeSectionList.length - 1) {
+                          const nextSection = activeSectionList[idx + 1];
+                          const nextIndices = indicesForSection(nextSection);
+                          if (nextIndices.length > 0) {
+                            setActiveSection(nextSection);
+                            setActiveIndex(nextIndices[0]);
+                          }
+                        }
+                      }
+                    }}
+                    disabled={currentPos >= totalInSection - 1 && (activeSection === "All" || activeSectionList.indexOf(activeSection) >= activeSectionList.length - 1)}
+                    className={`px-4 py-2 rounded-lg border ${
+                      currentPos >= totalInSection - 1 && (activeSection === "All" || activeSectionList.indexOf(activeSection) >= activeSectionList.length - 1)
+                        ? "bg-gray-100 text-gray-400 border-gray-200"
+                        : "bg-cyan-600 text-white border-cyan-600 hover:bg-cyan-700"
+                    }`}
+                  >
+                    Next
+                  </button>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => toggleReview(activeIndex)}
+                    className={`px-3 py-1.5 rounded-md text-sm border ${
+                      reviewMap[activeIndex]
+                        ? "bg-purple-600 text-white border-purple-600"
+                        : "bg-white text-purple-700 border-purple-300 hover:bg-purple-50"
+                    }`}
+                  >
+                    {reviewMap[activeIndex] ? "Unmark Review" : "Mark for Review"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPanel(true)}
+                    className="sm:hidden px-3 py-1.5 rounded-md text-sm bg-gray-100 border border-gray-300"
+                  >
+                    Questions
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+          </div>
+        )}
+
+        {/* Submit Bar */}
+        {started && (
+          <div className="mt-6 flex items-center justify-between">
+          <div className="text-sm text-gray-700">
+            Progress: <span className="font-semibold">{progress.percent}%</span> ({progress.answered}/{progress.total})
+          </div>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="px-5 py-2 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg disabled:opacity-60"
+          >
+            {submitting ? "Submitting..." : "Submit Answers"}
+          </button>
+          </div>
+        )}
+      </div>
+
+      {/* Desktop Control Panel */}
+      {started && (
+        <div className="hidden lg:block fixed right-4 top-34 z-10">
+        <div className="bg-white rounded-xl shadow border p-4 w-64">
+          <div className="flex items-center justify-between mb-3">
+            <p className="font-semibold text-gray-900">Question Panel</p>
+            <span className="text-xs text-gray-600">{progress.answered}/{progress.total}</span>
+          </div>
+          <div className="grid grid-cols-6 gap-2">
+            {filteredIndices.map((qi, i) => {
+              const current = qi === activeIndex;
+              const answered = isAnswered(qi);
+              const marked = reviewMap[qi];
+              let cls = "bg-gray-200 text-gray-800";
+              if (answered) cls = "bg-green-600 text-white";
+              if (marked) cls = "bg-purple-600 text-white";
+              if (current) cls = "bg-cyan-600 text-white";
+              return (
+                <button
+                  key={i}
+                  onClick={() => setActiveIndex(qi)}
+                  className={`h-8 rounded-md text-xs font-semibold ${cls}`}
+                  title={`Question ${qi + 1}`}
+                >
+                  {qi + 1}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-700">
+            <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-cyan-600 inline-block" />Current</div>
+            <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-green-600 inline-block" />Answered</div>
+            <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-gray-300 inline-block" />Not Answered</div>
+            <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-purple-600 inline-block" />Marked</div>
+          </div>
+        </div>
+        </div>
+      )}
+
+      {/* Mobile Bottom Sheet Panel */}
+      {started && showPanel && (
+        <div className="lg:hidden fixed inset-0 z-30">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowPanel(false)} />
+          <div className="absolute left-0 right-0 bottom-0 bg-white rounded-t-2xl shadow-2xl p-4 max-h-[70vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <p className="font-semibold text-gray-900">Question Panel</p>
+              <button
+                className="px-3 py-1.5 rounded-md border text-sm"
+                onClick={() => setShowPanel(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="grid grid-cols-6 gap-2">
+              {filteredIndices.map((qi, i) => {
+                const current = qi === activeIndex;
+                const answered = isAnswered(qi);
+                const marked = reviewMap[qi];
+                let cls = "bg-gray-200 text-gray-800";
+                if (answered) cls = "bg-green-600 text-white";
+                if (marked) cls = "bg-purple-600 text-white";
+                if (current) cls = "bg-cyan-600 text-white";
+                return (
+                  <button
+                    key={i}
+                    onClick={() => { setActiveIndex(qi); setShowPanel(false); }}
+                    className={`h-9 rounded-md text-xs font-semibold ${cls}`}
+                  >
+                    {qi + 1}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+        </>
+      )}
+    </div>
+  );
+}
+
+
