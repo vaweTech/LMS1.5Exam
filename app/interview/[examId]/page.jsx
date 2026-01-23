@@ -35,6 +35,11 @@ export default function TakeInterviewExamPage() {
   const [processing, setProcessing] = useState(false);
   const [processingCountdown, setProcessingCountdown] = useState(10);
   const processingIntervalRef = useRef(null);
+  const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockReason, setBlockReason] = useState("");
+  const visibilityChangeRef = useRef(null);
+  const tabSwitchCountRef = useRef(0);
 
   useEffect(() => {
     async function load() {
@@ -65,6 +70,49 @@ export default function TakeInterviewExamPage() {
     });
   }, []);
 
+  const checkBlockStatus = useCallback(async (phoneDigits) => {
+    if (!examId) return { blocked: false };
+    try {
+      const blocksCol = firestoreHelpers.collection(db, "interviewExams", String(examId), "blocks");
+      const qBlock = firestoreHelpers.query(blocksCol, firestoreHelpers.where("phone", "==", phoneDigits));
+      const blockSnap = await firestoreHelpers.getDocs(qBlock);
+      if (!blockSnap.empty) {
+        const blockData = blockSnap.docs[0].data();
+        if (blockData?.blocked === true) {
+          return {
+            blocked: true,
+            reason: blockData?.reason || "Exam blocked due to multiple tab switches",
+            blockId: blockSnap.docs[0].id,
+          };
+        }
+      }
+      return { blocked: false };
+    } catch (e) {
+      return { blocked: false };
+    }
+  }, [examId]);
+
+  // Check block status when phone number is entered
+  useEffect(() => {
+    async function checkBlock() {
+      const phoneDigits = phone.replace(/\D/g, "");
+      if (phoneDigits.length >= 10 && examId) {
+        const blockStatus = await checkBlockStatus(phoneDigits);
+        if (blockStatus.blocked) {
+          setIsBlocked(true);
+          setBlockReason(blockStatus.reason || "Exam blocked due to multiple tab switches");
+        } else {
+          setIsBlocked(false);
+          setBlockReason("");
+        }
+      } else {
+        setIsBlocked(false);
+        setBlockReason("");
+      }
+    }
+    checkBlock();
+  }, [phone, examId, checkBlockStatus]);
+
   const formatTime = (ms) => {
     if (ms == null) return null;
     const total = Math.floor(ms / 1000);
@@ -76,6 +124,221 @@ export default function TakeInterviewExamPage() {
       return `${h}:${pad(m)}:${pad(s)}`;
     }
     return `${pad(m)}:${pad(s)}`;
+  };
+
+  const formatCountdown = (seconds) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${m}:${pad(s)}`;
+  };
+
+  const downloadScorecard = () => {
+    if (!examResults) return;
+    
+    // Create a printable HTML content for the scorecard
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Exam Scorecard - ${exam?.title || 'Interview Exam'}</title>
+          <style>
+            @media print {
+              body { margin: 0; padding: 20px; }
+            }
+            body {
+              font-family: Arial, sans-serif;
+              max-width: 800px;
+              margin: 0 auto;
+              padding: 20px;
+              background: linear-gradient(to bottom, #f0f9ff, #e0f2fe);
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 30px;
+            }
+            .header h1 {
+              color: #0c4a6e;
+              margin: 0;
+              font-size: 28px;
+            }
+            .header p {
+              color: #64748b;
+              margin: 5px 0;
+            }
+            .score-card {
+              background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+              color: white;
+              padding: 30px;
+              border-radius: 16px;
+              text-align: center;
+              margin-bottom: 20px;
+              box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            }
+            .score-card h2 {
+              margin: 0 0 10px 0;
+              font-size: 18px;
+              opacity: 0.9;
+            }
+            .score-card .total-score {
+              font-size: 64px;
+              font-weight: bold;
+              margin: 10px 0;
+            }
+            .score-card .max-score {
+              font-size: 32px;
+              opacity: 0.8;
+            }
+            .score-card .percentage {
+              display: inline-block;
+              background: rgba(255,255,255,0.2);
+              padding: 10px 20px;
+              border-radius: 20px;
+              margin-top: 15px;
+              font-size: 24px;
+              font-weight: bold;
+            }
+            .breakdown {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 15px;
+              margin-bottom: 20px;
+            }
+            .section-card {
+              background: white;
+              padding: 20px;
+              border-radius: 12px;
+              border: 2px solid #e2e8f0;
+            }
+            .section-card.mcq {
+              border-color: #10b981;
+            }
+            .section-card.coding {
+              border-color: #3b82f6;
+            }
+            .section-card h3 {
+              margin: 0 0 15px 0;
+              color: #1e293b;
+              font-size: 16px;
+            }
+            .section-card .score {
+              font-size: 36px;
+              font-weight: bold;
+              color: #0f172a;
+              margin-bottom: 5px;
+            }
+            .section-card .max {
+              color: #64748b;
+              font-size: 18px;
+            }
+            .section-card .details {
+              color: #64748b;
+              font-size: 14px;
+              margin-top: 10px;
+            }
+            .performance {
+              background: #f8fafc;
+              padding: 15px;
+              border-radius: 12px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 20px;
+            }
+            .performance-label {
+              color: #475569;
+              font-weight: 500;
+            }
+            .performance-value {
+              font-weight: bold;
+              font-size: 18px;
+            }
+            .footer {
+              text-align: center;
+              color: #64748b;
+              font-size: 12px;
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 1px solid #e2e8f0;
+            }
+            .candidate-info {
+              background: white;
+              padding: 15px;
+              border-radius: 12px;
+              margin-bottom: 20px;
+            }
+            .candidate-info p {
+              margin: 5px 0;
+              color: #475569;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>${exam?.title || 'Interview Exam'}</h1>
+            <p>Scorecard</p>
+          </div>
+          
+          <div class="candidate-info">
+            <p><strong>Name:</strong> ${fullName || 'N/A'}</p>
+            <p><strong>Phone:</strong> ${phone || 'N/A'}</p>
+            <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
+          </div>
+          
+          <div class="score-card">
+            <h2>Total Score</h2>
+            <div class="total-score">${examResults.totalScore}</div>
+            <div class="max-score">/ ${examResults.maxTotalScore}</div>
+            <div class="percentage">${examResults.percentage}%</div>
+          </div>
+          
+          <div class="breakdown">
+            <div class="section-card mcq">
+              <h3>MCQ Section</h3>
+              <div class="score">${examResults.mcqScore.score}</div>
+              <div class="max">/ ${examResults.mcqScore.total}</div>
+              <div class="details">${examResults.mcqScore.correct} correct out of ${examResults.mcqScore.total} questions</div>
+            </div>
+            <div class="section-card coding">
+              <h3>Coding Section</h3>
+              <div class="score">${examResults.codingScore.toFixed(1)}</div>
+              <div class="max">/ ${examResults.maxCodingScore}</div>
+              <div class="details">Based on test case results</div>
+            </div>
+          </div>
+          
+          <div class="performance">
+            <span class="performance-label">Performance</span>
+            <span class="performance-value" style="color: ${
+              examResults.percentage >= 80 ? '#10b981' :
+              examResults.percentage >= 60 ? '#f59e0b' :
+              examResults.percentage >= 40 ? '#f97316' :
+              '#ef4444'
+            }">
+              ${examResults.percentage >= 80 ? 'Excellent' :
+                examResults.percentage >= 60 ? 'Good' :
+                examResults.percentage >= 40 ? 'Average' :
+                'Needs Improvement'}
+            </span>
+          </div>
+          
+          <div class="footer">
+            <p>Generated on ${new Date().toLocaleString()}</p>
+          </div>
+        </body>
+      </html>
+    `;
+    
+    // Create a blob and download
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `scorecard-${exam?.title?.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'exam'}-${new Date().toISOString().slice(0, 10)}.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const judgeLanguages = {
@@ -311,27 +574,122 @@ export default function TakeInterviewExamPage() {
     setStarted(false);
     setPendingStart(false);
     setTimeLeftMs(null);
+    tabSwitchCountRef.current = 0;
+    setTabSwitchCount(0);
   }, []);
+
+  // Function to block the exam
+  const blockExamForPhone = useCallback(async (reason, count) => {
+    const phoneDigits = phone.replace(/\D/g, "");
+    if (phoneDigits.length < 10) return;
+    
+    try {
+      const blocksCol = firestoreHelpers.collection(db, "interviewExams", String(examId), "blocks");
+      const qBlock = firestoreHelpers.query(blocksCol, firestoreHelpers.where("phone", "==", phoneDigits));
+      const blockSnap = await firestoreHelpers.getDocs(qBlock);
+      
+      if (blockSnap.empty) {
+        // Create new block
+        await firestoreHelpers.addDoc(blocksCol, {
+          phone: phoneDigits,
+          blocked: true,
+          reason: reason,
+          blockedAt: Date.now(),
+          tabSwitchCount: count,
+        });
+      } else {
+        // Update existing block
+        await firestoreHelpers.updateDoc(blockSnap.docs[0].ref, {
+          blocked: true,
+          reason: reason,
+          blockedAt: Date.now(),
+          tabSwitchCount: count,
+        });
+      }
+      
+      setIsBlocked(true);
+      setBlockReason(reason);
+      resetExamState();
+      alert("Exam blocked! " + reason + " Please contact admin to unblock.");
+    } catch (e) {
+      console.error("Failed to block exam:", e);
+      alert("Failed to block exam. Please try again.");
+    }
+  }, [phone, examId, resetExamState]);
+
+  // Function to handle violations (tab switch or fullscreen exit)
+  const handleViolation = useCallback(async (violationType) => {
+    if (!started) return;
+    
+    tabSwitchCountRef.current += 1;
+    const newCount = tabSwitchCountRef.current;
+    setTabSwitchCount(newCount);
+    
+    if (newCount >= 3) {
+      const reason = violationType === "fullscreen"
+        ? "Exam blocked due to exiting fullscreen 3 times"
+        : "Exam blocked due to 3 tab switches/window exits";
+      await blockExamForPhone(reason, newCount);
+    } else {
+      const warningMsg = violationType === "fullscreen"
+        ? `Warning: You have exited fullscreen ${newCount} time(s). Exam will be blocked after 3 exits.`
+        : `Warning: You have switched tabs/windows ${newCount} time(s). Exam will be blocked after 3 switches.`;
+      alert(warningMsg);
+    }
+  }, [started, blockExamForPhone]);
 
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
+    
     const handleFullscreenChange = () => {
       if (pendingStart && document.fullscreenElement) {
         setPendingStart(false);
         setStarted(true);
+        tabSwitchCountRef.current = 0; // Reset tab switch count when exam starts
+        setTabSwitchCount(0);
         startTimer(timeLeftMs);
         return;
       }
-      if (started && !document.fullscreenElement) {
-        resetExamState();
+      if (started && !document.fullscreenElement && !isBlocked) {
+        // Fullscreen exited - count as violation (only if not already blocked)
+        handleViolation("fullscreen");
       }
     };
+    
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, [pendingStart, started, startTimer, resetExamState]);
+  }, [pendingStart, started, startTimer, resetExamState, handleViolation, timeLeftMs, isBlocked]);
+
+  // Tab visibility detection and exit tracking
+  useEffect(() => {
+    if (!started) return;
+    
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Tab switched or window lost focus
+        handleViolation("tab");
+      }
+    };
+    
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    visibilityChangeRef.current = handleVisibilityChange;
+    
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [started, handleViolation]);
 
   const prepareAttempt = useCallback(async (phoneDigits) => {
     const duration = Number(exam?.durationMinutes) || 0;
+    
+    // Check if exam is blocked for this phone
+    const blockStatus = await checkBlockStatus(phoneDigits);
+    if (blockStatus.blocked) {
+      setIsBlocked(true);
+      setBlockReason(blockStatus.reason || "Exam blocked due to multiple tab switches");
+      return { blocked: true };
+    }
+    
     // Block if already submitted for this phone
     const subCol = firestoreHelpers.collection(db, "interviewExams", String(examId), "submissions");
     const qPhone = firestoreHelpers.query(subCol, firestoreHelpers.where("phone", "==", phoneDigits));
@@ -371,6 +729,10 @@ export default function TakeInterviewExamPage() {
   const startExam = async () => {
     // Validate before starting
     const phoneDigits = phone.replace(/\D/g, "");
+    if (isBlocked) {
+      alert("This exam is blocked. Please contact the administrator to unblock it.");
+      return;
+    }
     if (!fullName.trim()) {
       alert("Please enter your name.");
       return;
@@ -385,6 +747,9 @@ export default function TakeInterviewExamPage() {
     }
     const attempt = await prepareAttempt(phoneDigits);
     if (attempt.blocked) return;
+    // Reset tab switch count when starting exam
+    tabSwitchCountRef.current = 0;
+    setTabSwitchCount(0);
     if (typeof document !== "undefined" && !document.fullscreenElement) {
       setPendingStart(true);
       requestFullscreen();
@@ -537,7 +902,7 @@ export default function TakeInterviewExamPage() {
         // Stop processing and show results
         setProcessing(false);
         setShowResults(true);
-        setCountdown(10);
+        setCountdown(300); // 5 minutes = 300 seconds
         
         // Countdown timer for results display
         countdownIntervalRef.current = setInterval(() => {
@@ -553,14 +918,14 @@ export default function TakeInterviewExamPage() {
           });
         }, 1000);
         
-        // Auto-redirect after 10 seconds of showing results
+        // Auto-redirect after 5 minutes of showing results
         resultsTimerRef.current = setTimeout(() => {
           if (countdownIntervalRef.current) {
             clearInterval(countdownIntervalRef.current);
             countdownIntervalRef.current = null;
           }
           router.push("/interview");
-        }, 10000);
+        }, 300000); // 5 minutes = 300000 milliseconds
       }, 10000);
     } finally {
       setSubmitting(false);
@@ -712,27 +1077,38 @@ export default function TakeInterviewExamPage() {
               </div>
             </div>
 
-            {/* Auto-redirect notice */}
-            <div className="text-center">
-              <p className="text-sm text-gray-600 mb-4">
-                Redirecting to interview page in <span className="font-semibold text-cyan-600 text-lg">{countdown}</span> {countdown === 1 ? 'second' : 'seconds'}...
+            {/* Download and Auto-redirect notice */}
+            <div className="text-center space-y-4">
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <button
+                  onClick={downloadScorecard}
+                  className="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Download Scorecard
+                </button>
+                <button
+                  onClick={() => {
+                    if (resultsTimerRef.current) {
+                      clearTimeout(resultsTimerRef.current);
+                      resultsTimerRef.current = null;
+                    }
+                    if (countdownIntervalRef.current) {
+                      clearInterval(countdownIntervalRef.current);
+                      countdownIntervalRef.current = null;
+                    }
+                    router.push("/interview");
+                  }}
+                  className="px-6 py-2.5 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg font-medium transition-colors"
+                >
+                  Go to Interview Page Now
+                </button>
+              </div>
+              <p className="text-sm text-gray-600">
+                Redirecting to interview page in <span className="font-semibold text-cyan-600 text-lg">{formatCountdown(countdown)}</span> ({Math.floor(countdown / 60)} {Math.floor(countdown / 60) === 1 ? 'minute' : 'minutes'}{countdown % 60 > 0 ? ` and ${countdown % 60} ${countdown % 60 === 1 ? 'second' : 'seconds'}` : ''})...
               </p>
-              <button
-                onClick={() => {
-                  if (resultsTimerRef.current) {
-                    clearTimeout(resultsTimerRef.current);
-                    resultsTimerRef.current = null;
-                  }
-                  if (countdownIntervalRef.current) {
-                    clearInterval(countdownIntervalRef.current);
-                    countdownIntervalRef.current = null;
-                  }
-                  router.push("/interview");
-                }}
-                className="px-6 py-2.5 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg font-medium transition-colors"
-              >
-                Go to Interview Page Now
-              </button>
             </div>
           </div>
         </div>
@@ -749,6 +1125,13 @@ export default function TakeInterviewExamPage() {
                 {exam.description && <p className="text-xs sm:text-sm text-gray-600">{exam.description}</p>}
               </div>
               <div className="flex items-center gap-3">
+                {started && tabSwitchCount > 0 && (
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    tabSwitchCount >= 2 ? 'bg-red-100 text-red-700 border border-red-300' : 'bg-yellow-100 text-yellow-700 border border-yellow-300'
+                  }`}>
+                    Tab Switches: {tabSwitchCount}/3
+                  </span>
+                )}
                 <div className="hidden sm:block text-sm text-gray-700">{progress.answered}/{progress.total} answered</div>
                 <div className="w-28 sm:w-44">
                   <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
@@ -786,6 +1169,22 @@ export default function TakeInterviewExamPage() {
                 className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-cyan-500"
               />
             </div>
+            
+            {/* Block Status Message */}
+            {isBlocked && (
+              <div className="mt-4 p-4 rounded-lg border-2 border-red-300 bg-red-50">
+                <div className="flex items-start gap-3">
+                  <svg className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-red-900 mb-1">Exam Blocked</h3>
+                    <p className="text-sm text-red-700">{blockReason || "This exam has been blocked. Please contact the administrator to unblock it."}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             <div className="mt-6">
               <h3 className="font-semibold text-gray-900 mb-2">Rules & Exam Pattern</h3>
               <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
@@ -794,6 +1193,7 @@ export default function TakeInterviewExamPage() {
                 <li>Only one submission is allowed. After submission, edits or resubmissions will be not be allowed.</li>
                 <li>You can navigate between questions and mark them for review.</li>
                 <li>Do not refresh or close the tab during the exam.</li>
+                <li><strong>Important:</strong> Switching tabs/windows 3 times will automatically block the exam. Stay focused on the exam window.</li>
               </ul>
               <label className="mt-3 flex items-center gap-2 text-sm text-gray-800">
                 <input
@@ -808,9 +1208,10 @@ export default function TakeInterviewExamPage() {
                 <button
                   type="button"
                   onClick={startExam}
-                  className="px-5 py-2 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg disabled:opacity-60"
+                  disabled={isBlocked}
+                  className="px-5 py-2 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Proceed to Test
+                  {isBlocked ? "Exam Blocked - Contact Admin" : "Proceed to Test"}
                 </button>
               </div>
             </div>

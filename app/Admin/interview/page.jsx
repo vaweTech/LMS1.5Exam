@@ -56,6 +56,13 @@ export default function AdminInterviewExamsPage() {
   const [resultsLoading, setResultsLoading] = useState(false);
   const [results, setResults] = useState([]);
   const [resultsInfo, setResultsInfo] = useState("");
+  const [blockedExams, setBlockedExams] = useState([]);
+  const [blocksLoading, setBlocksLoading] = useState(false);
+  const [resultsPage, setResultsPage] = useState(1);
+  const [resultsPerPage, setResultsPerPage] = useState(20);
+  const [blocksPage, setBlocksPage] = useState(1);
+  const [blocksPerPage, setBlocksPerPage] = useState(20);
+  const [isLocalhost, setIsLocalhost] = useState(false);
 
   const computeMcqScore = (exam, submission) => {
     let correct = 0;
@@ -154,6 +161,14 @@ export default function AdminInterviewExamsPage() {
   };
 
   useEffect(() => {
+    // Check if running on localhost
+    if (typeof window !== "undefined") {
+      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      setIsLocalhost(isLocal);
+    }
+  }, []);
+
+  useEffect(() => {
     async function loadExams() {
       try {
         const snap = await firestoreHelpers.getDocs(
@@ -170,10 +185,136 @@ export default function AdminInterviewExamsPage() {
     loadExams();
   }, []);
 
+  const fetchBlockedExams = async () => {
+    setBlocksLoading(true);
+    try {
+      const allBlocks = [];
+      for (const ex of exams) {
+        try {
+          const blocksCol = firestoreHelpers.collection(db, "interviewExams", ex.id, "blocks");
+          const blocksSnap = await firestoreHelpers.getDocs(
+            firestoreHelpers.query(blocksCol, firestoreHelpers.where("blocked", "==", true))
+          );
+          blocksSnap.docs.forEach((d) => {
+            const data = d.data();
+            allBlocks.push({
+              id: d.id,
+              examId: ex.id,
+              examTitle: ex.title,
+              phone: data?.phone || "",
+              reason: data?.reason || "Exam blocked due to multiple tab switches",
+              blockedAt: data?.blockedAt,
+              tabSwitchCount: data?.tabSwitchCount || 0,
+            });
+          });
+        } catch (e) {
+          console.error(`Error fetching blocks for exam ${ex.id}:`, e);
+        }
+      }
+      // Sort by blockedAt (newest first)
+      allBlocks.sort((a, b) => (b.blockedAt || 0) - (a.blockedAt || 0));
+      setBlockedExams(allBlocks);
+    } catch (e) {
+      console.error("Failed to fetch blocked exams:", e);
+      setBlockedExams([]);
+    } finally {
+      setBlocksLoading(false);
+    }
+  };
+
+  const unblockExam = async (examId, blockId, phone) => {
+    if (!confirm(`Unblock exam for phone ${phone}?`)) return;
+    try {
+      const blockRef = firestoreHelpers.doc(db, "interviewExams", examId, "blocks", blockId);
+      await firestoreHelpers.updateDoc(blockRef, {
+        blocked: false,
+        unblockedAt: Date.now(),
+        unblockedBy: auth.currentUser?.uid || null,
+      });
+      // Refresh blocked exams list
+      await fetchBlockedExams();
+      alert("Exam unblocked successfully.");
+    } catch (e) {
+      alert("Failed to unblock exam. Please try again.");
+    }
+  };
+
+  const deleteResult = async (examId, submissionId, name, phone) => {
+    if (!confirm(`Delete exam result for ${name || phone}? This action cannot be undone.`)) return;
+    try {
+      const submissionRef = firestoreHelpers.doc(db, "interviewExams", examId, "submissions", submissionId);
+      await firestoreHelpers.deleteDoc(submissionRef);
+      // Refresh results
+      await fetchResults();
+      alert("Result deleted successfully.");
+    } catch (e) {
+      alert("Failed to delete result. Please try again.");
+    }
+  };
+
+  const deleteAllResults = async () => {
+    const examTitle = resultExamId === "all" 
+      ? "all exams" 
+      : exams.find((e) => e.id === resultExamId)?.title || "selected exam";
+    
+    // First, count how many results will be deleted
+    const examsToDelete = resultExamId === "all" 
+      ? exams 
+      : exams.filter((e) => e.id === resultExamId);
+    
+    let totalCount = 0;
+    for (const ex of examsToDelete) {
+      try {
+        const subCol = firestoreHelpers.collection(db, "interviewExams", ex.id, "submissions");
+        const snap = await firestoreHelpers.getDocs(subCol);
+        totalCount += snap.docs.length;
+      } catch (e) {
+        console.error(`Error counting results for exam ${ex.id}:`, e);
+      }
+    }
+    
+    if (totalCount === 0) {
+      alert("No results to delete for the selected exam(s).");
+      return;
+    }
+    
+    if (!confirm(`Delete ALL results for ${examTitle}? This will delete ${totalCount} result(s). This action cannot be undone!`)) return;
+    
+    try {
+      let deletedCount = 0;
+      for (const ex of examsToDelete) {
+        try {
+          const subCol = firestoreHelpers.collection(db, "interviewExams", ex.id, "submissions");
+          const snap = await firestoreHelpers.getDocs(subCol);
+          const deletePromises = snap.docs.map((d) =>
+            firestoreHelpers.deleteDoc(firestoreHelpers.doc(db, "interviewExams", ex.id, "submissions", d.id))
+          );
+          await Promise.all(deletePromises);
+          deletedCount += snap.docs.length;
+        } catch (e) {
+          console.error(`Error deleting results for exam ${ex.id}:`, e);
+        }
+      }
+      
+      // Refresh results
+      await fetchResults();
+      alert(`Successfully deleted ${deletedCount} result(s).`);
+    } catch (e) {
+      alert("Failed to delete results. Please try again.");
+      console.error("Error deleting all results:", e);
+    }
+  };
+
   useEffect(() => {
     if (exams.length === 0) return;
     fetchResults();
+    fetchBlockedExams();
   }, [exams, resultExamId]);
+
+  // Reset pagination when exam selection changes
+  useEffect(() => {
+    setResultsPage(1);
+  }, [resultExamId]);
 
   const displayedResults = useMemo(() => {
     const phoneDigits = String(appliedPhone || "").replace(/\D/g, "");
@@ -185,9 +326,28 @@ export default function AdminInterviewExamsPage() {
     });
   }, [results, appliedPhone, appliedName]);
 
+  // Pagination for results
+  const paginatedResults = useMemo(() => {
+    const start = (resultsPage - 1) * resultsPerPage;
+    const end = start + resultsPerPage;
+    return displayedResults.slice(start, end);
+  }, [displayedResults, resultsPage, resultsPerPage]);
+
+  const totalResultsPages = Math.ceil(displayedResults.length / resultsPerPage);
+
+  // Pagination for blocked exams
+  const paginatedBlocks = useMemo(() => {
+    const start = (blocksPage - 1) * blocksPerPage;
+    const end = start + blocksPerPage;
+    return blockedExams.slice(start, end);
+  }, [blockedExams, blocksPage, blocksPerPage]);
+
+  const totalBlocksPages = Math.ceil(blockedExams.length / blocksPerPage);
+
   const applyFilters = () => {
     setAppliedPhone(resultPhone);
     setAppliedName(resultName);
+    setResultsPage(1); // Reset to first page when filters change
     const phoneDigits = String(resultPhone || "").replace(/\D/g, "");
     const nameQuery = String(resultName || "").trim();
     if (!phoneDigits && !nameQuery) {
@@ -1084,9 +1244,17 @@ Examples:
                     type="button"
                     onClick={downloadResultsExcel}
                     disabled={displayedResults.length === 0 || resultsLoading}
-                    className="px-4 py-2 text-sm font-medium rounded-lg border border-green-600 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-4 py-2 text-sm font-medium rounded-lg border border-green-600 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     Download Excel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deleteAllResults}
+                    disabled={displayedResults.length === 0 || resultsLoading}
+                    className="px-4 py-2 text-sm font-medium rounded-lg border border-red-600 bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Delete All Results
                   </button>
                   <div className="flex items-center gap-2 text-xs">
                     <span className="px-2 py-1 rounded-full bg-cyan-50 text-cyan-700 border border-cyan-200">
@@ -1161,21 +1329,49 @@ Examples:
               </div>
             </div>
 
+            {/* Pagination Controls */}
+            {displayedResults.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 mt-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-700">Results per page:</label>
+                  <select
+                    value={resultsPerPage}
+                    onChange={(e) => {
+                      setResultsPerPage(Number(e.target.value));
+                      setResultsPage(1);
+                    }}
+                    className="border rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  >
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                  </select>
+                </div>
+                <div className="text-sm text-gray-600">
+                  Showing {((resultsPage - 1) * resultsPerPage) + 1} to {Math.min(resultsPage * resultsPerPage, displayedResults.length)} of {displayedResults.length} results
+                </div>
+              </div>
+            )}
+
             {displayedResults.length > 0 ? (
-              <div className="overflow-x-auto mt-5">
+              <div className="overflow-x-auto mt-5 border rounded-lg">
                 <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-700 border-b">
-                      <th className="py-2 pr-4">Date</th>
-                      <th className="py-2 pr-4">Exam</th>
-                      <th className="py-2 pr-4">Name</th>
-                      <th className="py-2 pr-4">Phone</th>
-                      <th className="py-2 pr-4">MCQ Score</th>
-                      <th className="py-2 pr-4">Coding Score</th>
+                  <thead className="bg-gradient-to-r from-cyan-50 to-blue-50">
+                    <tr>
+                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">Date</th>
+                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">Exam</th>
+                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">Name</th>
+                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">Phone</th>
+                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">MCQ Score</th>
+                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">Coding Score</th>
+                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">Total</th>
+                      {isLocalhost && (
+                        <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">Action</th>
+                      )}
                     </tr>
                   </thead>
-                  <tbody>
-                    {displayedResults.map((r) => {
+                  <tbody className="divide-y divide-gray-200">
+                    {paginatedResults.map((r) => {
                       const date =
                         typeof r.submittedAt === "number"
                           ? new Date(r.submittedAt).toLocaleString()
@@ -1188,14 +1384,39 @@ Examples:
                         r.codingScore != null
                           ? Number(r.codingScore).toFixed(1)
                           : "—";
+                      const totalScore = (r.mcq?.score ?? r.mcq?.correct ?? 0) + (r.codingScore ?? 0);
                       return (
-                        <tr key={`${r.examId}-${r.id}`} className="border-b hover:bg-gray-50">
-                          <td className="py-2 pr-4 whitespace-nowrap">{date}</td>
-                          <td className="py-2 pr-4">{r.examTitle}</td>
-                          <td className="py-2 pr-4">{r.name}</td>
-                          <td className="py-2 pr-4">{r.phone}</td>
-                          <td className="py-2 pr-4">{mcqScore}</td>
-                          <td className="py-2 pr-4">{codingScore}</td>
+                        <tr key={`${r.examId}-${r.id}`} className="hover:bg-gray-50 transition-colors">
+                          <td className="py-3 px-4 whitespace-nowrap text-gray-700">{date}</td>
+                          <td className="py-3 px-4 text-gray-900 font-medium">{r.examTitle}</td>
+                          <td className="py-3 px-4 text-gray-700">{r.name || "—"}</td>
+                          <td className="py-3 px-4 text-gray-700">{r.phone}</td>
+                          <td className="py-3 px-4">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              {mcqScore}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              {codingScore}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 font-semibold">
+                              {totalScore.toFixed(1)}
+                            </span>
+                          </td>
+                          {isLocalhost && (
+                            <td className="py-3 px-4">
+                              <button
+                                onClick={() => deleteResult(r.examId, r.id, r.name, r.phone)}
+                                className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+                                title="Delete result (localhost only)"
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -1203,7 +1424,201 @@ Examples:
                 </table>
               </div>
             ) : (
-              <p className="text-sm text-gray-600 mt-5">No results to display.</p>
+              <div className="mt-5 p-8 text-center border rounded-lg bg-gray-50">
+                <p className="text-sm text-gray-600">No results to display.</p>
+              </div>
+            )}
+
+            {/* Pagination Navigation */}
+            {displayedResults.length > 0 && totalResultsPages > 1 && (
+              <div className="flex items-center justify-between mt-4">
+                <button
+                  onClick={() => setResultsPage(prev => Math.max(1, prev - 1))}
+                  disabled={resultsPage === 1}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <div className="flex items-center gap-2">
+                  {Array.from({ length: Math.min(5, totalResultsPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalResultsPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (resultsPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (resultsPage >= totalResultsPages - 2) {
+                      pageNum = totalResultsPages - 4 + i;
+                    } else {
+                      pageNum = resultsPage - 2 + i;
+                    }
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setResultsPage(pageNum)}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                          resultsPage === pageNum
+                            ? "bg-cyan-600 text-white"
+                            : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => setResultsPage(prev => Math.min(totalResultsPages, prev + 1))}
+                  disabled={resultsPage === totalResultsPages}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Blocked Exams */}
+          <div className="bg-white rounded-xl shadow p-4 sm:p-6 mt-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Blocked Exams</h2>
+                <p className="text-xs text-gray-600">
+                  {blocksLoading ? "Loading..." : `${blockedExams.length} blocked exam(s)`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={fetchBlockedExams}
+                disabled={blocksLoading}
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Refresh
+              </button>
+            </div>
+
+            {/* Pagination Controls */}
+            {blockedExams.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 mt-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-700">Results per page:</label>
+                  <select
+                    value={blocksPerPage}
+                    onChange={(e) => {
+                      setBlocksPerPage(Number(e.target.value));
+                      setBlocksPage(1);
+                    }}
+                    className="border rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  >
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                  </select>
+                </div>
+                <div className="text-sm text-gray-600">
+                  Showing {((blocksPage - 1) * blocksPerPage) + 1} to {Math.min(blocksPage * blocksPerPage, blockedExams.length)} of {blockedExams.length} blocked exams
+                </div>
+              </div>
+            )}
+
+            {blockedExams.length > 0 ? (
+              <div className="overflow-x-auto border rounded-lg">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gradient-to-r from-red-50 to-orange-50">
+                    <tr>
+                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">Exam</th>
+                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">Phone</th>
+                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">Reason</th>
+                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">Tab Switches</th>
+                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">Blocked At</th>
+                      <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {paginatedBlocks.map((block) => {
+                      const date =
+                        typeof block.blockedAt === "number"
+                          ? new Date(block.blockedAt).toLocaleString()
+                          : block.blockedAt?.toDate?.()?.toLocaleString?.() || "—";
+                      return (
+                        <tr key={`${block.examId}-${block.id}`} className="hover:bg-gray-50 transition-colors">
+                          <td className="py-3 px-4 text-gray-900 font-medium">{block.examTitle}</td>
+                          <td className="py-3 px-4 text-gray-700">{block.phone}</td>
+                          <td className="py-3 px-4">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 max-w-xs truncate" title={block.reason}>
+                              {block.reason}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                              {block.tabSwitchCount}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap text-gray-700">{date}</td>
+                          <td className="py-3 px-4">
+                            <button
+                              onClick={() => unblockExam(block.examId, block.id, block.phone)}
+                              className="px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded transition-colors"
+                            >
+                              Unblock
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="mt-5 p-8 text-center border rounded-lg bg-gray-50">
+                <p className="text-sm text-gray-600">No blocked exams.</p>
+              </div>
+            )}
+
+            {/* Pagination Navigation */}
+            {blockedExams.length > 0 && totalBlocksPages > 1 && (
+              <div className="flex items-center justify-between mt-4">
+                <button
+                  onClick={() => setBlocksPage(prev => Math.max(1, prev - 1))}
+                  disabled={blocksPage === 1}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <div className="flex items-center gap-2">
+                  {Array.from({ length: Math.min(5, totalBlocksPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalBlocksPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (blocksPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (blocksPage >= totalBlocksPages - 2) {
+                      pageNum = totalBlocksPages - 4 + i;
+                    } else {
+                      pageNum = blocksPage - 2 + i;
+                    }
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setBlocksPage(pageNum)}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                          blocksPage === pageNum
+                            ? "bg-cyan-600 text-white"
+                            : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => setBlocksPage(prev => Math.min(totalBlocksPages, prev + 1))}
+                  disabled={blocksPage === totalBlocksPages}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
             )}
           </div>
         </div>
