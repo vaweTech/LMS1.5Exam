@@ -223,6 +223,21 @@ export default function AdminDashboard() {
           </div>
         </Link>
         )}
+        {isAdmin && (
+        <Link href="/Admin/crt">
+          <div className="group p-6 rounded-2xl cursor-pointer text-center bg-orange-50 border border-slate-200 hover:border-orange-300 transition-all shadow-sm hover:shadow-md">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-orange-100 text-orange-600 ring-1 ring-orange-200 transition">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <h2 className="text-lg font-semibold mb-1 text-slate-800">Manage CRT</h2>
+            <p className="text-sm text-slate-600">Create courses and assign them to CRT programs.</p>
+          </div>
+        </Link>
+        )}
       </div>
     </div>
   );

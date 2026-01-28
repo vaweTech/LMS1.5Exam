@@ -40,6 +40,10 @@ export default function TakeInterviewExamPage() {
   const [blockReason, setBlockReason] = useState("");
   const visibilityChangeRef = useRef(null);
   const tabSwitchCountRef = useRef(0);
+  const [showTabWarning, setShowTabWarning] = useState(false);
+  const fullscreenReenterRef = useRef(null);
+  const [showSectionTransition, setShowSectionTransition] = useState(false);
+  const [transitionMessage, setTransitionMessage] = useState("");
 
   useEffect(() => {
     async function load() {
@@ -148,54 +152,59 @@ export default function TakeInterviewExamPage() {
             }
             body {
               font-family: Arial, sans-serif;
-              max-width: 800px;
+              max-width: 700px;
               margin: 0 auto;
               padding: 20px;
               background: linear-gradient(to bottom, #f0f9ff, #e0f2fe);
+              min-height: 100vh;
             }
             .header {
               text-align: center;
-              margin-bottom: 30px;
+              margin-bottom: 20px;
             }
             .header h1 {
               color: #0c4a6e;
               margin: 0;
-              font-size: 28px;
+              font-size: 24px;
+              font-weight: bold;
             }
             .header p {
               color: #64748b;
-              margin: 5px 0;
+              margin: 3px 0;
+              font-size: 14px;
             }
             .score-card {
-              background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+              background: linear-gradient(to right, #06b6d4 0%, #3b82f6 100%);
               color: white;
-              padding: 30px;
-              border-radius: 16px;
+              padding: 25px;
+              border-radius: 12px;
               text-align: center;
               margin-bottom: 20px;
               box-shadow: 0 10px 25px rgba(0,0,0,0.1);
             }
             .score-card h2 {
               margin: 0 0 10px 0;
-              font-size: 18px;
+              font-size: 12px;
               opacity: 0.9;
+              font-weight: 500;
             }
             .score-card .total-score {
-              font-size: 64px;
+              font-size: 48px;
               font-weight: bold;
-              margin: 10px 0;
+              margin: 10px 0 5px 0;
             }
             .score-card .max-score {
-              font-size: 32px;
+              font-size: 24px;
               opacity: 0.8;
+              font-weight: 600;
             }
             .score-card .percentage {
               display: inline-block;
               background: rgba(255,255,255,0.2);
-              padding: 10px 20px;
+              padding: 8px 16px;
               border-radius: 20px;
               margin-top: 15px;
-              font-size: 24px;
+              font-size: 18px;
               font-weight: bold;
             }
             .breakdown {
@@ -204,11 +213,18 @@ export default function TakeInterviewExamPage() {
               gap: 15px;
               margin-bottom: 20px;
             }
+            @media (max-width: 640px) {
+              .breakdown {
+                grid-template-columns: 1fr;
+                gap: 12px;
+              }
+            }
             .section-card {
               background: white;
-              padding: 20px;
-              border-radius: 12px;
+              padding: 18px;
+              border-radius: 10px;
               border: 2px solid #e2e8f0;
+              box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             }
             .section-card.mcq {
               border-color: #10b981;
@@ -217,59 +233,65 @@ export default function TakeInterviewExamPage() {
               border-color: #3b82f6;
             }
             .section-card h3 {
-              margin: 0 0 15px 0;
+              margin: 0 0 12px 0;
               color: #1e293b;
-              font-size: 16px;
+              font-size: 14px;
+              font-weight: bold;
             }
             .section-card .score {
-              font-size: 36px;
+              font-size: 32px;
               font-weight: bold;
               color: #0f172a;
               margin-bottom: 5px;
             }
             .section-card .max {
               color: #64748b;
-              font-size: 18px;
+              font-size: 16px;
             }
             .section-card .details {
               color: #64748b;
-              font-size: 14px;
-              margin-top: 10px;
+              font-size: 12px;
+              margin-top: 8px;
             }
             .performance {
-              background: #f8fafc;
-              padding: 15px;
-              border-radius: 12px;
+              background: white;
+              padding: 14px 16px;
+              border-radius: 10px;
               display: flex;
               justify-content: space-between;
               align-items: center;
               margin-bottom: 20px;
+              border-top: 2px solid #e2e8f0;
+              box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             }
             .performance-label {
               color: #475569;
               font-weight: 500;
+              font-size: 13px;
             }
             .performance-value {
               font-weight: bold;
-              font-size: 18px;
+              font-size: 14px;
             }
             .footer {
               text-align: center;
               color: #64748b;
-              font-size: 12px;
-              margin-top: 30px;
-              padding-top: 20px;
+              font-size: 11px;
+              margin-top: 20px;
+              padding-top: 15px;
               border-top: 1px solid #e2e8f0;
             }
             .candidate-info {
               background: white;
               padding: 15px;
-              border-radius: 12px;
+              border-radius: 10px;
               margin-bottom: 20px;
+              box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             }
             .candidate-info p {
-              margin: 5px 0;
+              margin: 4px 0;
               color: #475569;
+              font-size: 12px;
             }
           </style>
         </head>
@@ -287,7 +309,7 @@ export default function TakeInterviewExamPage() {
           
           <div class="score-card">
             <h2>Total Score</h2>
-            <div class="total-score">${examResults.totalScore}</div>
+            <div class="total-score">${examResults.totalScore.toFixed(1)}</div>
             <div class="max-score">/ ${examResults.maxTotalScore}</div>
             <div class="percentage">${examResults.percentage}%</div>
           </div>
@@ -307,6 +329,38 @@ export default function TakeInterviewExamPage() {
             </div>
           </div>
           
+          ${examResults.mcqSectionScores && Object.keys(examResults.mcqSectionScores).length > 0 ? `
+          <div style="margin-bottom: 20px; page-break-inside: avoid;">
+            <h3 style="color: #1e293b; font-size: 18px; margin-bottom: 15px; font-weight: bold;">MCQ Section - Section-wise Results</h3>
+            ${Object.entries(examResults.mcqSectionScores).map(([sectionName, sectionData]) => `
+              <div style="background: white; padding: 15px; border-radius: 12px; border: 2px solid #10b981; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                  <strong style="color: #1e293b;">${sectionName}</strong>
+                  <span style="color: #64748b; font-size: 14px;">${sectionData.correct}/${sectionData.total} correct</span>
+                </div>
+                <div style="font-size: 24px; font-weight: bold; color: #10b981;">${sectionData.score} / ${sectionData.total}</div>
+              </div>
+            `).join('')}
+          </div>
+          ` : ''}
+          
+          ${examResults.codingQuestionDetails && examResults.codingQuestionDetails.length > 0 ? `
+          <div style="margin-bottom: 20px; page-break-inside: avoid;">
+            <h3 style="color: #1e293b; font-size: 18px; margin-bottom: 15px; font-weight: bold;">Coding Section - Test Case Results</h3>
+            ${examResults.codingQuestionDetails.map((qDetail) => `
+              <div style="background: white; padding: 15px; border-radius: 12px; border: 2px solid #3b82f6; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                  <strong style="color: #1e293b;">Question ${qDetail.questionNumber}</strong>
+                  <span style="color: ${qDetail.totalTests > 0 && qDetail.passCount === qDetail.totalTests ? '#10b981' : qDetail.totalTests > 0 && qDetail.passCount > 0 ? '#f59e0b' : '#ef4444'}; font-size: 14px; font-weight: bold;">
+                    ${qDetail.passCount}/${qDetail.totalTests} test cases passed
+                  </span>
+                </div>
+                <div style="font-size: 24px; font-weight: bold; color: #3b82f6;">${qDetail.score.toFixed(1)} / ${qDetail.maxScore}</div>
+              </div>
+            `).join('')}
+          </div>
+          ` : ''}
+          
           <div class="performance">
             <span class="performance-label">Performance</span>
             <span class="performance-value" style="color: ${
@@ -314,7 +368,7 @@ export default function TakeInterviewExamPage() {
               examResults.percentage >= 60 ? '#f59e0b' :
               examResults.percentage >= 40 ? '#f97316' :
               '#ef4444'
-            }">
+            };">
               ${examResults.percentage >= 80 ? 'Excellent' :
                 examResults.percentage >= 60 ? 'Good' :
                 examResults.percentage >= 40 ? 'Average' :
@@ -536,6 +590,19 @@ export default function TakeInterviewExamPage() {
 
   const totalInSection = filteredIndices.length;
   const currentPos = filteredIndices.indexOf(activeIndex);
+  
+  // Calculate if we're on the last question of the entire exam
+  const isLastQuestionOfExam = useMemo(() => {
+    const allQuestions = exam?.questions || [];
+    if (allQuestions.length === 0) return false;
+    const lastQuestionIndex = allQuestions.length - 1;
+    return activeIndex === lastQuestionIndex;
+  }, [activeIndex, exam]);
+  
+  // Check if we're on the last question of current section
+  const isLastQuestionOfSection = useMemo(() => {
+    return currentPos === totalInSection - 1;
+  }, [currentPos, totalInSection]);
 
   const requestFullscreen = () => {
     if (typeof document === "undefined") return;
@@ -651,13 +718,33 @@ export default function TakeInterviewExamPage() {
         return;
       }
       if (started && !document.fullscreenElement && !isBlocked) {
-        // Fullscreen exited - count as violation (only if not already blocked)
+        // Fullscreen exited - prevent exit and re-enter immediately
         handleViolation("fullscreen");
+        
+        // Immediately try to re-enter fullscreen
+        if (fullscreenReenterRef.current) {
+          clearTimeout(fullscreenReenterRef.current);
+        }
+        fullscreenReenterRef.current = setTimeout(() => {
+          if (started && !isBlocked && typeof document !== "undefined") {
+            const el = document.documentElement;
+            if (el?.requestFullscreen) {
+              el.requestFullscreen().catch(() => {
+                // If re-entry fails, count as violation
+              });
+            }
+          }
+        }, 100);
       }
     };
     
     document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      if (fullscreenReenterRef.current) {
+        clearTimeout(fullscreenReenterRef.current);
+      }
+    };
   }, [pendingStart, started, startTimer, resetExamState, handleViolation, timeLeftMs, isBlocked]);
 
   // Tab visibility detection and exit tracking
@@ -667,17 +754,60 @@ export default function TakeInterviewExamPage() {
     const handleVisibilityChange = () => {
       if (document.hidden) {
         // Tab switched or window lost focus
+        setShowTabWarning(true);
         handleViolation("tab");
+        
+        // Hide warning after 3 seconds
+        setTimeout(() => {
+          setShowTabWarning(false);
+        }, 3000);
+      } else {
+        setShowTabWarning(false);
       }
     };
     
+    // Also prevent keyboard shortcuts for tab switching
+    const handleKeyDown = (e) => {
+      // Prevent Alt+Tab, Ctrl+Tab, Ctrl+W, F11 (fullscreen toggle)
+      if ((e.altKey && e.key === 'Tab') || 
+          (e.ctrlKey && (e.key === 'Tab' || e.key === 'w' || e.key === 'W')) ||
+          e.key === 'F11') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (started && !isBlocked) {
+          handleViolation("tab");
+        }
+        return false;
+      }
+    };
+    
+    // Prevent right-click and context menu
+    const handleContextMenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    };
+    
+    // Prevent tab/window close
+    const handleBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = 'Are you sure you want to leave? Your exam progress may be lost.';
+      return e.returnValue;
+    };
+    
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("contextmenu", handleContextMenu);
+    window.addEventListener("beforeunload", handleBeforeUnload);
     visibilityChangeRef.current = handleVisibilityChange;
     
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("contextmenu", handleContextMenu);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [started, handleViolation]);
+  }, [started, handleViolation, isBlocked]);
 
   const prepareAttempt = useCallback(async (phoneDigits) => {
     const duration = Number(exam?.durationMinutes) || 0;
@@ -801,36 +931,76 @@ export default function TakeInterviewExamPage() {
           return;
         }
       }
-      // MCQ score: 1 per correct answer
+      // MCQ score: 1 per correct answer + section-wise breakdown
       let mcqCorrect = 0;
       let mcqTotal = 0;
+      const mcqSectionScores = {}; // { sectionName: { correct, total, score } }
+      
       (exam?.questions || []).forEach((q, i) => {
         if (!q || q.type !== "mcq") return;
         mcqTotal += 1;
+        const sectionName = String(q?.section || "").trim() || "Unassigned";
         const ans = answers[i];
         const corrArr = Array.isArray(q.correctAnswers) ? q.correctAnswers : [];
+        let isCorrect = false;
+        
         if (corrArr.length > 1) {
           const aSet = new Set(Array.isArray(ans) ? ans : []);
           const cSet = new Set(corrArr);
-          if (aSet.size === cSet.size && [...aSet].every((x) => cSet.has(x))) mcqCorrect += 1;
+          if (aSet.size === cSet.size && [...aSet].every((x) => cSet.has(x))) isCorrect = true;
         } else if (corrArr.length === 1) {
-          if (ans === corrArr[0]) mcqCorrect += 1;
+          if (ans === corrArr[0]) isCorrect = true;
         } else if (typeof q.correctAnswer === "number") {
-          if (ans === q.correctAnswer) mcqCorrect += 1;
+          if (ans === q.correctAnswer) isCorrect = true;
+        }
+        
+        if (isCorrect) mcqCorrect += 1;
+        
+        // Track section-wise scores
+        if (!mcqSectionScores[sectionName]) {
+          mcqSectionScores[sectionName] = { correct: 0, total: 0, score: 0 };
+        }
+        mcqSectionScores[sectionName].total += 1;
+        if (isCorrect) {
+          mcqSectionScores[sectionName].correct += 1;
+          mcqSectionScores[sectionName].score += 1;
         }
       });
-      const mcqScore = { correct: mcqCorrect, total: mcqTotal, score: mcqCorrect };
+      
+      const mcqScore = { correct: mcqCorrect, total: mcqTotal, score: mcqCorrect, sectionScores: mcqSectionScores };
 
-      // Coding score: for each question, maxScore * (passed / total test cases)
+      // Coding score: for each question, maxScore * (passed / total test cases) + per-question details
       let codingScore = 0;
+      const codingQuestionDetails = []; // Array of { questionIndex, questionNumber, passCount, totalTests, score, maxScore }
+      
       (exam?.questions || []).forEach((q, i) => {
         if (!q || q.type !== "coding") return;
         const maxScore = Number.isFinite(Number(q.maxScore)) ? Number(q.maxScore) : 10;
         const runs = runResults[i];
-        if (!Array.isArray(runs) || runs.length === 0) return;
+        if (!Array.isArray(runs) || runs.length === 0) {
+          codingQuestionDetails.push({
+            questionIndex: i,
+            questionNumber: codingQuestionDetails.length + 1,
+            passCount: 0,
+            totalTests: 0,
+            score: 0,
+            maxScore: maxScore,
+          });
+          return;
+        }
         const passCount = runs.filter((r) => r?.pass).length;
         const total = runs.length;
-        codingScore += maxScore * (passCount / total);
+        const questionScore = maxScore * (passCount / total);
+        codingScore += questionScore;
+        
+        codingQuestionDetails.push({
+          questionIndex: i,
+          questionNumber: codingQuestionDetails.length + 1,
+          passCount: passCount,
+          totalTests: total,
+          score: questionScore,
+          maxScore: maxScore,
+        });
       });
 
       const payload = {
@@ -871,6 +1041,8 @@ export default function TakeInterviewExamPage() {
         maxCodingScore,
         maxTotalScore,
         percentage,
+        mcqSectionScores: mcqSectionScores,
+        codingQuestionDetails: codingQuestionDetails,
       });
       setStarted(false);
       setProcessing(true);
@@ -969,146 +1141,177 @@ export default function TakeInterviewExamPage() {
 
       {/* Results Screen */}
       {showResults && examResults && (
-        <div className="fixed inset-0 z-50 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 sm:p-8 animate-in fade-in zoom-in duration-300">
-            <div className="text-center mb-6">
-              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 mb-4 animate-bounce">
-                <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
+        <div className="fixed inset-0 z-50 bg-gradient-to-b from-sky-50 to-cyan-50 overflow-y-auto">
+          <div className="min-h-screen flex items-center justify-center p-4 py-6">
+            <div className="w-full max-w-2xl">
+              {/* Header */}
+              <div className="text-center mb-4">
+                <h1 className="text-2xl sm:text-3xl font-bold text-[#0c4a6e] mb-1">{exam?.title || 'Interview Exam'}</h1>
+                <p className="text-sm sm:text-base text-gray-600">Scorecard</p>
               </div>
-              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Exam Submitted Successfully!</h2>
-              <p className="text-sm text-gray-600">Your results are displayed below</p>
-            </div>
 
-            {/* Overall Score Card */}
-            <div className="bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl p-6 mb-6 text-white shadow-lg">
-              <div className="text-center">
-                <p className="text-sm font-medium opacity-90 mb-2">Total Score</p>
-                <div className="flex items-baseline justify-center gap-2 mb-1">
-                  <span className="text-5xl sm:text-6xl font-bold">{examResults.totalScore}</span>
-                  <span className="text-2xl sm:text-3xl font-semibold opacity-80">/ {examResults.maxTotalScore}</span>
-                </div>
-                <div className="mt-4">
-                  <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/20 rounded-full backdrop-blur-sm">
-                    <span className="text-lg sm:text-xl font-bold">{examResults.percentage}%</span>
-                    <span className="text-sm opacity-90">Percentage</span>
+              {/* Candidate Information Card */}
+              <div className="bg-white rounded-lg shadow-md p-4 mb-4">
+                <p className="text-xs sm:text-sm text-gray-700 mb-0.5"><strong>Name:</strong> {fullName || 'N/A'}</p>
+                <p className="text-xs sm:text-sm text-gray-700 mb-0.5"><strong>Phone:</strong> {phone || 'N/A'}</p>
+                <p className="text-xs sm:text-sm text-gray-700"><strong>Date:</strong> {new Date().toLocaleString()}</p>
+              </div>
+
+              {/* Total Score Card */}
+              <div className="bg-gradient-to-r from-cyan-500 to-blue-600 rounded-lg p-5 sm:p-6 mb-4 text-white shadow-lg">
+                <div className="text-center">
+                  <p className="text-xs sm:text-sm font-medium opacity-90 mb-2">Total Score</p>
+                  <div className="flex items-baseline justify-center gap-2 mb-1">
+                    <span className="text-4xl sm:text-5xl font-bold">{examResults.totalScore.toFixed(1)}</span>
+                    <span className="text-xl sm:text-2xl font-semibold opacity-80">/ {examResults.maxTotalScore}</span>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Score Breakdown */}
-            <div className="grid sm:grid-cols-2 gap-4 mb-6">
-              {/* MCQ Score Card */}
-              <div className="bg-gradient-to-br from-emerald-50 to-green-50 border-2 border-emerald-200 rounded-xl p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-10 h-10 rounded-lg bg-emerald-500 flex items-center justify-center">
-                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
+                  <div className="mt-4">
+                    <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white/20 rounded-full backdrop-blur-sm">
+                      <span className="text-base sm:text-lg font-bold">{examResults.percentage}%</span>
                     </div>
-                    <span className="font-semibold text-gray-900">MCQ Section</span>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-bold text-emerald-700">{examResults.mcqScore.score}</span>
-                    <span className="text-lg text-gray-600">/ {examResults.mcqScore.total}</span>
+              </div>
+
+              {/* Side-by-Side Score Breakdown */}
+              <div className="grid sm:grid-cols-2 gap-3 mb-4">
+                {/* MCQ Section Card */}
+                <div className="bg-white rounded-lg shadow-md p-4 border-2 border-emerald-200">
+                  <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-3">MCQ Section</h3>
+                  <div className="flex items-baseline gap-1.5 mb-1.5">
+                    <span className="text-3xl sm:text-4xl font-bold text-gray-900">{examResults.mcqScore.score}</span>
+                    <span className="text-base sm:text-lg text-gray-600">/ {examResults.mcqScore.total}</span>
                   </div>
-                  <div className="text-sm text-gray-600">
+                  <p className="text-xs sm:text-sm text-gray-600 mt-1.5">
                     {examResults.mcqScore.correct} correct out of {examResults.mcqScore.total} questions
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5 mt-3">
-                    <div 
-                      className="bg-emerald-500 h-2.5 rounded-full transition-all duration-500"
-                      style={{ width: `${examResults.mcqScore.total > 0 ? (examResults.mcqScore.score / examResults.mcqScore.total) * 100 : 0}%` }}
-                    />
-                  </div>
+                  </p>
                 </div>
-              </div>
 
-              {/* Coding Score Card */}
-              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center">
-                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                      </svg>
-                    </div>
-                    <span className="font-semibold text-gray-900">Coding Section</span>
+                {/* Coding Section Card */}
+                <div className="bg-white rounded-lg shadow-md p-4 border-2 border-blue-200">
+                  <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-3">Coding Section</h3>
+                  <div className="flex items-baseline gap-1.5 mb-1.5">
+                    <span className="text-3xl sm:text-4xl font-bold text-gray-900">{examResults.codingScore.toFixed(1)}</span>
+                    <span className="text-base sm:text-lg text-gray-600">/ {examResults.maxCodingScore}</span>
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-bold text-blue-700">{examResults.codingScore.toFixed(1)}</span>
-                    <span className="text-lg text-gray-600">/ {examResults.maxCodingScore}</span>
-                  </div>
-                  <div className="text-sm text-gray-600">
+                  <p className="text-xs sm:text-sm text-gray-600 mt-1.5">
                     Based on test case results
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5 mt-3">
-                    <div 
-                      className="bg-blue-500 h-2.5 rounded-full transition-all duration-500"
-                      style={{ width: `${examResults.maxCodingScore > 0 ? (examResults.codingScore / examResults.maxCodingScore) * 100 : 0}%` }}
-                    />
-                  </div>
+                  </p>
                 </div>
               </div>
-            </div>
 
-            {/* Performance Indicator */}
-            <div className="bg-gray-50 rounded-xl p-4 mb-6">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">Performance</span>
-                <span className={`text-sm font-bold ${
-                  examResults.percentage >= 80 ? 'text-green-600' :
-                  examResults.percentage >= 60 ? 'text-yellow-600' :
-                  examResults.percentage >= 40 ? 'text-orange-600' :
-                  'text-red-600'
-                }`}>
-                  {examResults.percentage >= 80 ? 'Excellent' :
-                   examResults.percentage >= 60 ? 'Good' :
-                   examResults.percentage >= 40 ? 'Average' :
-                   'Needs Improvement'}
-                </span>
-              </div>
-            </div>
+              {/* Detailed Section-wise Results (Collapsible) */}
+              {(examResults.mcqSectionScores && Object.keys(examResults.mcqSectionScores).length > 0) || 
+               (examResults.codingQuestionDetails && examResults.codingQuestionDetails.length > 0) ? (
+                <details className="mb-4">
+                  <summary className="cursor-pointer bg-white rounded-lg shadow-md p-3 text-center text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
+                    View Detailed Breakdown
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    {/* MCQ Section-wise Results */}
+                    {examResults.mcqSectionScores && Object.keys(examResults.mcqSectionScores).length > 0 && (
+                      <div className="bg-white rounded-lg shadow-md p-4">
+                        <h4 className="text-sm sm:text-base font-bold text-gray-900 mb-3">MCQ Section - Section-wise Results</h4>
+                        <div className="space-y-2">
+                          {Object.entries(examResults.mcqSectionScores).map(([sectionName, sectionData]) => (
+                            <div key={sectionName} className="bg-emerald-50 border-2 border-emerald-200 rounded-lg p-3">
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="font-semibold text-gray-900 text-xs sm:text-sm">{sectionName}</span>
+                                <span className="text-xs sm:text-sm text-gray-600">
+                                  {sectionData.correct}/{sectionData.total} correct
+                                </span>
+                              </div>
+                              <div className="flex items-baseline gap-1.5">
+                                <span className="text-xl sm:text-2xl font-bold text-emerald-700">{sectionData.score}</span>
+                                <span className="text-sm sm:text-base text-gray-600">/ {sectionData.total}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
-            {/* Download and Auto-redirect notice */}
-            <div className="text-center space-y-4">
-              <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <button
-                  onClick={downloadScorecard}
-                  className="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  Download Scorecard
-                </button>
-                <button
-                  onClick={() => {
-                    if (resultsTimerRef.current) {
-                      clearTimeout(resultsTimerRef.current);
-                      resultsTimerRef.current = null;
-                    }
-                    if (countdownIntervalRef.current) {
-                      clearInterval(countdownIntervalRef.current);
-                      countdownIntervalRef.current = null;
-                    }
-                    router.push("/interview");
-                  }}
-                  className="px-6 py-2.5 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg font-medium transition-colors"
-                >
-                  Go to Interview Page Now
-                </button>
+                    {/* Coding Section - Per Question Results */}
+                    {examResults.codingQuestionDetails && examResults.codingQuestionDetails.length > 0 && (
+                      <div className="bg-white rounded-lg shadow-md p-4">
+                        <h4 className="text-sm sm:text-base font-bold text-gray-900 mb-3">Coding Section - Test Case Results</h4>
+                        <div className="space-y-2">
+                          {examResults.codingQuestionDetails.map((qDetail) => (
+                            <div key={qDetail.questionIndex} className="bg-blue-50 border-2 border-blue-200 rounded-lg p-3">
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="font-semibold text-gray-900 text-xs sm:text-sm">Question {qDetail.questionNumber}</span>
+                                <span className={`text-xs sm:text-sm font-medium ${
+                                  qDetail.totalTests > 0 && qDetail.passCount === qDetail.totalTests ? 'text-green-600' :
+                                  qDetail.totalTests > 0 && qDetail.passCount > 0 ? 'text-yellow-600' :
+                                  'text-red-600'
+                                }`}>
+                                  {qDetail.passCount}/{qDetail.totalTests} test cases passed
+                                </span>
+                              </div>
+                              <div className="flex items-baseline gap-1.5">
+                                <span className="text-xl sm:text-2xl font-bold text-blue-700">{qDetail.score.toFixed(1)}</span>
+                                <span className="text-sm sm:text-base text-gray-600">/ {qDetail.maxScore}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              ) : null}
+
+              {/* Performance Indicator */}
+              <div className="bg-white rounded-lg shadow-md p-4 mb-4 border-t-2 border-gray-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs sm:text-sm font-medium text-gray-700">Performance</span>
+                  <span className={`text-sm sm:text-base font-bold ${
+                    examResults.percentage >= 80 ? 'text-green-600' :
+                    examResults.percentage >= 60 ? 'text-yellow-600' :
+                    examResults.percentage >= 40 ? 'text-orange-600' :
+                    'text-red-600'
+                  }`}>
+                    {examResults.percentage >= 80 ? 'Excellent' :
+                     examResults.percentage >= 60 ? 'Good' :
+                     examResults.percentage >= 40 ? 'Average' :
+                     'Needs Improvement'}
+                  </span>
+                </div>
               </div>
-              <p className="text-sm text-gray-600">
-                Redirecting to interview page in <span className="font-semibold text-cyan-600 text-lg">{formatCountdown(countdown)}</span> ({Math.floor(countdown / 60)} {Math.floor(countdown / 60) === 1 ? 'minute' : 'minutes'}{countdown % 60 > 0 ? ` and ${countdown % 60} ${countdown % 60 === 1 ? 'second' : 'seconds'}` : ''})...
-              </p>
+
+              {/* Download and Navigation */}
+              <div className="text-center space-y-3">
+                <div className="flex flex-col sm:flex-row gap-2.5 justify-center">
+                  <button
+                    onClick={downloadScorecard}
+                    className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-xs sm:text-sm"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Download Scorecard
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (resultsTimerRef.current) {
+                        clearTimeout(resultsTimerRef.current);
+                        resultsTimerRef.current = null;
+                      }
+                      if (countdownIntervalRef.current) {
+                        clearInterval(countdownIntervalRef.current);
+                        countdownIntervalRef.current = null;
+                      }
+                      router.push("/interview");
+                    }}
+                    className="px-5 py-2 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg font-medium transition-colors text-xs sm:text-sm"
+                  >
+                    Go to Interview Page Now
+                  </button>
+                </div>
+                <p className="text-xs text-gray-600">
+                  Redirecting to interview page in <span className="font-semibold text-cyan-600 text-sm">{formatCountdown(countdown)}</span> ({Math.floor(countdown / 60)} {Math.floor(countdown / 60) === 1 ? 'minute' : 'minutes'}{countdown % 60 > 0 ? ` and ${countdown % 60} ${countdown % 60 === 1 ? 'second' : 'seconds'}` : ''})...
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -1117,12 +1320,84 @@ export default function TakeInterviewExamPage() {
       {/* Main Exam Content - Hidden when showing results or processing */}
       {!showResults && !processing && (
         <>
+          {/* Fullscreen Required Overlay */}
+          {started && typeof document !== "undefined" && !document.fullscreenElement && !isBlocked && (
+            <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center">
+                <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-yellow-100 mb-6">
+                  <svg className="w-10 h-10 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Fullscreen Required!</h2>
+                <p className="text-sm text-gray-600 mb-4">
+                  The exam must be taken in fullscreen mode. Please enter fullscreen to continue.
+                </p>
+                <button
+                  onClick={() => {
+                    if (typeof document !== "undefined") {
+                      const el = document.documentElement;
+                      if (el?.requestFullscreen) {
+                        el.requestFullscreen().catch(() => {
+                          alert("Please allow fullscreen to continue the exam.");
+                        });
+                      }
+                    }
+                  }}
+                  className="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-medium transition-colors"
+                >
+                  Enter Fullscreen
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Tab Switch Warning Overlay */}
+          {showTabWarning && started && (
+            <div className="fixed inset-0 z-[100] bg-red-600 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center">
+                <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-red-100 mb-6">
+                  <svg className="w-10 h-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Warning: Tab Switch Detected!</h2>
+                <p className="text-sm text-gray-600 mb-4">
+                  You have switched tabs/windows {tabSwitchCount} time(s). Exam will be blocked after 3 switches.
+                </p>
+                <p className="text-xs text-red-600 font-semibold">
+                  Please return to the exam window immediately!
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Section Transition Notification */}
+          {showSectionTransition && started && (
+            <div className="fixed inset-0 z-[90] bg-black/50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center animate-in fade-in zoom-in duration-300">
+                <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-cyan-100 mb-6">
+                  <svg className="w-10 h-10 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Section Transition</h2>
+                <p className="text-base text-gray-700 mb-4">
+                  {transitionMessage || "Moving to next section..."}
+                </p>
+                <p className="text-sm text-gray-600">
+                  You can continue answering questions in the new section.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Sticky Header */}
-          <div className="sticky top-0 z-20 border-b bg-white/80 backdrop-blur">
+          <div className="sticky top-0 z-20 border-b bg-white shadow-sm">
             <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
-              <div>
-                <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{exam.title}</h1>
-                {exam.description && <p className="text-xs sm:text-sm text-gray-600">{exam.description}</p>}
+              <div className="flex-1 min-w-0">
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">{exam.title}</h1>
+                {exam.description && <p className="text-xs sm:text-sm text-gray-600 line-clamp-1">{exam.description}</p>}
               </div>
               <div className="flex items-center gap-3">
                 {started && tabSwitchCount > 0 && (
@@ -1515,26 +1790,64 @@ export default function TakeInterviewExamPage() {
                         setActiveIndex(filteredIndices[nextPos]);
                         return;
                       }
-                      if (activeSection !== "All" && activeSectionList.length > 0) {
-                        const idx = activeSectionList.indexOf(activeSection);
-                        if (idx >= 0 && idx < activeSectionList.length - 1) {
-                          const nextSection = activeSectionList[idx + 1];
-                          const nextIndices = indicesForSection(nextSection);
-                          if (nextIndices.length > 0) {
-                            setActiveSection(nextSection);
-                            setActiveIndex(nextIndices[0]);
+                      // If we're on the last question of current section, try to move to next section
+                      if (isLastQuestionOfSection) {
+                        // First check if we can move to a different question type section
+                        if (section === "mcq") {
+                          if (codingIndices.length > 0) {
+                            setTransitionMessage("Moving to Coding section...");
+                            setShowSectionTransition(true);
+                            setSection("coding");
+                            setActiveIndex(codingIndices[0]);
+                            setTimeout(() => {
+                              setShowSectionTransition(false);
+                              setTransitionMessage("");
+                            }, 3000);
+                            return;
+                          } else if (descIndices.length > 0) {
+                            setTransitionMessage("Moving to Descriptive section...");
+                            setShowSectionTransition(true);
+                            setSection("descriptive");
+                            setActiveIndex(descIndices[0]);
+                            setTimeout(() => {
+                              setShowSectionTransition(false);
+                              setTransitionMessage("");
+                            }, 3000);
+                            return;
+                          }
+                        } else if (section === "descriptive" && codingIndices.length > 0) {
+                          setTransitionMessage("Moving to Coding section...");
+                          setShowSectionTransition(true);
+                          setSection("coding");
+                          setActiveIndex(codingIndices[0]);
+                          setTimeout(() => {
+                            setShowSectionTransition(false);
+                            setTransitionMessage("");
+                          }, 3000);
+                          return;
+                        }
+                        // If no next section type, try topic/section transitions within same question type
+                        if (activeSection !== "All" && activeSectionList.length > 0) {
+                          const idx = activeSectionList.indexOf(activeSection);
+                          if (idx >= 0 && idx < activeSectionList.length - 1) {
+                            const nextSection = activeSectionList[idx + 1];
+                            const nextIndices = indicesForSection(nextSection);
+                            if (nextIndices.length > 0) {
+                              setActiveSection(nextSection);
+                              setActiveIndex(nextIndices[0]);
+                            }
                           }
                         }
                       }
                     }}
-                    disabled={currentPos >= totalInSection - 1 && (activeSection === "All" || activeSectionList.indexOf(activeSection) >= activeSectionList.length - 1)}
+                    disabled={isLastQuestionOfExam && isLastQuestionOfSection}
                     className={`px-4 py-2 rounded-lg border ${
-                      currentPos >= totalInSection - 1 && (activeSection === "All" || activeSectionList.indexOf(activeSection) >= activeSectionList.length - 1)
+                      isLastQuestionOfExam && isLastQuestionOfSection
                         ? "bg-gray-100 text-gray-400 border-gray-200"
                         : "bg-cyan-600 text-white border-cyan-600 hover:bg-cyan-700"
                     }`}
                   >
-                    Next
+                    {isLastQuestionOfSection && !isLastQuestionOfExam ? "Next Section" : "Next"}
                   </button>
                 </div>
 
@@ -1565,19 +1878,25 @@ export default function TakeInterviewExamPage() {
           </div>
         )}
 
-        {/* Submit Bar */}
+        {/* Progress Bar - Always visible */}
         {started && (
           <div className="mt-6 flex items-center justify-between">
-          <div className="text-sm text-gray-700">
-            Progress: <span className="font-semibold">{progress.percent}%</span> ({progress.answered}/{progress.total})
-          </div>
-          <button
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="px-5 py-2 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg disabled:opacity-60"
-          >
-            {submitting ? "Submitting..." : "Submit Answers"}
-          </button>
+            <div className="text-sm text-gray-700">
+              Progress: <span className="font-semibold">{progress.percent}%</span> ({progress.answered}/{progress.total})
+            </div>
+            {isLastQuestionOfExam ? (
+              <button
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="px-5 py-2 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg disabled:opacity-60 font-semibold"
+              >
+                {submitting ? "Submitting..." : "Submit Answers"}
+              </button>
+            ) : (
+              <div className="text-xs text-gray-500 italic">
+                Complete all questions to submit
+              </div>
+            )}
           </div>
         )}
       </div>
