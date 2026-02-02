@@ -50,6 +50,7 @@ export default function UserManagerPage() {
 
   // Student edit and sorting
   const [sortBy, setSortBy] = useState("name"); // "name" or "regNo"
+  const [roleFilter, setRoleFilter] = useState(""); // "", "student", "internship", "crtStudent"
   const [showEditStudentModal, setShowEditStudentModal] = useState(false);
   const [editStudent, setEditStudent] = useState(null);
 
@@ -454,8 +455,17 @@ export default function UserManagerPage() {
     return emailMatch;
   });
 
-  // Sort students based on selected option
-  const sortedStudents = [...students].sort((a, b) => {
+  // Effective role: from doc.role or inferred from isCrt / isInternship
+  const getStudentRole = (s) =>
+    s.role || (s.isCrt ? "crtStudent" : s.isInternship ? "internship" : "student");
+
+  // Students filtered by role (for Students list section)
+  const roleFilteredStudents = roleFilter
+    ? students.filter((s) => getStudentRole(s) === roleFilter)
+    : students;
+
+  // Sort students based on selected option (after role filter)
+  const sortedStudents = [...roleFilteredStudents].sort((a, b) => {
     if (sortBy === "regNo") {
       const regNoA = a.registrationNumber || a.regdNo || a.regNo || a.regnNo || "";
       const regNoB = b.registrationNumber || b.regdNo || b.regNo || b.regnNo || "";
@@ -984,9 +994,20 @@ export default function UserManagerPage() {
 
         {/* Students List */}
         <div className="bg-white p-6 rounded shadow">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
             <h2 className="text-xl font-semibold">Students</h2>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="text-sm text-gray-600">Role:</label>
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                className="border p-2 rounded text-sm"
+              >
+                <option value="">All roles</option>
+                <option value="student">Student</option>
+                <option value="internship">Internship</option>
+                <option value="crtStudent">CRT Student</option>
+              </select>
               <label className="text-sm text-gray-600">Sort by:</label>
               <select
                 value={sortBy}
@@ -996,11 +1017,15 @@ export default function UserManagerPage() {
                 <option value="name">Name (Alphabetically A-Z)</option>
                 <option value="regNo">Regd. No. (Numerically 1-2-3)</option>
               </select>
-              <span className="text-sm text-gray-500">Total: {students.length}</span>
+              <span className="text-sm text-gray-500">
+                {roleFilter ? `${sortedStudents.length} / ${students.length}` : `Total: ${students.length}`}
+              </span>
             </div>
           </div>
           {students.length === 0 ? (
             <p className="text-gray-500">No students yet.</p>
+          ) : sortedStudents.length === 0 ? (
+            <p className="text-gray-500">No students match the selected role filter.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full border">
@@ -1009,6 +1034,7 @@ export default function UserManagerPage() {
                     <th className="border p-2">Regd. No.</th>
                     <th className="border p-2">Name</th>
                     <th className="border p-2">Email</th>
+                    <th className="border p-2">Role</th>
                     <th className="border p-2">Class</th>
                     <th className="border p-2">Actions</th>
                   </tr>
@@ -1021,6 +1047,16 @@ export default function UserManagerPage() {
                       </td>
                       <td className="border p-2">{s.name}</td>
                       <td className="border p-2">{s.email}</td>
+                      <td className="border p-2">
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          getStudentRole(s) === "crtStudent" ? "bg-blue-100 text-blue-700" :
+                          getStudentRole(s) === "internship" ? "bg-emerald-100 text-emerald-700" :
+                          "bg-gray-100 text-gray-700"
+                        }`}>
+                          {getStudentRole(s) === "crtStudent" ? "CRT Student" :
+                           getStudentRole(s) === "internship" ? "Internship" : "Student"}
+                        </span>
+                      </td>
                       <td className="border p-2">
                         {Array.isArray(s.classIds) && s.classIds.length > 0
                           ? s.classIds

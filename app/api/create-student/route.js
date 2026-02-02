@@ -316,7 +316,8 @@ async function createStudentHandler(req) {
     
     try {
       const phoneNormalized = normalizeToE164(body.phone || body.phone1);
-      const derivedRole = body.role || (body.isInternship ? "internship" : "student");
+      const derivedRole = body.role || (body.isCrt ? "crtStudent" : body.isInternship ? "internship" : "student");
+      const isCrt = !!body.isCrt;
       
       const studentData = {
         ...body, // regdNo, fatherName, address, phones, education, fees, etc.
@@ -326,6 +327,7 @@ async function createStudentHandler(req) {
         classId,
         uid: studentUid,
         role: derivedRole,
+        isCrt,
         // Store default password for admin visibility in Student Info (note: security trade-off as requested)
         password: DEFAULT_STUDENT_PASSWORD,
         // Store phone fields for UI/searching
@@ -363,7 +365,8 @@ async function createStudentHandler(req) {
             serviceAccount.project_id;
           
           const phoneNormalized2 = normalizeToE164(body.phone || body.phone1);
-          const derivedRoleRest = body.role || (body.isInternship ? "internship" : "student");
+          const derivedRoleRest = body.role || (body.isCrt ? "crtStudent" : body.isInternship ? "internship" : "student");
+          const isCrtRest = !!body.isCrt;
           
           const studentDataRest = {
             fields: {
@@ -374,6 +377,7 @@ async function createStudentHandler(req) {
               classId: { stringValue: classId || 'general' },
               uid: { stringValue: studentUid },
               role: { stringValue: derivedRoleRest },
+              isCrt: { booleanValue: isCrtRest },
               password: { stringValue: DEFAULT_STUDENT_PASSWORD },
               phone1: { stringValue: body.phone1 || '' },
               phone: { stringValue: phoneNormalized2 || body.phone || body.phone1 || '' },

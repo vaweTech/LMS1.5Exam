@@ -789,6 +789,7 @@ export default function AdmissionForm({ onStudentAdded }) {
     payedFee: "",
     remarks: "",
     isInternship: false,
+    isCrt: false,
   });
 
   const [lastRegdNo, setLastRegdNo] = useState("0");
@@ -1019,7 +1020,8 @@ export default function AdmissionForm({ onStudentAdded }) {
         skillSet: formData.skillSet,
         remarks: formData.remarks,
         isInternship: formData.isInternship,
-        role: formData.isInternship ? "internship" : "student",
+        isCrt: formData.isCrt,
+        role: formData.isCrt ? "crtStudent" : formData.isInternship ? "internship" : "student",
       };
 
       const res = await makeAuthenticatedRequest("/api/create-student", {
@@ -1070,6 +1072,7 @@ export default function AdmissionForm({ onStudentAdded }) {
         payedFee: "",
         remarks: "",
         isInternship: false,
+        isCrt: false,
       });
       setOtp("");
       setOtpVerified(false);
@@ -1096,23 +1099,39 @@ export default function AdmissionForm({ onStudentAdded }) {
           <h2 className="text-3xl font-bold text-blue-700">
             🎓 Admission Form
           </h2>
-          <div className="flex flex-col items-end gap-1 text-right">
-            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <input
-                type="checkbox"
-                checked={formData.isInternship}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    isInternship: e.target.checked,
-                  }))
-                }
-                className="h-4 w-4 accent-emerald-600"
-              />
-              Internship Admission
-            </label>
+          <div className="flex flex-col items-end gap-3 text-right">
+            <div className="flex flex-wrap items-center justify-end gap-6">
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={formData.isInternship}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      isInternship: e.target.checked,
+                    }))
+                  }
+                  className="h-4 w-4 accent-emerald-600"
+                />
+                Internship Admission
+              </label>
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={formData.isCrt}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      isCrt: e.target.checked,
+                    }))
+                  }
+                  className="h-4 w-4 accent-blue-600"
+                />
+                CRT Student
+              </label>
+            </div>
             <p className="text-xs text-slate-500">
-              Check to tag this student as an intern.
+              Internship: tag as intern. CRT Student: eligible for CRT programs and appears in CRT Manager.
             </p>
           </div>
         </div>

@@ -20,13 +20,14 @@ export default function CRTManager() {
   const [loading, setLoading] = useState(true);
 
   const [crts, setCrts] = useState([]);
-  const [selectedCrtId, setSelectedCrtId] = useState("");
+  const [selectedCrtId, setSelectedCrtId] = useState(""); 
   const [creating, setCreating] = useState(false);
   const [showCreateCrtForm, setShowCreateCrtForm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deletingCrtId, setDeletingCrtId] = useState("");
   const [creatingCourse, setCreatingCourse] = useState(false);
   const [showCreateCourseForm, setShowCreateCourseForm] = useState(false);
+  const [deletingCourseId, setDeletingCourseId] = useState("");
   const [allCrtCourses, setAllCrtCourses] = useState([]);
   const [selectedCourseIds, setSelectedCourseIds] = useState([]);
   const [assigningCourses, setAssigningCourses] = useState(false);
@@ -324,6 +325,39 @@ export default function CRTManager() {
         ? prev.filter((id) => id !== courseId)
         : [...prev, courseId]
     );
+  }
+
+  async function deleteCourse(courseId) {
+    if (!courseId) return;
+    if (
+      !confirm(
+        "Are you sure you want to delete this course? This will remove the course and its syllabus/chapters. CRT copies of this course will not be affected."
+      )
+    )
+      return;
+    try {
+      setDeletingCourseId(courseId);
+      const courseRef = firestoreHelpers.doc(db, "crtCourses", courseId);
+      const chaptersCol = firestoreHelpers.collection(
+        db,
+        "crtCourses",
+        courseId,
+        "chapters"
+      );
+      const chaptersSnap = await firestoreHelpers.getDocs(chaptersCol);
+      for (const ch of chaptersSnap.docs) {
+        await firestoreHelpers.deleteDoc(ch.ref);
+      }
+      await firestoreHelpers.deleteDoc(courseRef);
+      setSelectedCourseIds((prev) => prev.filter((id) => id !== courseId));
+      await fetchAllCrtCourses();
+      alert("Course deleted.");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to delete course.");
+    } finally {
+      setDeletingCourseId("");
+    }
   }
 
   function clearSelectedCourses() {
@@ -753,7 +787,7 @@ export default function CRTManager() {
                   <p className="mt-2 text-sm text-slate-600 line-clamp-3 ml-6">
                     {c.description || "No description"}
                   </p>
-                  <div className="mt-2 ml-6 flex items-center gap-2">
+                  <div className="mt-2 ml-6 flex items-center gap-2 flex-wrap">
                     <span className="text-xs text-blue-600 font-medium">
                       Click to add syllabus days →
                     </span>
@@ -762,6 +796,19 @@ export default function CRTManager() {
                         ({c.syllabus.length} days)
                       </span>
                     )}
+                  </div>
+                  <div className="mt-3 ml-6">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteCourse(c.id);
+                      }}
+                      disabled={deletingCourseId === c.id}
+                      className="px-3 py-1.5 rounded-md bg-red-500 text-white text-sm hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {deletingCourseId === c.id ? "Deleting..." : "Delete Course"}
+                    </button>
                   </div>
                 </div>
               </div>

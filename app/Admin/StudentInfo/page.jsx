@@ -15,6 +15,7 @@ export default function StudentListPage() {
   const [loading, setLoading] = useState(true);
   const [phoneQuery, setPhoneQuery] = useState("");
   const [lockFilter, setLockFilter] = useState("all"); // "all", "locked", "unlocked"
+  const [roleFilter, setRoleFilter] = useState(""); // "", "student", "internship", "crtStudent"
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -243,6 +244,24 @@ export default function StudentListPage() {
     setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     setLoading(false);
   }
+
+  // Effective role: from doc.role or inferred from isCrt / isInternship
+  const getStudentRole = (s) =>
+    s.role || (s.isCrt ? "crtStudent" : s.isInternship ? "internship" : "student");
+
+  // Students filtered by phone, lock, and role (for table and summary)
+  const filteredStudents = students.filter((s) => {
+    if (phoneQuery) {
+      const digits = String(s.phone1 || s.phone || "").replace(/\D/g, "");
+      const q = phoneQuery.replace(/\D/g, "");
+      if (!digits.includes(q)) return false;
+    }
+    const isLocked = Boolean(s.locked);
+    if (lockFilter === "locked" && !isLocked) return false;
+    if (lockFilter === "unlocked" && isLocked) return false;
+    if (roleFilter && getStudentRole(s) !== roleFilter) return false;
+    return true;
+  });
 
   // Helper to safely parse JSON responses
   async function safeParseJsonResponse(res) {
@@ -850,10 +869,30 @@ export default function StudentListPage() {
             <option value="locked">🔒 Locked Only</option>
             <option value="unlocked">🔓 Unlocked Only</option>
           </select>
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            disabled={isProcessingPayment}
+            className={`border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
+              isProcessingPayment ? "bg-gray-100 cursor-not-allowed" : ""
+            }`}
+          >
+            <option value="">All roles</option>
+            <option value="student">Student</option>
+            <option value="internship">Internship</option>
+            <option value="crtStudent">CRT Student</option>
+          </select>
+          {roleFilter && (
+            <span className="text-sm text-gray-500">
+              {filteredStudents.length} / {students.length}
+            </span>
+          )}
         </div>
 
         {students.length === 0 ? (
           <p className="text-gray-500 text-center">No students found.</p>
+        ) : filteredStudents.length === 0 ? (
+          <p className="text-gray-500 text-center">No students match the current filters (phone / lock / role).</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse border text-sm">
@@ -862,6 +901,7 @@ export default function StudentListPage() {
                   <th className="border p-2">S.No</th>
                   <th className="border p-2">Name</th>
                   <th className="border p-2">Email</th>
+                  <th className="border p-2">Role</th>
                   <th className="border p-2">Password</th>
                   <th className="border p-2">Phone</th>
                   <th className="border p-2">Course</th>
@@ -873,25 +913,21 @@ export default function StudentListPage() {
                 </tr>
               </thead>
               <tbody>
-                {students.filter((s) => {
-                  // Filter by phone query
-                  if (phoneQuery) {
-                    const digits = String(s.phone1 || s.phone || "").replace(/\D/g, "");
-                    const q = phoneQuery.replace(/\D/g, "");
-                    if (!digits.includes(q)) return false;
-                  }
-                  
-                  // Filter by lock status
-                  const isLocked = Boolean(s.locked);
-                  if (lockFilter === "locked" && !isLocked) return false;
-                  if (lockFilter === "unlocked" && isLocked) return false;
-                  
-                  return true;
-                }).map((s, index) => (
+                {filteredStudents.map((s, index) => (
                   <tr key={s.id} className="hover:bg-gray-50">
                     <td className="border p-2 text-center">{index + 1}</td>
                     <td className="border p-2">{s.name}</td>
                     <td className="border p-2">{s.email}</td>
+                    <td className="border p-2">
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        getStudentRole(s) === "crtStudent" ? "bg-blue-100 text-blue-700" :
+                        getStudentRole(s) === "internship" ? "bg-emerald-100 text-emerald-700" :
+                        "bg-gray-100 text-gray-700"
+                      }`}>
+                        {getStudentRole(s) === "crtStudent" ? "CRT Student" :
+                         getStudentRole(s) === "internship" ? "Internship" : "Student"}
+                      </span>
+                    </td>
                     <td className="border p-2">{s.password || "-"}</td>
                     <td className="border p-2">
                       {s.phone1 || s.phone || "-"}
@@ -1019,34 +1055,34 @@ export default function StudentListPage() {
           </div>
         )}
 
-        {/* Grand Total Summary */}
+        {/* Grand Total Summary (based on filtered students) */}
         {students.length > 0 && (
           <div className="mt-6 bg-gray-50 p-4 rounded-lg border">
             <h3 className="text-lg font-semibold mb-4 text-center text-gray-800">
-              📊 Fee Summary
+              📊 Fee Summary {roleFilter || phoneQuery || lockFilter !== "all" ? `(filtered: ${filteredStudents.length})` : ""}
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-white p-4 rounded-lg border text-center">
                 <div className="text-2xl font-bold text-blue-500">
-                  {students.length}
+                  {filteredStudents.length}
                 </div>
                 <div className="text-sm text-gray-600">Total Students</div>
               </div>
               <div className="bg-white p-4 rounded-lg border text-center">
                 <div className="text-2xl font-bold text-green-500">
-                  ₹{students.reduce((sum, s) => sum + Number(s.totalFee ?? 0), 0).toLocaleString()}
+                  ₹{filteredStudents.reduce((sum, s) => sum + Number(s.totalFee ?? 0), 0).toLocaleString()}
                 </div>
                 <div className="text-sm text-gray-600">Total Fee</div>
               </div>
               <div className="bg-white p-4 rounded-lg border text-center">
                 <div className="text-2xl font-bold text-blue-500">
-                  ₹{students.reduce((sum, s) => sum + Number(s.PayedFee ?? s.payedFee ?? 0), 0).toLocaleString()}
+                  ₹{filteredStudents.reduce((sum, s) => sum + Number(s.PayedFee ?? s.payedFee ?? 0), 0).toLocaleString()}
                 </div>
                 <div className="text-sm text-gray-600">Total Paid</div>
               </div>
               <div className="bg-white p-4 rounded-lg border text-center">
                 <div className="text-2xl font-bold text-red-500">
-                  ₹{students.reduce((sum, s) => {
+                  ₹{filteredStudents.reduce((sum, s) => {
                     const totalFee = Number(s.totalFee ?? 0);
                     const paidFee = Number(s.PayedFee ?? s.payedFee ?? 0);
                     return sum + Math.max(totalFee - paidFee, 0);
