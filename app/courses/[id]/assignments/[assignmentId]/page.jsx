@@ -258,6 +258,10 @@
           userRole === "internship" ||
           studentRole === "internship" ||
           studentData?.isInternship === true;
+        const isCrtRole =
+          userRole === "crtStudent" ||
+          studentRole === "crtStudent" ||
+          studentData?.isCrt === true;
 
         // Try to fetch assignment from master courses first
         let assignmentSnap = await getDoc(doc(mcqDb, "courses", foundCourseId, "assignments", assignmentId));
@@ -266,24 +270,40 @@
         
         if (!assignmentSnap.exists()) {
           // Assignment not found in master course, check if it's in a copied course
-          // Search all internships for a copied course with matching slug
-          const internshipsSnap = await getDocs(collection(db, "internships"));
+          // Search internships and CRT programs for a copied course with matching slug
           let copiedCourseId = null;
           
+          const internshipsSnap = await getDocs(collection(db, "internships"));
           for (const internshipDoc of internshipsSnap.docs) {
             const coursesSnap = await getDocs(
               collection(db, "internships", internshipDoc.id, "courses")
             );
-            
             const copiedCourse = coursesSnap.docs.find(courseDoc => {
               const courseData = courseDoc.data();
               const courseSlug = createSlug(courseData.title);
               return courseSlug === slug;
             });
-            
             if (copiedCourse) {
               copiedCourseId = copiedCourse.id;
               break;
+            }
+          }
+          
+          if (!copiedCourseId) {
+            const crtSnap = await getDocs(collection(db, "crt"));
+            for (const crtDoc of crtSnap.docs) {
+              const coursesSnap = await getDocs(
+                collection(db, "crt", crtDoc.id, "courses")
+              );
+              const copiedCourse = coursesSnap.docs.find(courseDoc => {
+                const courseData = courseDoc.data();
+                const courseSlug = createSlug(courseData.title);
+                return courseSlug === slug;
+              });
+              if (copiedCourse) {
+                copiedCourseId = copiedCourse.id;
+                break;
+              }
             }
           }
           
@@ -310,7 +330,7 @@
         
         // Fetch existing submission from the appropriate collection
         const submissionCollectionPath = isCopied 
-          ? collection(mcqDb, "copiedcourses", foundCourseId, "assignments", assignmentId, "submissions")
+          ? collection(mcqDb, "copiedcourses", actualCourseId, "assignments", assignmentId, "submissions")
           : collection(mcqDb, "courses", foundCourseId, "assignments", assignmentId, "submissions");
         
         const submissionQuerySnap = await getDocs(query(
@@ -325,8 +345,8 @@
         if (isSuperAdmin) {
           setHasAccess(true);
         } 
-        // Internship students (role from users or students) can always access without unlocks
-        else if (isInternshipRole) {
+        // Internship / CRT students can access copied course assignments without unlocks
+        else if (isInternshipRole || isCrtRole) {
           setHasAccess(true);
         }
         // Regular students: Check if user has access to the chapter corresponding to the assignment day

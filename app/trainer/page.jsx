@@ -396,6 +396,28 @@ export default function TrainerHome() {
     }
   };
 
+  // Load existing attendance from Firebase when chapter is selected (so it persists after refresh)
+  useEffect(() => {
+    if (!attendanceCourse || !attendanceChapterId || !selectedClassId) return;
+    const loadExistingAttendance = async () => {
+      try {
+        const today = new Date();
+        const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+        const key = `class:${selectedClassId}|course:${attendanceCourse.id}|chapter:${attendanceChapterId}|${ymd}`;
+        const ref = doc(db, "attendance", key);
+        const snap = await getDoc(ref);
+        if (snap.exists() && snap.data().type === "trainer" && Array.isArray(snap.data().present)) {
+          setAttendanceSelectedIds(snap.data().present);
+        } else {
+          setAttendanceSelectedIds([]);
+        }
+      } catch (e) {
+        setAttendanceSelectedIds([]);
+      }
+    };
+    loadExistingAttendance();
+  }, [attendanceCourse, attendanceChapterId, selectedClassId]);
+
   // Attendance helpers
   const openAttendanceForCourse = async (course) => {
     if (!selectedClassId) {
@@ -405,7 +427,6 @@ export default function TrainerHome() {
     setAttendanceCourse(course);
     // Load chapters for this course into existing chapters state
     await loadChapters(course.id);
-    // Preselect none
     setAttendanceChapterId("");
     setAttendanceSelectedIds([]);
     setShowAttendanceModal(true);
@@ -462,7 +483,9 @@ export default function TrainerHome() {
     try {
       const today = new Date();
       const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-      await setDoc(doc(collection(db, "attendance")), {
+      const key = `window:class:${selectedClassId}|course:${attendanceCourse.id}|chapter:${attendanceChapterId}|${ymd}`;
+      const ref = doc(db, "attendance", key);
+      await setDoc(ref, {
         type: "window",
         classId: selectedClassId,
         courseId: attendanceCourse.id,
@@ -470,7 +493,7 @@ export default function TrainerHome() {
         date: ymd,
         openedAt: serverTimestamp(),
         durationMs: 5 * 60 * 1000,
-      });
+      }, { merge: true });
       alert("Self attendance enabled for 5 minutes for this day.");
       // Keep modal open so trainer can also save later if needed
     } catch (e) {
@@ -645,6 +668,28 @@ export default function TrainerHome() {
       setUnlockLoading(false);
     }
   };
+
+  // Load existing internship attendance from Firebase when chapter is selected
+  useEffect(() => {
+    if (!selectedInternshipId || !internshipAttendanceCourse || !internshipAttendanceChapterId) return;
+    const loadExistingInternshipAttendance = async () => {
+      try {
+        const today = new Date();
+        const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+        const key = `internship:${selectedInternshipId}|course:${internshipAttendanceCourse.id}|chapter:${internshipAttendanceChapterId}|${ymd}`;
+        const ref = doc(db, "attendance", key);
+        const snap = await getDoc(ref);
+        if (snap.exists() && Array.isArray(snap.data().present)) {
+          setInternshipAttendanceSelectedIds(snap.data().present);
+        } else {
+          setInternshipAttendanceSelectedIds([]);
+        }
+      } catch (e) {
+        setInternshipAttendanceSelectedIds([]);
+      }
+    };
+    loadExistingInternshipAttendance();
+  }, [selectedInternshipId, internshipAttendanceCourse, internshipAttendanceChapterId]);
 
   // Internship: open attendance modal for a course
   const openInternshipAttendanceForCourse = async (course) => {

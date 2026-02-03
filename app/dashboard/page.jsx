@@ -57,6 +57,8 @@ export default function DashboardPage() {
 
   // Internship-specific state (for students tagged as internship)
   const [isInternshipStudent, setIsInternshipStudent] = useState(false);
+  // CRT-specific state (for students tagged as CRT)
+  const [isCrtStudent, setIsCrtStudent] = useState(false);
   const [internships, setInternships] = useState([]);
   const [selectedInternship, setSelectedInternship] = useState(null);
   const [internshipCourses, setInternshipCourses] = useState([]);
@@ -166,6 +168,7 @@ export default function DashboardPage() {
 
         // Mark internship students so we can show internships instead of programs
         setIsInternshipStudent(!!studentData.isInternship);
+        setIsCrtStudent(!!studentData.isCrt);
 
         const titles = Array.isArray(studentData.coursesTitle)
           ? studentData.coursesTitle
@@ -189,6 +192,7 @@ export default function DashboardPage() {
         setCourseTitles([]);
         setStudentDocId(null);
         setIsInternshipStudent(false);
+        setIsCrtStudent(false);
         setTotalFee(0);
         setPaidFee(0);
         setPayAmount("");
@@ -2290,6 +2294,29 @@ export default function DashboardPage() {
         )}
 
         {/* Your Courses Section removed; Programs act as primary grouping */}
+
+        {/* CRT Programs - Quick access for CRT students */}
+        {isCrtStudent && (
+          <div className="mt-8 sm:mt-12 mb-6">
+            <button
+              onClick={() => router.push("/crtProgram")}
+              className="w-full text-left bg-white border border-gray-100 rounded-xl shadow-sm hover:shadow-md transition-all p-5 flex items-center justify-between group"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center">
+                  <BookOpen className="w-6 h-6 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 group-hover:text-indigo-700">
+                    CRT Programs
+                  </h3>
+                  <p className="text-sm text-gray-500">View your CRT courses and progress</p>
+                </div>
+              </div>
+              <span className="text-indigo-600 font-medium text-sm">Open →</span>
+            </button>
+          </div>
+        )}
 
         {/* Programs / Internships Section */}
           <div className="mt-8 sm:mt-12 mb-10">
