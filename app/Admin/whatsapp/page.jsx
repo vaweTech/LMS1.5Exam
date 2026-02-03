@@ -226,7 +226,7 @@ export default function WhatsAppMessagingPage() {
                   onChange={(e) => setLanguage(e.target.value)}
                   className="w-full border rounded px-3 py-2"
                 >
-                  <option value="en_US">en_US</option>
+                  {/* <option value="en_US">en_US</option> */}
                   <option value="en">en</option>
                   <option value="hi">hi</option>
                 </select>
@@ -285,6 +285,7 @@ export default function WhatsAppMessagingPage() {
                   <thead>
                     <tr className="bg-gray-100">
                       <th className="border p-2 text-left">Name</th>
+                      <th className="border p-2 text-left">Role</th>
                       <th className="border p-2 text-left">Phone</th>
                       <th className="border p-2 text-left">Class</th>
                       <th className="border p-2 text-right">Due</th>
@@ -298,6 +299,9 @@ export default function WhatsAppMessagingPage() {
                       return (
                         <tr key={s.id} className="hover:bg-gray-50">
                           <td className="border p-2">{s.name || '-'}</td>
+                          <td className="border p-2">
+                            {s.role || (s.isCrt ? "crtStudent" : s.isInternship ? "internship" : "student")}
+                          </td>
                           <td className="border p-2">{s.phone1 || s.phone || '-'}</td>
                           <td className="border p-2">{s.classId || '-'}</td>
                           <td className="border p-2 text-right">₹{due}</td>
