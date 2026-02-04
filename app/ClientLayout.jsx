@@ -23,8 +23,8 @@ export default function ClientLayout({ children }) {
     }
   }, []);
 
-  // Hide chrome on unauth pages (login/register/forgot/reset)
-  const hiddenPrefixes = ["/", "/auth", "/forgot-password", "/reset-password"];
+  // Hide chrome on unauth pages (login/register/forgot/reset) and public register form
+  const hiddenPrefixes = ["/", "/auth", "/forgot-password", "/reset-password", "/register"];
   const hideChrome = hiddenPrefixes.some((prefix) => {
     if (prefix === "/") return pathname === "/"; // home only
     return pathname === prefix || pathname.startsWith(`${prefix}/`);

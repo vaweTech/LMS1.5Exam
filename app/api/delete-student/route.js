@@ -167,6 +167,22 @@ function isDecoderError(error) {
   );
 }
 
+function isNetworkError(error) {
+  if (!error) return false;
+  const msg = String(error?.message || "");
+  const code = error?.code;
+  return (
+    code === "ECONNRESET" ||
+    code === "ETIMEDOUT" ||
+    code === "ECONNREFUSED" ||
+    code === "ENOTFOUND" ||
+    code === "EPIPE" ||
+    msg.includes("socket hang up") ||
+    msg.includes("ECONNRESET") ||
+    msg.includes("firestore.googleapis.com")
+  );
+}
+
 function convertFirestoreRestValue(value) {
   if (!value || typeof value !== "object") return undefined;
   if (value.stringValue !== undefined) return value.stringValue;
@@ -411,7 +427,7 @@ async function deleteStudentHandler(request) {
           studentData = snap.data();
         }
       } catch (err) {
-        if (!isDecoderError(err)) throw err;
+        if (!isDecoderError(err) && !isNetworkError(err)) throw err;
         preferRest = true;
         const restDoc = await fetchStudentDocViaRest(docRef.id, await ensureFirestoreClient());
         if (restDoc) {
@@ -434,7 +450,7 @@ async function deleteStudentHandler(request) {
           studentData = snap.docs[0].data();
         }
       } catch (err) {
-        if (!isDecoderError(err)) throw err;
+        if (!isDecoderError(err) && !isNetworkError(err)) throw err;
         preferRest = true;
         const restDoc = await queryStudentDocViaRest(field, value, await ensureFirestoreClient());
         if (restDoc) {
@@ -497,7 +513,15 @@ async function deleteStudentHandler(request) {
         await deletePaymentsViaRest(docId, await ensureFirestoreClient());
       }
     } catch (subErr) {
-      console.warn("Failed to delete payments subcollection:", subErr);
+      if (isNetworkError(subErr) && docId) {
+        try {
+          await deletePaymentsViaRest(docId, await ensureFirestoreClient());
+        } catch (restSubErr) {
+          console.warn("REST delete payments fallback failed:", restSubErr);
+        }
+      } else {
+        console.warn("Failed to delete payments subcollection:", subErr);
+      }
     }
 
     try {
@@ -508,7 +532,7 @@ async function deleteStudentHandler(request) {
         preferRest = true;
       }
     } catch (fsDeleteErr) {
-      if (isDecoderError(fsDeleteErr)) {
+      if ((isDecoderError(fsDeleteErr) || isNetworkError(fsDeleteErr)) && docId) {
         preferRest = true;
         await deleteFirestoreDocViaRest(docId, await ensureFirestoreClient());
       } else {

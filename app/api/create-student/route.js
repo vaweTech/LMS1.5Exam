@@ -142,7 +142,7 @@ function normalizeEmail(rawEmail) {
 }
 
 // Use fixed default password as requested
-const DEFAULT_STUDENT_PASSWORD = 'Vawe@2025';
+const DEFAULT_STUDENT_PASSWORD = 'Vawe@2026';
 
 async function createStudentHandler(req) {
   const body = req.validatedBody;
@@ -299,9 +299,18 @@ async function createStudentHandler(req) {
       const isQueryDecoderError = queryErrorMsg.includes('DECODER routines') || 
                                   queryErrorMsg.includes('1E08010C') ||
                                   firestoreQueryError.code === 'ERR_OSSL_UNSUPPORTED';
+      const isTransientNetwork =
+        firestoreQueryError.code === 'ECONNRESET' ||
+        queryErrorMsg.includes('socket hang up') ||
+        queryErrorMsg.includes('ETIMEDOUT');
       
-      if (isQueryDecoderError) {
-        console.warn('⚠️ OpenSSL DECODER error during Firestore query. Continuing with student creation...');
+      if (isQueryDecoderError || isTransientNetwork || process.env.NODE_ENV !== 'production') {
+        console.warn('⚠️ Firestore query failed (continuing):', {
+          code: firestoreQueryError.code,
+          decoder: isQueryDecoderError,
+          transient: isTransientNetwork,
+          message: queryErrorMsg,
+        });
         // Continue anyway - we'll try to create the student
         // Worst case: duplicate will be caught by Firestore unique constraints
       } else {
@@ -353,9 +362,17 @@ async function createStudentHandler(req) {
       const isWriteDecoderError = writeErrorMsg.includes('DECODER routines') || 
                                   writeErrorMsg.includes('1E08010C') ||
                                   firestoreWriteError.code === 'ERR_OSSL_UNSUPPORTED';
+      const isTransientNetwork =
+        firestoreWriteError.code === 'ECONNRESET' ||
+        writeErrorMsg.includes('socket hang up') ||
+        writeErrorMsg.includes('ETIMEDOUT');
       
-      if (isWriteDecoderError) {
-        console.error('❌ OpenSSL DECODER error during Firestore write. Attempting REST API fallback...');
+      if (isWriteDecoderError || isTransientNetwork) {
+        console.error('❌ Firestore write failed. Attempting REST API fallback...', {
+          code: firestoreWriteError.code,
+          decoder: isWriteDecoderError,
+          transient: isTransientNetwork,
+        });
         
         try {
           const { accessToken, serviceAccount } = await getGoogleAccessToken('https://www.googleapis.com/auth/datastore');
@@ -462,8 +479,8 @@ async function createStudentHandler(req) {
     console.log(`Student created with default password: ${DEFAULT_STUDENT_PASSWORD}${useRestApi ? ' (via REST API fallback)' : ''}`);
 
     let responseMessage = userRecord 
-      ? "Student created successfully. Default password is Vawe@2025"
-      : "Student created successfully (Firebase Auth user creation skipped due to OpenSSL compatibility issue). Default password is Vawe@2025. Note: Student may need to register manually.";
+      ? "Student created successfully. Default password is Vawe@2026"
+      : "Student created successfully (Firebase Auth user creation skipped due to OpenSSL compatibility issue). Default password is Vawe@2026. Note: Student may need to register manually.";
     
     if (useRestApi) {
       responseMessage += " (Created via REST API fallback due to OpenSSL compatibility issue)";

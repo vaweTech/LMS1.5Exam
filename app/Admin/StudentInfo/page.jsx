@@ -350,10 +350,15 @@ export default function StudentListPage() {
       console.error("Delete student failed:", e);
       const message = String(e?.message || "");
       const isDecoderError = /DECODER|OpenSSL|1E08010C/i.test(message);
+      const isNetworkOrFirestoreError =
+        /socket hang up|ECONNRESET|ETIMEDOUT|firestore\.googleapis\.com/i.test(message);
 
-      if (isDecoderError) {
+      if (isDecoderError || isNetworkOrFirestoreError) {
+        const reason = isDecoderError
+          ? "Windows OpenSSL compatibility issue"
+          : "a temporary connection issue to the server (e.g. socket hang up)";
         const proceedFallback = confirm(
-          "Server-side deletion failed due to the Windows OpenSSL compatibility issue.\n\nDo you want to delete the student record directly from Firestore? (Their login account may still exist in Firebase Auth.)"
+          `Server-side deletion failed due to ${reason}.\n\nDo you want to delete the student record directly from Firestore? (Their login account may still exist in Firebase Auth.)`
         );
         if (proceedFallback) {
           const removed = await deleteStudentFirestoreOnly(id);

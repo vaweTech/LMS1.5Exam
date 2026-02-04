@@ -2,36 +2,58 @@ import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 
 export async function POST(req) {
+  let email;
+  let name;
+  let password;
   try {
-    const { email, name } = await req.json();
-    if (!email) {
-      return NextResponse.json({ error: "Missing recipient email" }, { status: 400 });
-    }
+    const body = await req.json();
+    email = body?.email;
+    name = body?.name;
+    password = body?.password;
+  } catch (e) {
+    console.error("send-admission-email: invalid JSON body", e?.message || e);
+    return NextResponse.json({ error: "Invalid request body (expect JSON)" }, { status: 400 });
+  }
 
-    const host = process.env.SMTP_HOST;
-    const port = Number(process.env.SMTP_PORT || 587);
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
-    const secure = String(process.env.SMTP_SECURE || "false").toLowerCase() === "true";
+  if (!email || typeof email !== "string" || !email.trim()) {
+    return NextResponse.json({ error: "Missing recipient email" }, { status: 400 });
+  }
+  email = email.trim().toLowerCase();
+  const defaultPassword = password && String(password).trim() ? String(password).trim() : "Vawe@2026";
 
-    if (!host || !user || !pass) {
-      return NextResponse.json({ error: "SMTP is not configured on server" }, { status: 500 });
-    }
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT || 587);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const secure = String(process.env.SMTP_SECURE || "false").toLowerCase() === "true";
 
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      auth: { user, pass },
-    });
+  if (!host || !user || !pass) {
+    console.error("send-admission-email: SMTP not configured (missing SMTP_HOST, SMTP_USER, or SMTP_PASS)");
+    return NextResponse.json({ error: "SMTP is not configured on server" }, { status: 500 });
+  }
 
-    // Verify connection configuration to surface auth/connection issues early
+  const transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    requireTLS: port === 587,
+    auth: { user, pass },
+    ...(process.env.SMTP_IGNORE_TLS === "true" && { tls: { rejectUnauthorized: false } }),
+  });
+
+  // Verify connection if supported (some SMTP servers don't support verify; continue to send either way)
+  try {
     await transporter.verify();
+  } catch (verifyErr) {
+    console.warn("send-admission-email: transporter.verify() failed, will still attempt send:", verifyErr?.message || verifyErr);
+  }
+
+  try {
 
     const siteUrl = "https://www.skillwins.in/";
     const logoUrl = `${siteUrl}logo1.png`;
     const subject = "Welcome to VAWE LMS – Your Account Is Ready";
-    const plainText = `Hello ${name || "Student"},\n\nWelcome to VAWE LMS! Your account has been created successfully.\n\nLogin Email: ${email}\nDefault Password: Vawe@2025\nWebsite: ${siteUrl}\n\nAfter login, to change your password:\n1) Click the left-side menu (☰).\n2) Open Settings.\n3) Follow the Change Password instructions.\n\nTip: Please change your password on first login.\n\nThank you,\nVAWE LMS`;
+    const plainText = `Hello ${name || "Student"},\n\nWelcome to VAWE LMS! Your account has been created successfully.\n\nLogin Email: ${email}\nDefault Password: ${defaultPassword}\nWebsite: ${siteUrl}\n\nAfter login, to change your password:\n1) Click the left-side menu (☰).\n2) Open Settings.\n3) Follow the Change Password instructions.\n\nTip: Please change your password on first login.\n\nThank you,\nVAWE LMS`;
 
     const html = `
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f6f9fc;padding:24px 0;">
@@ -53,7 +75,7 @@ export async function POST(req) {
                 <td style="padding:8px 24px 0 24px;font-family:Arial,Helvetica,sans-serif;color:#334155;">
                   <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;">
                     <p style="margin:0 0 6px 0;"><strong>Login Email:</strong> ${email}</p>
-                    <p style="margin:0 0 6px 0;"><strong>Default Password:</strong> Vawe@2025</p>
+                    <p style="margin:0 0 6px 0;"><strong>Default Password:</strong> ${defaultPassword}</p>
                     <p style="margin:0;">
                       <a href="${siteUrl}" style="display:inline-block;margin-top:8px;background:#0ea5e9;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:bold;">Go to VAWE LMS</a>
                     </p>
@@ -93,8 +115,17 @@ export async function POST(req) {
     });
     return NextResponse.json({ ok: true, messageId: info.messageId });
   } catch (err) {
-    console.error("send-admission-email error:", err);
-    return NextResponse.json({ error: String(err && err.message ? err.message : err) }, { status: 500 });
+    const code = err?.code;
+    const message = err?.message ? String(err.message) : String(err);
+    console.error("send-admission-email error:", { code, message, stack: err?.stack });
+
+    let userMessage = "Failed to send email.";
+    if (code === "EAUTH") userMessage = "SMTP authentication failed. Check SMTP_USER and SMTP_PASS.";
+    else if (code === "ECONNECTION" || code === "ETIMEDOUT" || code === "ECONNREFUSED") userMessage = "Could not connect to SMTP server. Check SMTP_HOST and SMTP_PORT.";
+    else if (code === "ESOCKET") userMessage = "Network error while sending email.";
+    else if (message) userMessage = message.replace(/auth|password|secret|smtp\.pass/gi, "[redacted]").slice(0, 200);
+
+    return NextResponse.json({ error: userMessage, code: code || undefined }, { status: 500 });
   }
 }
 
