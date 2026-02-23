@@ -43,6 +43,54 @@ function getEmbedUrl(url) {
   return url;
 }
 
+// Dummy chapters shown when course has no chapters from Firebase (per-course dummy data)
+const DUMMY_CHAPTERS = [
+  {
+    id: "dummy-1",
+    order: 1,
+    title: "Introduction and Setup",
+    topics: "Getting started, environment setup, first steps.",
+    video: "",
+    pptUrl: "https://docs.google.com/presentation/d/1/dummy/view",
+    pdfDocument: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+    liveClassLink: "https://meet.google.com/dummy",
+    recordedClassLink: "https://youtu.be/V6U4anwVlx8?si=jm-pm0AraQKZAHgr",
+    classDocs: "https://docs.google.com/document/d/1/dummy/view",
+  },
+  {
+    id: "dummy-2",
+    order: 2,
+    title: "Core Concepts",
+    topics: "Key concepts, best practices, examples.",
+    video: "",
+    pptUrl: "https://docs.google.com/presentation/d/2/dummy/view",
+    pdfDocument: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+    liveClassLink: "",
+    recordedClassLink: "https://youtu.be/V6U4anwVlx8?si=jm-pm0AraQKZAHgr",
+    classDocs: "https://docs.google.com/document/d/2/dummy/view",
+  },
+  {
+    id: "dummy-3",
+    order: 3,
+    title: "Advanced Topics",
+    topics: "Deep dive, case studies, assignments.",
+    video: "",
+    pptUrl: "https://docs.google.com/presentation/d/3/dummy/view",
+    pdfDocument: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+    liveClassLink: "https://meet.google.com/dummy",
+    recordedClassLink: "https://youtu.be/V6U4anwVlx8?si=jm-pm0AraQKZAHgr",
+    classDocs: "https://docs.google.com/document/d/3/dummy/view",
+  },
+];
+
+function titleFromCourseId(id) {
+  if (!id) return "Course";
+  return id
+    .split("-")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 export default function InternshipCoursePage() {
   const router = useRouter();
   const params = useParams();
@@ -248,7 +296,21 @@ export default function InternshipCoursePage() {
     return null;
   }
 
-  if (!course) {
+  // Use dummy data when course not in Firebase or no chapters, so clicking any course always shows content
+  const displayCourse =
+    course ||
+    (courseId
+      ? {
+          id: courseId,
+          title: titleFromCourseId(courseId),
+          description: "Course content (sample data).",
+        }
+      : null);
+  const displayChapters =
+    chapters.length > 0 ? chapters : DUMMY_CHAPTERS;
+  const isDummyChapters = chapters.length === 0;
+
+  if (!displayCourse) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center">
         <p className="text-gray-600 mb-4">Course not found.</p>
@@ -280,14 +342,14 @@ export default function InternshipCoursePage() {
             </div>
             <div>
               <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-1">
-                {course.title || "Untitled Course"}
+                {displayCourse.title || "Untitled Course"}
               </h1>
-              {course.description && (
-                <p className="text-sm text-gray-600">{course.description}</p>
+              {displayCourse.description && (
+                <p className="text-sm text-gray-600">{displayCourse.description}</p>
               )}
-              {course.courseCode && (
+              {displayCourse.courseCode && (
                 <p className="mt-1 text-xs text-gray-500">
-                  Code: {course.courseCode}
+                  Code: {displayCourse.courseCode}
                 </p>
               )}
             </div>
@@ -297,18 +359,16 @@ export default function InternshipCoursePage() {
         <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-5 sm:p-7 space-y-6">
           <div>
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Chapters</h2>
-          {chapters.length === 0 ? (
-            <p className="text-sm text-gray-500">No chapters added yet.</p>
-          ) : (
             <div className="space-y-3">
-              {chapters.map((ch, idx) => {
+              {displayChapters.map((ch, idx) => {
                 const dayNumber =
                   typeof ch.order === "number" ? ch.order : idx + 1;
                 const dayTests = progressTests.filter(
                   (t) => typeof t.day === "number" && t.day === dayNumber
                 );
-                // Access is driven by unlocks / chapterAccess
-                const hasAccess = accessibleChapters.includes(ch.id);
+                // Dummy chapters: all accessible; otherwise use unlocks / chapterAccess
+                const hasAccess =
+                  isDummyChapters || accessibleChapters.includes(ch.id);
 
                 return (
                 <div
@@ -359,7 +419,7 @@ export default function InternshipCoursePage() {
                           } else {
                             setActiveVideoUrl(embed);
                             setActiveVideoTitle(
-                              ch.title || course.title || "Topic Video"
+                              ch.title || displayCourse.title || "Topic Video"
                             );
                             setActiveChapterId(ch.id);
                           }
@@ -379,7 +439,7 @@ export default function InternshipCoursePage() {
                             const url = `/view-ppt?url=${encodeURIComponent(
                               ch.pptUrl
                             )}&title=${encodeURIComponent(
-                              ch.title || course.title || "Presentation"
+                              ch.title || displayCourse.title || "Presentation"
                             )}`;
                             router.push(url);
                           }}
@@ -398,7 +458,7 @@ export default function InternshipCoursePage() {
                             const url = `/view-pdf-secure?url=${encodeURIComponent(
                               ch.pdfDocument
                             )}&title=${encodeURIComponent(
-                              ch.title || course.title || "PDF Document"
+                              ch.title || displayCourse.title || "PDF Document"
                             )}`;
                             router.push(url);
                           }}
@@ -440,7 +500,7 @@ export default function InternshipCoursePage() {
                             } else {
                               setActiveVideoUrl(embed);
                               setActiveVideoTitle(
-                                `${ch.title || course.title || "Class"} - Recorded`
+                                `${ch.title || displayCourse.title || "Class"} - Recorded`
                               );
                               setActiveChapterId(ch.id);
                             }
@@ -460,7 +520,7 @@ export default function InternshipCoursePage() {
                             const url = `/view-ppt?url=${encodeURIComponent(
                               ch.classDocs
                             )}&title=${encodeURIComponent(
-                              ch.title || course.title || "Class Docs"
+                              ch.title || displayCourse.title || "Class Docs"
                             )}`;
                             router.push(url);
                           }}
@@ -481,7 +541,7 @@ export default function InternshipCoursePage() {
                             const url = `/view-pdf-secure?url=${encodeURIComponent(
                               docUrl
                             )}&title=${encodeURIComponent(
-                              `${ch.title || course.title || "Reference"} - Reference Document`
+                              `${ch.title || displayCourse.title || "Reference"} - Reference Document`
                             )}`;
                             router.push(url);
                           }}
@@ -523,7 +583,7 @@ export default function InternshipCoursePage() {
                             <button
                               type="button"
                               onClick={() => {
-                                const slug = createCourseUrl(course.title || "");
+                                const slug = createCourseUrl(displayCourse.title || "");
                                 if (!slug) return;
                                 const params = new URLSearchParams({ courseId, internshipId });
                                 router.push(`/courses/${slug}/assignments/${test.id}?${params.toString()}`);
@@ -589,12 +649,11 @@ export default function InternshipCoursePage() {
                 </div>
               );
               })}
-              </div>
-            )}
+            </div>
           </div>
 
           {/* Full MCQ practice for this course */}
-          {course && course.title && (
+          {displayCourse && displayCourse.title && (
             <div className="pt-4 border-t border-gray-100">
               <h3 className="text-base font-semibold text-gray-900 mb-3">
                 Full MCQ Practice
@@ -606,7 +665,7 @@ export default function InternshipCoursePage() {
                 <button
                   type="button"
                   onClick={() => {
-                    const slug = createCourseUrl(course.title || "");
+                    const slug = createCourseUrl(displayCourse.title || "");
                     if (!slug) return;
                     router.push(`/practice/${slug}`);
                   }}

@@ -7,6 +7,9 @@ import { mcqDb } from "../../../../../lib/firebaseMCQs";
 import {
   collection as mcqCollection,
   getDocs as mcqGetDocs,
+  doc as mcqDoc,
+  updateDoc as mcqUpdateDoc,
+  deleteDoc as mcqDeleteDoc,
   addDoc as mcqAddDoc,
 } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -44,6 +47,10 @@ export default function CourseSyllabusDays() {
   // Progress tests mapped by course (same structure as in manage page)
   const [progressTests, setProgressTests] = useState([]);
   const [loadingProgressTests, setLoadingProgressTests] = useState(false);
+  const [editingTestId, setEditingTestId] = useState(null);
+  const [editingTest, setEditingTest] = useState(null);
+  const [questionEditTestId, setQuestionEditTestId] = useState(null);
+  const [questionDrafts, setQuestionDrafts] = useState([]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -126,6 +133,77 @@ export default function CourseSyllabusDays() {
       setLoadingProgressTests(false);
     }
   }, [courseId]);
+
+  async function saveProgressTestMeta() {
+    if (!courseId || !editingTestId || !editingTest) return;
+    try {
+      const ref = mcqDoc(
+        mcqDb,
+        "copiedcourses",
+        courseId,
+        "assignments",
+        editingTestId
+      );
+      await mcqUpdateDoc(ref, {
+        title: editingTest.title || "",
+        dueDate: editingTest.dueDate || "",
+        day: Number(editingTest.day) || 1,
+        type: editingTest.type || "mcq",
+      });
+      alert("Progress test updated.");
+      setEditingTestId(null);
+      setEditingTest(null);
+      await fetchProgressTests();
+    } catch (e) {
+      console.error("Failed to update progress test:", e);
+      alert("Failed to update progress test.");
+    }
+  }
+
+  async function deleteProgressTest(id) {
+    if (!courseId || !id) return;
+    if (!confirm("Delete this progress test?")) return;
+    try {
+      const ref = mcqDoc(mcqDb, "copiedcourses", courseId, "assignments", id);
+      await mcqDeleteDoc(ref);
+      setProgressTests((prev) => prev.filter((t) => t.id !== id));
+      if (editingTestId === id) {
+        setEditingTestId(null);
+        setEditingTest(null);
+      }
+      if (questionEditTestId === id) {
+        setQuestionEditTestId(null);
+        setQuestionDrafts([]);
+      }
+      alert("Progress test deleted.");
+    } catch (e) {
+      console.error("Failed to delete progress test:", e);
+      alert("Failed to delete progress test.");
+    }
+  }
+
+  async function saveTestQuestions() {
+    if (!courseId || !questionEditTestId) return;
+    try {
+      const ref = mcqDoc(
+        mcqDb,
+        "copiedcourses",
+        courseId,
+        "assignments",
+        questionEditTestId
+      );
+      await mcqUpdateDoc(ref, {
+        questions: Array.isArray(questionDrafts) ? questionDrafts : [],
+      });
+      alert("Questions updated.");
+      setQuestionEditTestId(null);
+      setQuestionDrafts([]);
+      await fetchProgressTests();
+    } catch (e) {
+      console.error("Failed to update questions:", e);
+      alert("Failed to update questions.");
+    }
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -540,27 +618,488 @@ export default function CourseSyllabusDays() {
                               {dayTests.map((test) => (
                                 <div
                                   key={test.id}
-                                  className="border rounded-md p-2 bg-slate-50 text-xs"
+                                  className="border rounded-md p-2 bg-slate-50"
                                 >
-                                  <div className="flex items-center justify-between">
-                                    <div>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
-                                          Day {test.day || dayNumber}
-                                        </span>
-                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-purple-200 text-purple-800">
-                                          {test.type === "coding"
-                                            ? "Coding"
-                                            : "MCQ"}
-                                        </span>
+                                  {editingTestId === test.id ? (
+                                    <div className="space-y-2 text-xs">
+                                      <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                                        <input
+                                          className="border rounded-md px-2 py-1 text-xs"
+                                          value={editingTest?.title || ""}
+                                          onChange={(e) =>
+                                            setEditingTest((s) => ({
+                                              ...s,
+                                              title: e.target.value,
+                                            }))
+                                          }
+                                          placeholder="Title"
+                                        />
+                                        <input
+                                          type="date"
+                                          className="border rounded-md px-2 py-1 text-xs"
+                                          value={editingTest?.dueDate || ""}
+                                          onChange={(e) =>
+                                            setEditingTest((s) => ({
+                                              ...s,
+                                              dueDate: e.target.value,
+                                            }))
+                                          }
+                                        />
+                                        <input
+                                          type="number"
+                                          className="border rounded-md px-2 py-1 text-xs"
+                                          value={editingTest?.day || dayNumber}
+                                          onChange={(e) =>
+                                            setEditingTest((s) => ({
+                                              ...s,
+                                              day: Number(e.target.value) || 1,
+                                            }))
+                                          }
+                                          placeholder="Day"
+                                        />
+                                        <select
+                                          className="border rounded-md px-2 py-1 text-xs"
+                                          value={editingTest?.type || "mcq"}
+                                          onChange={(e) =>
+                                            setEditingTest((s) => ({
+                                              ...s,
+                                              type: e.target.value,
+                                            }))
+                                          }
+                                        >
+                                          <option value="mcq">MCQ</option>
+                                          <option value="coding">Coding</option>
+                                        </select>
                                       </div>
-                                      <p className="text-xs font-medium mt-1">
-                                        {test.title ||
-                                          test.name ||
-                                          "Untitled Progress Test"}
-                                      </p>
+                                      <div className="flex gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={saveProgressTestMeta}
+                                          className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs"
+                                        >
+                                          Save
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingTestId(null);
+                                            setEditingTest(null);
+                                          }}
+                                          className="px-3 py-1.5 rounded-md bg-slate-400 text-white text-xs"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
                                     </div>
-                                  </div>
+                                  ) : (
+                                    <div className="space-y-1 text-xs">
+                                      <div className="flex items-center justify-between">
+                                        <div>
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                                              Day {test.day || dayNumber}
+                                            </span>
+                                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-purple-200 text-purple-800">
+                                              {test.type === "coding"
+                                                ? "Coding"
+                                                : "MCQ"}
+                                            </span>
+                                          </div>
+                                          <p className="text-xs font-medium mt-1">
+                                            {test.title ||
+                                              test.name ||
+                                              "Untitled Progress Test"}
+                                          </p>
+                                          {test.dueDate && (
+                                            <p className="text-[11px] text-slate-500">
+                                              Due: {test.dueDate}
+                                            </p>
+                                          )}
+                                        </div>
+                                        <div className="flex flex-col gap-1 items-end">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setEditingTestId(test.id);
+                                              setEditingTest({
+                                                title:
+                                                  test.title ||
+                                                  test.name ||
+                                                  "",
+                                                dueDate: test.dueDate || "",
+                                                day: test.day || dayNumber,
+                                                type: test.type || "mcq",
+                                              });
+                                            }}
+                                            className="px-2 py-1 rounded-md bg-yellow-500 text-white text-[11px]"
+                                          >
+                                            Edit Meta
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              deleteProgressTest(test.id)
+                                            }
+                                            className="px-2 py-1 rounded-md bg-red-600 text-white text-[11px]"
+                                          >
+                                            Delete
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      <div className="mt-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (questionEditTestId === test.id) {
+                                              setQuestionEditTestId(null);
+                                              setQuestionDrafts([]);
+                                            } else {
+                                              setQuestionEditTestId(test.id);
+                                              setQuestionDrafts(
+                                                Array.isArray(test.questions)
+                                                  ? test.questions
+                                                  : []
+                                              );
+                                            }
+                                          }}
+                                          className="px-2 py-1 rounded-md bg-slate-200 text-slate-800 text-[11px]"
+                                        >
+                                          {questionEditTestId === test.id
+                                            ? "Close Questions Editor"
+                                            : "Edit / Add Questions"}
+                                        </button>
+                                      </div>
+
+                                      {questionEditTestId === test.id && (
+                                        <div className="mt-2 border-t pt-2 space-y-2">
+                                          <p className="text-[11px] font-semibold text-slate-700">
+                                            Questions ({questionDrafts.length})
+                                          </p>
+
+                                          <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                                            {questionDrafts.map((q, qIndex) => (
+                                              <div
+                                                key={qIndex}
+                                                className="bg-white rounded border px-2 py-2 space-y-1"
+                                              >
+                                                <div className="flex justify-between items-center">
+                                                  <span className="text-[11px] font-medium text-slate-800">
+                                                    Q{qIndex + 1} •{" "}
+                                                    {(q.type || test.type || "mcq").toUpperCase()}
+                                                  </span>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      const next = questionDrafts.filter(
+                                                        (_qq, idx) => idx !== qIndex
+                                                      );
+                                                      setQuestionDrafts(next);
+                                                    }}
+                                                    className="text-[11px] text-red-600"
+                                                  >
+                                                    Remove
+                                                  </button>
+                                                </div>
+
+                                                {(q.type || test.type) !== "coding" && (
+                                                  <div className="space-y-1">
+                                                    <textarea
+                                                      className="border rounded px-2 py-1 w-full text-[11px]"
+                                                      rows={2}
+                                                      placeholder="Question text"
+                                                      value={q.question || ""}
+                                                      onChange={(e) => {
+                                                        const next = [...questionDrafts];
+                                                        next[qIndex] = {
+                                                          ...next[qIndex],
+                                                          type: "mcq",
+                                                          question: e.target.value,
+                                                        };
+                                                        setQuestionDrafts(next);
+                                                      }}
+                                                    />
+                                                    <p className="text-[10px] text-slate-500">
+                                                      Options & correct answers:
+                                                    </p>
+                                                    {Array.from(
+                                                      { length: 4 },
+                                                      (_, optIdx) =>
+                                                        q.options?.[optIdx] ?? ""
+                                                    ).map((opt, optIdx) => (
+                                                      <div
+                                                        key={optIdx}
+                                                        className="flex items-center gap-1 mb-0.5"
+                                                      >
+                                                        <input
+                                                          type="checkbox"
+                                                          className="w-3 h-3"
+                                                          checked={Array.isArray(
+                                                            q.correctAnswers
+                                                          )
+                                                            ? q.correctAnswers.includes(
+                                                                optIdx
+                                                              )
+                                                            : false}
+                                                          onChange={() => {
+                                                            const next = [...questionDrafts];
+                                                            const current =
+                                                              Array.isArray(
+                                                                next[qIndex]
+                                                                  .correctAnswers
+                                                              )
+                                                                ? [
+                                                                    ...next[qIndex]
+                                                                      .correctAnswers,
+                                                                  ]
+                                                                : [];
+                                                            const exists =
+                                                              current.includes(
+                                                                optIdx
+                                                              );
+                                                            next[qIndex] = {
+                                                              ...next[qIndex],
+                                                              type: "mcq",
+                                                              correctAnswers: exists
+                                                                ? current.filter(
+                                                                    (i) => i !== optIdx
+                                                                  )
+                                                                : [...current, optIdx],
+                                                            };
+                                                            setQuestionDrafts(next);
+                                                          }}
+                                                        />
+                                                        <input
+                                                          className="border rounded px-2 py-0.5 flex-1 text-[11px]"
+                                                          placeholder={`Option ${
+                                                            optIdx + 1
+                                                          }`}
+                                                          value={opt}
+                                                          onChange={(e) => {
+                                                            const next = [...questionDrafts];
+                                                            const opts =
+                                                              Array.isArray(
+                                                                next[qIndex].options
+                                                              )
+                                                                ? [
+                                                                    ...next[qIndex]
+                                                                      .options,
+                                                                  ]
+                                                                : [];
+                                                            opts[optIdx] =
+                                                              e.target.value;
+                                                            next[qIndex] = {
+                                                              ...next[qIndex],
+                                                              type: "mcq",
+                                                              options: opts,
+                                                            };
+                                                            setQuestionDrafts(next);
+                                                          }}
+                                                        />
+                                                      </div>
+                                                    ))}
+                                                  </div>
+                                                )}
+
+                                                {(q.type || test.type) === "coding" && (
+                                                  <div className="space-y-1">
+                                                    <input
+                                                      className="border rounded px-2 py-1 w-full text-[11px]"
+                                                      placeholder="Coding question title"
+                                                      value={q.question || ""}
+                                                      onChange={(e) => {
+                                                        const next = [...questionDrafts];
+                                                        next[qIndex] = {
+                                                          ...next[qIndex],
+                                                          type: "coding",
+                                                          question: e.target.value,
+                                                        };
+                                                        setQuestionDrafts(next);
+                                                      }}
+                                                    />
+                                                    <textarea
+                                                      className="border rounded px-2 py-1 w-full text-[11px] font-mono"
+                                                      rows={3}
+                                                      placeholder="Description"
+                                                      value={q.description || ""}
+                                                      onChange={(e) => {
+                                                        const next = [...questionDrafts];
+                                                        next[qIndex] = {
+                                                          ...next[qIndex],
+                                                          type: "coding",
+                                                          description: e.target.value,
+                                                        };
+                                                        setQuestionDrafts(next);
+                                                      }}
+                                                    />
+                                                    <p className="text-[10px] text-slate-500 mt-1">
+                                                      Test cases:
+                                                    </p>
+                                                    {Array.isArray(q.testCases) &&
+                                                      q.testCases.map(
+                                                        (tc, tcIdx) => (
+                                                          <div
+                                                            key={tcIdx}
+                                                            className="border rounded px-2 py-1 mb-1 bg-slate-50"
+                                                          >
+                                                            <p className="text-[10px] font-medium">
+                                                              Test Case {tcIdx + 1}
+                                                            </p>
+                                                            <textarea
+                                                              className="border rounded px-2 py-1 w-full text-[10px] font-mono mb-1"
+                                                              rows={2}
+                                                              placeholder="Input"
+                                                              value={tc.input || ""}
+                                                              onChange={(e) => {
+                                                                const next = [...questionDrafts];
+                                                                const tcs =
+                                                                  Array.isArray(
+                                                                    next[qIndex]
+                                                                      .testCases
+                                                                  )
+                                                                    ? [
+                                                                        ...next[
+                                                                          qIndex
+                                                                        ].testCases,
+                                                                      ]
+                                                                    : [];
+                                                                tcs[tcIdx] = {
+                                                                  ...tcs[tcIdx],
+                                                                  input:
+                                                                    e.target
+                                                                      .value,
+                                                                };
+                                                                next[qIndex] = {
+                                                                  ...next[qIndex],
+                                                                  type: "coding",
+                                                                  testCases: tcs,
+                                                                };
+                                                                setQuestionDrafts(
+                                                                  next
+                                                                );
+                                                              }}
+                                                            />
+                                                            <textarea
+                                                              className="border rounded px-2 py-1 w-full text-[10px] font-mono"
+                                                              rows={2}
+                                                              placeholder="Expected Output"
+                                                              value={
+                                                                tc.expectedOutput ||
+                                                                ""
+                                                              }
+                                                              onChange={(e) => {
+                                                                const next = [...questionDrafts];
+                                                                const tcs =
+                                                                  Array.isArray(
+                                                                    next[qIndex]
+                                                                      .testCases
+                                                                  )
+                                                                    ? [
+                                                                        ...next[
+                                                                          qIndex
+                                                                        ].testCases,
+                                                                      ]
+                                                                    : [];
+                                                                tcs[tcIdx] = {
+                                                                  ...tcs[tcIdx],
+                                                                  expectedOutput:
+                                                                    e.target
+                                                                      .value,
+                                                                };
+                                                                next[qIndex] = {
+                                                                  ...next[qIndex],
+                                                                  type: "coding",
+                                                                  testCases: tcs,
+                                                                };
+                                                                setQuestionDrafts(
+                                                                  next
+                                                                );
+                                                              }}
+                                                            />
+                                                          </div>
+                                                        )
+                                                      )}
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => {
+                                                        const next = [...questionDrafts];
+                                                        const tcs =
+                                                          Array.isArray(
+                                                            next[qIndex].testCases
+                                                          )
+                                                            ? [
+                                                                ...next[qIndex]
+                                                                  .testCases,
+                                                              ]
+                                                            : [];
+                                                        tcs.push({
+                                                          input: "",
+                                                          expectedOutput: "",
+                                                        });
+                                                        next[qIndex] = {
+                                                          ...next[qIndex],
+                                                          type: "coding",
+                                                          testCases: tcs,
+                                                        };
+                                                        setQuestionDrafts(next);
+                                                      }}
+                                                      className="mt-1 px-2 py-0.5 rounded-md bg-blue-500 text-white text-[10px]"
+                                                    >
+                                                      Add Test Case
+                                                    </button>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+
+                                          <div className="flex gap-2 mt-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setQuestionDrafts((prev) => [
+                                                  ...prev,
+                                                  {
+                                                    type: "mcq",
+                                                    question: "",
+                                                    options: ["", "", "", ""],
+                                                    correctAnswers: [],
+                                                  },
+                                                ]);
+                                              }}
+                                              className="px-2 py-1 rounded-md bg-green-500 text-white text-[11px]"
+                                            >
+                                              + MCQ Question
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setQuestionDrafts((prev) => [
+                                                  ...prev,
+                                                  {
+                                                    type: "coding",
+                                                    question: "",
+                                                    description: "",
+                                                    testCases: [],
+                                                  },
+                                                ]);
+                                              }}
+                                              className="px-2 py-1 rounded-md bg-purple-500 text-white text-[11px]"
+                                            >
+                                              + Coding Question
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={saveTestQuestions}
+                                              className="ml-auto px-3 py-1.5 rounded-md bg-emerald-600 text-white text-[11px]"
+                                            >
+                                              Save All Questions
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               ))}
                             </div>

@@ -1488,4 +1488,3 @@ export default function ManageInternshipCourses() {
   );
 }
 
-

@@ -17,8 +17,11 @@ import {
   HomeIcon,
   RectangleStackIcon,
   BookOpenIcon,
+  BriefcaseIcon,
+  AcademicCapIcon,
   CommandLineIcon,
   PuzzlePieceIcon,
+  ChevronDownIcon,
 } from "@heroicons/react/24/solid";
 
 export default function Navbar({
@@ -41,10 +44,14 @@ export default function Navbar({
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
   const [isLocked, setIsLocked] = useState(false);
+  const [programsDropdownOpen, setProgramsDropdownOpen] = useState(false);
+  const [programsMobileExpanded, setProgramsMobileExpanded] = useState(false);
   
-  // Refs for click-outside detection
+  // Refs for click-outside detection and dropdown hover timers
   const desktopMenuRef = useRef(null);
   const desktopMenuButtonRef = useRef(null);
+  const programsDropdownRef = useRef(null);
+  const programsDropdownCloseTimeoutRef = useRef(null);
 
   // Handle scroll behavior - hide on scroll down, show on scroll up
   useEffect(() => {
@@ -60,6 +67,7 @@ export default function Navbar({
         // Close any open menus when hiding
         setMenuOpen(false);
         setMobileMenuOpen(false);
+        setProgramsDropdownOpen(false);
       } else {
         // Scrolling up - show navbar
         setIsVisible(true);
@@ -90,6 +98,21 @@ export default function Navbar({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [menuOpen]);
+
+  // Close Programs dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        programsDropdownOpen &&
+        programsDropdownRef.current &&
+        !programsDropdownRef.current.contains(event.target)
+      ) {
+        setProgramsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [programsDropdownOpen]);
 
   // Load actual user info from Firebase
   useEffect(() => {
@@ -227,17 +250,23 @@ export default function Navbar({
     }
   };
 
+  const programsSubLinks = [
+    { href: "/courses", label: "Courses", icon: BookOpenIcon },
+    { href: "/internships", label: "Internships", icon: BriefcaseIcon },
+    { href: "/crt", label: "CRT Programmes", icon: AcademicCapIcon },
+  ];
+
   const allLinks = [
     { href: "/main", icon: HomeIcon, label: "Home" },
     { href: "/dashboard", icon: RectangleStackIcon, label: "Dashboard" },
-    { href: "/courses", icon: BookOpenIcon, label: "Courses" },
+    { label: "Trainings", icon: BookOpenIcon, children: programsSubLinks },
     { href: "/assignments", icon: CommandLineIcon, label: "Progress Tests" },
     { href: "/compiler", icon: CommandLineIcon, label: "Compiler" },
     { href: "/practice", icon: PuzzlePieceIcon, label: "Practice" },
   ];
 
   const navigationLinks = isLocked
-    ? allLinks.filter((l) => ["/main", "/dashboard"].includes(l.href))
+    ? allLinks.filter((l) => l.href && ["/main", "/dashboard"].includes(l.href))
     : allLinks;
 
   return (
@@ -250,7 +279,7 @@ export default function Navbar({
           {/* Mobile Menu Toggle */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 rounded-full hover:bg-white/10 lg:hidden"
+            className="p-2 rounded-full hover:bg-white/10 md:hidden"
             aria-label="Toggle mobile menu"
           >
             {mobileMenuOpen ? (
@@ -261,7 +290,7 @@ export default function Navbar({
           </button>
 
           {/* Desktop Profile Menu Toggle */}
-          <div className="relative hidden lg:block">
+          <div className="relative hidden md:block">
             <button
               ref={desktopMenuButtonRef}
               onClick={() => setMenuOpen(!menuOpen)}
@@ -354,25 +383,77 @@ export default function Navbar({
           </div>
         </div>
 
-        {/* Right Section: Desktop Navigation Links */}
-        <ul className="hidden lg:flex space-x-6 font-medium">
-          {navigationLinks.map((link) => (
-            <li key={link.href}>
-              <Link
-                href={link.href}
-                className="flex items-center space-x-1 text-white hover:text-[#26ebe5] transition"
+        {/* Right Section: Desktop/Tablet Navigation Links (md = tablet, lg = laptop) */}
+        <ul className="hidden md:flex md:space-x-3 lg:space-x-6 font-medium items-center">
+          {navigationLinks.map((link) =>
+            link.children ? (
+              <li
+                key="programs"
+                ref={programsDropdownRef}
+                className="relative"
+                onMouseEnter={() => {
+                  if (programsDropdownCloseTimeoutRef.current) {
+                    clearTimeout(programsDropdownCloseTimeoutRef.current);
+                    programsDropdownCloseTimeoutRef.current = null;
+                  }
+                  setProgramsDropdownOpen(true);
+                }}
+                onMouseLeave={() => {
+                  programsDropdownCloseTimeoutRef.current = setTimeout(() => {
+                    setProgramsDropdownOpen(false);
+                    programsDropdownCloseTimeoutRef.current = null;
+                  }, 200);
+                }}
               >
-                <link.icon className="w-5 h-5" />
-                <span>{link.label}</span>
-              </Link>
-            </li>
-          ))}
+                <button
+                  onClick={() => setProgramsDropdownOpen(!programsDropdownOpen)}
+                  className="flex items-center space-x-1 text-white hover:text-[#26ebe5] transition"
+                >
+                  <link.icon className="w-5 h-5" />
+                  <span>{link.label}</span>
+                  <ChevronDownIcon
+                    className={`w-4 h-4 transition-transform ${programsDropdownOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+                {programsDropdownOpen && (
+                  <div className="absolute left-0 top-full mt-2 pt-1.5">
+                    <div className="bg-white text-gray-800 shadow-[0_10px_40px_-12px_rgba(0,0,0,0.2)] rounded-xl py-1.5 min-w-[220px] border border-gray-100 animate-fade-in">
+                      {link.children.map((sub) => {
+                        const SubIcon = sub.icon;
+                        return (
+                          <Link
+                            key={sub.href}
+                            href={sub.href}
+                            className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-[#26ebe5]/10 hover:text-[#00448a] transition-colors first:rounded-t-[11px] last:rounded-b-[11px]"
+                            onClick={() => setProgramsDropdownOpen(false)}
+                          >
+                            {SubIcon && <SubIcon className="w-5 h-5 shrink-0 text-[#00448a]/70" />}
+                            <span className="font-medium">{sub.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </li>
+            ) : (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  className="flex items-center space-x-1 text-white hover:text-[#26ebe5] transition"
+                >
+                  <link.icon className="w-5 h-5" />
+                  <span>{link.label}</span>
+                </Link>
+              </li>
+            )
+          )}
         </ul>
       </nav>
 
-      {/* Mobile Menu Overlay */}
+      {/* Mobile Menu Overlay (hidden on tablet md and up) */}
       {mobileMenuOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
+        <div className="fixed inset-0 z-40 md:hidden">
           {/* Backdrop */}
           <div 
             className="fixed inset-0 bg-black/50" 
@@ -426,18 +507,57 @@ export default function Navbar({
               {/* Mobile Navigation Links */}
               <div className="flex-1 overflow-y-auto">
                 <ul className="py-4">
-                  {navigationLinks.map((link) => (
-                    <li key={link.href}>
-                      <Link
-                        href={link.href}
-                        onClick={() => setMobileMenuOpen(false)}
-                        className="flex items-center space-x-3 px-4 py-3 text-gray-700 hover:bg-[#26ebe5]/10 hover:text-[#00448a] transition-colors"
-                      >
-                        <link.icon className="w-5 h-5" />
-                        <span className="font-medium">{link.label}</span>
-                      </Link>
-                    </li>
-                  ))}
+                  {navigationLinks.map((link) =>
+                    link.children ? (
+                      <li key="programs">
+                        <button
+                          onClick={() => setProgramsMobileExpanded(!programsMobileExpanded)}
+                          className="flex items-center justify-between w-full space-x-3 px-4 py-3 text-gray-700 hover:bg-[#26ebe5]/10 hover:text-[#00448a] transition-colors"
+                        >
+                          <div className="flex items-center space-x-3">
+                            <link.icon className="w-5 h-5" />
+                            <span className="font-medium">{link.label}</span>
+                          </div>
+                          <ChevronDownIcon
+                            className={`w-5 h-5 transition-transform ${programsMobileExpanded ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        {programsMobileExpanded && (
+                          <ul className="bg-gray-50/80 border-l-2 border-[#26ebe5] ml-4 mr-2 mt-1 mb-2 rounded-r-lg overflow-hidden">
+                            {link.children.map((sub) => {
+                              const SubIcon = sub.icon;
+                              return (
+                                <li key={sub.href}>
+                                  <Link
+                                    href={sub.href}
+                                    onClick={() => {
+                                      setMobileMenuOpen(false);
+                                      setProgramsMobileExpanded(false);
+                                    }}
+                                    className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-[#26ebe5]/10 hover:text-[#00448a] transition-colors text-sm font-medium"
+                                  >
+                                    {SubIcon && <SubIcon className="w-5 h-5 shrink-0 text-[#00448a]/70" />}
+                                    {sub.label}
+                                  </Link>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </li>
+                    ) : (
+                      <li key={link.href}>
+                        <Link
+                          href={link.href}
+                          onClick={() => setMobileMenuOpen(false)}
+                          className="flex items-center space-x-3 px-4 py-3 text-gray-700 hover:bg-[#26ebe5]/10 hover:text-[#00448a] transition-colors"
+                        >
+                          <link.icon className="w-5 h-5" />
+                          <span className="font-medium">{link.label}</span>
+                        </Link>
+                      </li>
+                    )
+                  )}
                 </ul>
 
                 {/* Mobile Menu Options */}
