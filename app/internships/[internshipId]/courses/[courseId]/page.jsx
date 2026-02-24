@@ -388,7 +388,7 @@ export default function InternshipCoursePage() {
                         </p>
                       )}
                       {ch.topics && (
-                        <p className="mt-1 text-xs sm:text-sm text-gray-600">
+                        <p className="mt-1 text-xs sm:text-sm text-gray-600 whitespace-pre-line">
                           {ch.topics}
                         </p>
                       )}

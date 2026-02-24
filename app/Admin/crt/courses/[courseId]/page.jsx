@@ -51,6 +51,7 @@ export default function CourseSyllabusDays() {
   const [editingTest, setEditingTest] = useState(null);
   const [questionEditTestId, setQuestionEditTestId] = useState(null);
   const [questionDrafts, setQuestionDrafts] = useState([]);
+  const [expandedChapterId, setExpandedChapterId] = useState(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -409,17 +410,41 @@ export default function CourseSyllabusDays() {
                 chapter.
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {chapters.map((ch) => {
                     const dayNumber = ch.order || 1;
                     const dayTests = progressTests.filter(
                       (t) => (t.day || 1) === dayNumber
                     );
+                    const isExpanded = expandedChapterId === ch.id;
                     return (
                       <div
                         key={ch.id}
-                        className="border rounded-lg p-3 space-y-3"
+                        className="border rounded-lg overflow-hidden bg-white"
                       >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedChapterId((id) =>
+                              id === ch.id ? null : ch.id
+                            )
+                          }
+                          className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors border-b border-slate-100"
+                        >
+                          <span className="font-medium text-slate-800">
+                            Day {dayNumber}
+                            {ch.title ? `: ${ch.title}` : ""}
+                          </span>
+                          <span
+                            className={`text-slate-500 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                            aria-hidden
+                          >
+                            ▼
+                          </span>
+                        </button>
+
+                        {isExpanded && (
+                        <div className="p-3 space-y-3 border-t-0">
                         <div className="flex items-center gap-3">
                           <input
                             type="number"
@@ -455,8 +480,9 @@ export default function CourseSyllabusDays() {
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <input
-                            className="border rounded-md px-3 py-1.5 text-sm"
+                          <textarea
+                            rows={3}
+                            className="border rounded-md px-3 py-1.5 text-sm w-full min-h-[80px] resize-y md:col-span-2"
                             value={ch.topics || ""}
                             onChange={(e) =>
                               setChapters((cs) =>
@@ -467,7 +493,7 @@ export default function CourseSyllabusDays() {
                                 )
                               )
                             }
-                            placeholder="Topics"
+                            placeholder={"e.g. This chapter covers:\nTopic one\nTopic two\n..."}
                           />
                           <input
                             className="border rounded-md px-3 py-1.5 text-sm"
@@ -576,7 +602,7 @@ export default function CourseSyllabusDays() {
                           </button>
                         </div>
 
-                        <div className="mt-2 border-t pt-3">
+                        <div className="mt-2 border-t border-slate-200 pt-3">
                           <div className="flex items-center justify-between mb-2">
                             <h4 className="text-sm font-semibold text-slate-800">
                               Progress Tests for Day {dayNumber}
@@ -1105,6 +1131,8 @@ export default function CourseSyllabusDays() {
                             </div>
                           )}
                         </div>
+                        </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1125,13 +1153,14 @@ export default function CourseSyllabusDays() {
                   }
                   placeholder="Title"
                 />
-                <input
-                  className="border rounded-md px-3 py-2 text-sm"
+                <textarea
+                  rows={3}
+                  className="border rounded-md px-3 py-2 text-sm w-full min-h-[80px] resize-y md:col-span-2"
                   value={newChapter.topics}
                   onChange={(e) =>
                     setNewChapter((s) => ({ ...s, topics: e.target.value }))
                   }
-                  placeholder="Topics"
+                  placeholder={"e.g. This chapter covers:\nTopic one\nTopic two\n..."}
                 />
                 <input
                   className="border rounded-md px-3 py-2 text-sm"
