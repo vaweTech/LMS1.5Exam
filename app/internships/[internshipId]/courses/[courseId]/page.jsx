@@ -13,10 +13,10 @@ import {
   query,
   where,
 } from "firebase/firestore";
-import { BookOpen, ArrowLeft, Play, FileText, Radio } from "lucide-react";
+import { BookOpen, ArrowLeft, Play, FileText, Radio, Lock, Video, Presentation, ExternalLink, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react";
 import { createCourseUrl } from "../../../../../lib/urlUtils";
 
-// Helper to convert raw URLs into embeddable video URLs (YouTube / Google Drive)
+// Helper to convert raw URLs into embeddable video URLs (YouTube / Google Drive) 
 function getEmbedUrl(url) {
   if (!url) return "";
 
@@ -111,6 +111,7 @@ export default function InternshipCoursePage() {
   const [activeVideoTitle, setActiveVideoTitle] = useState("");
   const [activeChapterId, setActiveChapterId] = useState(null);
   const [accessibleChapters, setAccessibleChapters] = useState([]);
+  const [expandedChapterId, setExpandedChapterId] = useState(null);
 
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (u) => {
@@ -285,8 +286,9 @@ export default function InternshipCoursePage() {
 
   if (loadingUser || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-600">
-        Loading course...
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex flex-col items-center justify-center gap-4 text-gray-600">
+        <div className="w-12 h-12 border-2 border-[#00448a]/30 border-t-[#00448a] rounded-full animate-spin" />
+        <p className="text-sm font-medium">Loading course...</p>
       </div>
     );
   }
@@ -312,372 +314,427 @@ export default function InternshipCoursePage() {
 
   if (!displayCourse) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center">
-        <p className="text-gray-600 mb-4">Course not found.</p>
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex flex-col items-center justify-center gap-6 px-4">
+        <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
+          <BookOpen className="w-8 h-8 text-gray-400" />
+        </div>
+        <p className="text-gray-600 font-medium">Course not found.</p>
         <button
           onClick={() => router.back()}
-          className="px-4 py-2 rounded-lg bg-[#00448a] text-white"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#00448a] text-white font-medium hover:bg-[#003a76] transition-colors"
         >
-          Go Back
+          <ArrowLeft className="w-4 h-4" />
+          Go back
         </button>
       </div>
     );
   }
 
+  const unlockedCount = displayChapters.filter((ch) =>
+    isDummyChapters || accessibleChapters.includes(ch.id)
+  ).length;
+  const totalChapters = displayChapters.length;
+  const progressPct = totalChapters > 0 ? Math.round((unlockedCount / totalChapters) * 100) : 0;
+
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
-      <div className="max-w-5xl mx-auto space-y-6">
+    <div className="min-h-screen bg-[#f8fafc]">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        {/* Back */}
         <button
           onClick={() => router.back()}
-          className="inline-flex items-center text-sm text-[#00448a] hover:underline"
+          className="inline-flex items-center gap-2 text-sm font-medium text-[#00448a] hover:text-[#003a76] mb-6 px-3 py-2 -ml-2 rounded-xl hover:bg-[#00448a]/8 transition-all duration-200"
         >
-          <ArrowLeft className="w-4 h-4 mr-1" />
+          <ArrowLeft className="w-4 h-4" />
           Back to Internship Courses
         </button>
 
-        <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-5 sm:p-7">
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-full bg-[#00448a]/10 flex items-center justify-center">
-              <BookOpen className="w-5 h-5 text-[#00448a]" />
+        {/* Hero with circular progress */}
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#00448a] via-[#003366] to-[#002244] shadow-[0_8px_30px_rgba(0,68,138,0.25)] p-6 sm:p-8 mb-8">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(255,255,255,0.12),transparent)]" />
+          <div className="absolute top-0 right-0 w-72 h-72 bg-white/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+          <div className="absolute bottom-0 left-0 w-56 h-56 bg-white/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
+          <div className="relative flex flex-col sm:flex-row sm:items-center gap-6 sm:gap-8">
+            <div className="flex items-center gap-5 flex-1 min-w-0">
+              <div className="relative flex-shrink-0">
+                <svg className="w-20 h-20 -rotate-90" viewBox="0 0 36 36">
+                  <path
+                    fill="none"
+                    stroke="rgba(255,255,255,0.2)"
+                    strokeWidth="2.5"
+                    d="M18 2.5 a 15.5 15.5 0 0 1 0 31 a 15.5 15.5 0 0 1 0 -31"
+                  />
+                  <path
+                    fill="none"
+                    stroke="white"
+                    strokeWidth="2.5"
+                    strokeDasharray={`${progressPct}, 100`}
+                    strokeLinecap="round"
+                    d="M18 2.5 a 15.5 15.5 0 0 1 0 31 a 15.5 15.5 0 0 1 0 -31"
+                    className="transition-all duration-700 ease-out"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-lg font-bold text-white">{progressPct}%</span>
+                </div>
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white tracking-tight">
+                  {displayCourse.title || "Untitled Course"}
+                </h1>
+                {displayCourse.description && (
+                  <p className="mt-1 text-sm sm:text-base text-white/90 leading-relaxed line-clamp-2">
+                    {displayCourse.description}
+                  </p>
+                )}
+                {displayCourse.courseCode && (
+                  <p className="mt-2 text-xs font-medium text-white/60 uppercase tracking-wider">
+                    {displayCourse.courseCode}
+                  </p>
+                )}
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-1">
-                {displayCourse.title || "Untitled Course"}
-              </h1>
-              {displayCourse.description && (
-                <p className="text-sm text-gray-600">{displayCourse.description}</p>
-              )}
-              {displayCourse.courseCode && (
-                <p className="mt-1 text-xs text-gray-500">
-                  Code: {displayCourse.courseCode}
-                </p>
-              )}
+            <div className="flex-shrink-0 flex items-center gap-3 px-5 py-2.5 rounded-full bg-white/12 backdrop-blur-sm border border-white/10 text-white">
+              <span className="text-2xl font-bold">{unlockedCount}</span>
+              <span className="text-white/70 text-sm">/ {totalChapters} chapters</span>
             </div>
+          </div>
+          {/* Progress bar under hero */}
+          <div className="relative mt-6 h-1.5 rounded-full bg-white/15 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-white/90 transition-all duration-700 ease-out"
+              style={{ width: `${progressPct}%` }}
+            />
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-5 sm:p-7 space-y-6">
-          <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Chapters</h2>
-            <div className="space-y-3">
+        {/* Section title */}
+        <div className="flex items-center gap-3 mb-5">
+          <div className="h-px flex-1 max-w-[60px] bg-gray-300 rounded-full" />
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-gray-500">Course content</h2>
+          <div className="h-px flex-1 bg-gray-200 rounded-full" />
+        </div>
+        <div className="relative space-y-0">
               {displayChapters.map((ch, idx) => {
                 const dayNumber =
                   typeof ch.order === "number" ? ch.order : idx + 1;
                 const dayTests = progressTests.filter(
                   (t) => typeof t.day === "number" && t.day === dayNumber
                 );
-                // Dummy chapters: all accessible; otherwise use unlocks / chapterAccess
                 const hasAccess =
                   isDummyChapters || accessibleChapters.includes(ch.id);
+                const isLast = idx === displayChapters.length - 1;
 
                 return (
-                <div
-                  key={ch.id}
-                  className={`border rounded-lg p-3 sm:p-4 flex flex-col gap-2 ${
-                    hasAccess ? "border-gray-200 bg-white" : "border-gray-200 bg-gray-50 opacity-80"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm sm:text-base font-semibold text-gray-900">
-                        {ch.title || "Untitled Chapter"}
-                      </h3>
-                      {!hasAccess && (
-                        <p className="mt-0.5 text-[11px] font-medium text-red-600">
-                          Locked – wait for your trainer to unlock this day.
-                        </p>
-                      )}
-                      {ch.topics && (
-                        <p className="mt-1 text-xs sm:text-sm text-gray-600 whitespace-pre-line">
-                          {ch.topics}
-                        </p>
-                      )}
+                <div key={ch.id} className="relative flex gap-0">
+                  {/* Timeline line (connects circles) */}
+                  {!isLast && (
+                    <div className="absolute left-[19px] top-10 bottom-0 w-0.5 bg-gradient-to-b from-gray-300 to-gray-200 z-0" />
+                  )}
+                  <div className="flex-shrink-0 w-10 flex flex-col items-center pt-1">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ring-4 ring-[#f8fafc] z-10 ${
+                      hasAccess ? "bg-[#00448a] text-white shadow-md shadow-[#00448a]/25" : "bg-gray-300 text-gray-500"
+                    }`}>
+                      {typeof ch.order !== "undefined" ? ch.order : idx + 1}
                     </div>
-                    {typeof ch.order !== "undefined" && (
-                      <span className="text-[11px] px-2 py-1 rounded-full bg-gray-50 border text-gray-500">
-                        #{ch.order}
-                      </span>
-                    )}
                   </div>
+                  <div className={`flex-1 min-w-0 pl-4 sm:pl-5 pb-6 ${!isLast ? "pb-8" : ""}`}>
+                    <div
+                      className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
+                        hasAccess
+                          ? "bg-white border-gray-200/90 shadow-sm hover:shadow-lg hover:border-[#00448a]/20"
+                          : "bg-white/60 border-gray-200"
+                      } ${expandedChapterId === ch.id ? "ring-2 ring-[#00448a]/20" : ""}`}
+                    >
+                      {/* Clickable header: day + title (always visible) */}
+                      <button
+                        type="button"
+                        onClick={() => setExpandedChapterId((id) => (id === ch.id ? null : ch.id))}
+                        className="w-full text-left p-4 sm:p-5 flex items-center gap-3 hover:bg-gray-50/80 transition-colors rounded-t-2xl"
+                      >
+                        <span className="flex-shrink-0 text-gray-400">
+                          {expandedChapterId === ch.id ? (
+                            <ChevronDown className="w-5 h-5" />
+                          ) : (
+                            <ChevronRight className="w-5 h-5" />
+                          )}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-base sm:text-lg font-bold text-gray-900">
+                              {ch.title || "Untitled Chapter"}
+                            </h3>
+                            {!hasAccess && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200/80">
+                                <Lock className="w-3.5 h-3.5" />
+                                Locked
+                              </span>
+                            )}
+                          </div>
+                          {!hasAccess && (
+                            <p className="mt-1 text-sm text-gray-500">
+                              Your trainer will unlock this chapter when ready.
+                            </p>
+                          )}
+                        </div>
+                        <span className="text-xs font-medium text-gray-400 flex-shrink-0">
+                          {expandedChapterId === ch.id ? "Hide details" : "View details"}
+                        </span>
+                      </button>
 
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {/* Topic / chapter video (inline player under this chapter) */}
-                    {hasAccess && ch.video && (
+                      {/* Expanded content: topics, resources, video, tests */}
+                      {expandedChapterId === ch.id && (
+                      <div className={`px-4 sm:px-5 pb-5 pt-0 ${hasAccess ? "" : "opacity-90"}`}>
+                        {ch.topics && (
+                          <p className="mb-4 text-sm text-gray-600 leading-relaxed whitespace-pre-line">
+                            {ch.topics}
+                          </p>
+                        )}
+
+                        {hasAccess && (
+                          <div className="mt-5 pt-5 border-t border-gray-100">
+                            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Resources</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {ch.video && (
                       <button
                         type="button"
                         onClick={() => {
                           const embed = getEmbedUrl(ch.video);
                           if (!embed) return;
-                          // Toggle: if the same video is already open, close it
-                          if (
-                            activeChapterId === ch.id &&
-                            activeVideoUrl === embed
-                          ) {
+                          if (activeChapterId === ch.id && activeVideoUrl === embed) {
                             setActiveVideoUrl("");
                             setActiveVideoTitle("");
                             setActiveChapterId(null);
                           } else {
                             setActiveVideoUrl(embed);
-                            setActiveVideoTitle(
-                              ch.title || displayCourse.title || "Topic Video"
-                            );
+                            setActiveVideoTitle(ch.title || displayCourse.title || "Topic Video");
                             setActiveChapterId(ch.id);
                           }
                         }}
-                        className="inline-flex items-center px-3 py-1.5 text-xs rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                        className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200/80 hover:bg-emerald-100 hover:border-emerald-300 transition-all"
                       >
-                        <Play className="w-3 h-3 mr-1" />
+                        <Video className="w-4 h-4 flex-shrink-0" />
                         Topic Video
                       </button>
                     )}
-
-                      {/* PPT from dedicated PPT URL (Google Slides) */}
-                      {hasAccess && ch.pptUrl && (
+                    {ch.pptUrl && (
                         <button
                           type="button"
                           onClick={() => {
-                            const url = `/view-ppt?url=${encodeURIComponent(
-                              ch.pptUrl
-                            )}&title=${encodeURIComponent(
-                              ch.title || displayCourse.title || "Presentation"
-                            )}`;
-                            router.push(url);
+                            router.push(`/view-ppt?url=${encodeURIComponent(ch.pptUrl)}&title=${encodeURIComponent(ch.title || displayCourse.title || "Presentation")}`);
                           }}
-                          className="inline-flex items-center px-3 py-1.5 text-xs rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
+                          className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium rounded-xl bg-blue-50 text-blue-700 border border-blue-200/80 hover:bg-blue-100 hover:border-blue-300 transition-all"
                         >
-                          <FileText className="w-3 h-3 mr-1" />
-                          View PPT
+                          <Presentation className="w-4 h-4 flex-shrink-0" />
+                          PPT
                         </button>
                     )}
-
-                      {/* PDF from Google Drive URL (secure PDF viewer) */}
-                    {hasAccess && ch.pdfDocument && (
+                    {ch.pdfDocument && (
                         <button
                           type="button"
                           onClick={() => {
-                            const url = `/view-pdf-secure?url=${encodeURIComponent(
-                              ch.pdfDocument
-                            )}&title=${encodeURIComponent(
-                              ch.title || displayCourse.title || "PDF Document"
-                            )}`;
-                            router.push(url);
+                            router.push(`/view-pdf-secure?url=${encodeURIComponent(ch.pdfDocument)}&title=${encodeURIComponent(ch.title || displayCourse.title || "PDF Document")}`);
                           }}
-                          className="inline-flex items-center px-3 py-1.5 text-xs rounded-full bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
+                          className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium rounded-xl bg-rose-50 text-rose-700 border border-rose-200/80 hover:bg-rose-100 hover:border-rose-300 transition-all"
                       >
-                        <FileText className="w-3 h-3 mr-1" />
-                        View PDF
+                        <FileText className="w-4 h-4 flex-shrink-0" />
+                        PDF
                         </button>
                     )}
-
-                      {/* Live class link (Zoom / Meet) */}
-                      {hasAccess && ch.liveClassLink && (
+                    {ch.liveClassLink && (
                       <a
-                          href={ch.liveClassLink}
+                        href={ch.liveClassLink}
                         target="_blank"
                         rel="noreferrer"
-                          className="inline-flex items-center px-3 py-1.5 text-xs rounded-full bg-green-50 text-green-700 border border-green-200 hover:bg-green-100"
+                        className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium rounded-xl bg-green-50 text-green-700 border border-green-200/80 hover:bg-green-100 hover:border-green-300 transition-all"
                       >
-                        <FileText className="w-3 h-3 mr-1" />
-                          Live Class
+                        <ExternalLink className="w-4 h-4 flex-shrink-0" />
+                        Live Class
                       </a>
                     )}
-
-                      {/* Recorded class video (inline player under this chapter) */}
-                      {hasAccess && ch.recordedClassLink && (
+                    {ch.recordedClassLink && (
                         <button
                           type="button"
                           onClick={() => {
                             const embed = getEmbedUrl(ch.recordedClassLink);
                             if (!embed) return;
-                            // Toggle: if the same recorded video is already open, close it
-                            if (
-                              activeChapterId === ch.id &&
-                              activeVideoUrl === embed
-                            ) {
+                            if (activeChapterId === ch.id && activeVideoUrl === embed) {
                               setActiveVideoUrl("");
                               setActiveVideoTitle("");
                               setActiveChapterId(null);
                             } else {
                               setActiveVideoUrl(embed);
-                              setActiveVideoTitle(
-                                `${ch.title || displayCourse.title || "Class"} - Recorded`
-                              );
+                              setActiveVideoTitle(`${ch.title || displayCourse.title || "Class"} - Recorded`);
                               setActiveChapterId(ch.id);
                             }
                           }}
-                          className="inline-flex items-center px-3 py-1.5 text-xs rounded-full bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100"
+                          className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium rounded-xl bg-amber-50 text-amber-700 border border-amber-200/80 hover:bg-amber-100 hover:border-amber-300 transition-all"
                         >
-                          <Play className="w-3 h-3 mr-1" />
-                          Recorded Class
+                          <Play className="w-4 h-4 flex-shrink-0" />
+                          Recorded
                         </button>
                       )}
-
-                      {/* Extra docs / class slides – open via secure PPT viewer */}
-                      {hasAccess && ch.classDocs && (
+                    {ch.classDocs && (
                         <button
                           type="button"
                           onClick={() => {
-                            const url = `/view-ppt?url=${encodeURIComponent(
-                              ch.classDocs
-                            )}&title=${encodeURIComponent(
-                              ch.title || displayCourse.title || "Class Docs"
-                            )}`;
-                            router.push(url);
+                            router.push(`/view-ppt?url=${encodeURIComponent(ch.classDocs)}&title=${encodeURIComponent(ch.title || displayCourse.title || "Class Docs")}`);
                           }}
-                          className="inline-flex items-center px-3 py-1.5 text-xs rounded-full bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100"
+                          className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium rounded-xl bg-violet-50 text-violet-700 border border-violet-200/80 hover:bg-violet-100 hover:border-violet-300 transition-all"
                       >
-                        <FileText className="w-3 h-3 mr-1" />
+                        <FileText className="w-4 h-4 flex-shrink-0" />
                         Class Docs
                         </button>
                     )}
-
-                      {/* Reference Document (trainer-uploaded) - Always use secure PDF viewer */}
-                      {hasAccess && ch.referenceDocument && (
+                    {ch.referenceDocument && (
                         <button
                           type="button"
                           onClick={() => {
-                            // Always use secure PDF viewer for reference documents
-                            const docUrl = ch.referenceDocument;
-                            const url = `/view-pdf-secure?url=${encodeURIComponent(
-                              docUrl
-                            )}&title=${encodeURIComponent(
-                              `${ch.title || displayCourse.title || "Reference"} - Reference Document`
-                            )}`;
+                            const url = `/view-pdf-secure?url=${encodeURIComponent(ch.referenceDocument)}&title=${encodeURIComponent(`${ch.title || displayCourse.title || "Reference"} - Reference Document`)}`;
                             router.push(url);
                           }}
-                          className="inline-flex items-center px-3 py-1.5 text-xs rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                          className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200/80 hover:bg-indigo-100 hover:border-indigo-300 transition-all"
                         >
-                          <FileText className="w-3 h-3 mr-1" />
-                          Reference Document
+                          <FileText className="w-4 h-4 flex-shrink-0" />
+                          Reference
                         </button>
                       )}
-                  </div>
-
-                  {/* Inline video player directly under this chapter */}
-                  {hasAccess && activeVideoUrl && activeChapterId === ch.id && (
-                    <div className="mt-3 w-full">
-                      <h4 className="text-xs sm:text-sm font-semibold text-gray-800 mb-1">
-                        {activeVideoTitle}
-                      </h4>
-                      <div className="aspect-video w-full rounded-xl overflow-hidden bg-black">
-                        <iframe
-                          src={activeVideoUrl}
-                          title={activeVideoTitle}
-                          className="w-full h-full border-0"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                          allowFullScreen
-                        />
-                  </div>
-                </div>
-                  )}
-                  
-                  {/* Day-wise progress tests for this chapter */}
-                  {hasAccess && dayTests.length > 0 && (
-                    <div className="mt-3 space-y-2">
-                      {dayTests.map((test) => {
-                        const submission = progressTestSubmissions[test.id] || null;
-                        const isSubmitted = !!submission;
-                        
-                        return (
-                          <div key={test.id} className="space-y-1.5">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const slug = createCourseUrl(displayCourse.title || "");
-                                if (!slug) return;
-                                const params = new URLSearchParams({ courseId, internshipId });
-                                router.push(`/courses/${slug}/assignments/${test.id}?${params.toString()}`);
-                              }}
-                              className="inline-flex items-center px-3 py-1.5 text-xs rounded-full bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100"
-                            >
-                              <Radio className="w-3 h-3 mr-1" />
-                              {test.title || test.name || `Progress Test (Day ${dayNumber})`}
-                              {isSubmitted && (
-                                <span className="ml-1 px-1.5 py-0.5 bg-green-500 rounded-full text-[10px] font-medium text-white">
-                                  ✓
-                                </span>
-                              )}
-                            </button>
-                            
-                            {/* Show submission results at a glance */}
-                            {isSubmitted && (
-                              <div className="bg-green-50 border border-green-200 rounded-lg p-2 sm:p-2.5 space-y-1">
-                                <div className="text-xs font-medium text-green-800">
-                                  Submission Results:
-                                </div>
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-gray-700 font-medium truncate flex-1 mr-2">
-                                    {test.title || test.name || "Progress Test"}
-                                  </span>
-                                  <div className="flex items-center gap-2 flex-shrink-0">
-                                    {typeof submission.autoScore === 'number' && (
-                                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                        submission.autoScore >= 80 ? 'bg-green-100 text-green-800' :
-                                        submission.autoScore >= 50 ? 'bg-yellow-100 text-yellow-800' :
-                                        'bg-red-100 text-red-800'
-                                      }`}>
-                                        {submission.autoScore}%
-                                      </span>
-                                    )}
-                                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                                      submission.resultStatus === 'success' ? 'bg-green-200 text-green-800' :
-                                      submission.resultStatus === 'partial' ? 'bg-yellow-200 text-yellow-800' :
-                                      submission.resultStatus === 'fail' ? 'bg-red-200 text-red-800' :
-                                      'bg-blue-200 text-blue-800'
-                                    }`}>
-                                      {submission.resultStatus === 'success' ? 'Completed' :
-                                       submission.resultStatus === 'partial' ? 'Partial' :
-                                       submission.resultStatus === 'fail' ? 'Failed' : 'Submitted'}
-                                    </span>
-                                  </div>
-                                </div>
-                                {submission.testSummary && (
-                                  <div className="text-xs text-gray-600">
-                                    Tests: {submission.testSummary.passCount}/{submission.testSummary.totalCount} passed
-                                  </div>
-                                )}
-                                <div className="text-xs text-gray-500">
-                                  Submitted: {submission.submittedAt?.toLocaleDateString?.() || 'N/A'}
-                                </div>
-                              </div>
-                            )}
+                            </div>
                           </div>
-                        );
-                      })}
+                        )}
+
+                        {/* Inline video player */}
+                        {hasAccess && activeVideoUrl && activeChapterId === ch.id && (
+                          <div className="px-4 sm:px-5 pb-5">
+                            <div className="rounded-xl overflow-hidden border border-gray-200 bg-gray-900 shadow-xl ring-1 ring-black/10">
+                              <div className="px-4 py-2.5 bg-gray-800 flex items-center justify-between">
+                                <span className="text-sm font-medium text-white truncate">{activeVideoTitle}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => { setActiveVideoUrl(""); setActiveVideoTitle(""); setActiveChapterId(null); }}
+                                  className="text-gray-400 hover:text-white text-sm font-medium px-2 py-1 rounded-lg hover:bg-white/10 transition-colors"
+                                >
+                                  Close
+                                </button>
+                              </div>
+                              <div className="aspect-video w-full relative">
+                                <iframe
+                                  src={activeVideoUrl}
+                                  title={activeVideoTitle}
+                                  className="w-full h-full border-0"
+                                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                  allowFullScreen
+                                />
+                                {/* Overlay to hide embed's top-right external link / "Watch on YouTube" icon */}
+                                <div
+                                  className="absolute top-0 right-0 w-14 h-12 bg-white/1 pointer-events-auto"
+                                  aria-hidden="true"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Day-wise progress tests */}
+                        {hasAccess && dayTests.length > 0 && (
+                          <div className="px-4 sm:px-5 pb-5">
+                            <div className="pt-4 border-t border-gray-100">
+                              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Progress tests</p>
+                              <div className="space-y-2">
+                                {dayTests.map((test) => {
+                                  const submission = progressTestSubmissions[test.id] || null;
+                                  const isSubmitted = !!submission;
+                                  return (
+                                    <div key={test.id} className="rounded-xl border border-gray-200 bg-gray-50/80 overflow-hidden hover:border-[#00448a]/20 transition-colors">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const slug = createCourseUrl(displayCourse.title || "");
+                                          if (!slug) return;
+                                          const params = new URLSearchParams({ courseId, internshipId });
+                                          router.push(`/courses/${slug}/assignments/${test.id}?${params.toString()}`);
+                                        }}
+                                        className="w-full text-left px-4 py-3 flex items-center justify-between gap-3 hover:bg-white/50 transition-colors"
+                                      >
+                                        <span className="inline-flex items-center gap-2 text-sm font-medium text-gray-900">
+                                          <Radio className="w-4 h-4 text-[#00448a]" />
+                                          {test.title || test.name || `Progress Test (Day ${dayNumber})`}
+                                        </span>
+                                        {isSubmitted ? (
+                                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-green-100 text-green-800">
+                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                            Done
+                                          </span>
+                                        ) : (
+                                          <span className="text-xs font-semibold text-[#00448a]">Attempt →</span>
+                                        )}
+                                      </button>
+                                      {isSubmitted && (
+                                        <div className="px-4 py-2.5 bg-white border-t border-gray-100 flex flex-wrap items-center gap-2 text-xs">
+                                          {typeof submission.autoScore === "number" && (
+                                            <span className={`px-2 py-0.5 rounded-lg font-semibold ${
+                                              submission.autoScore >= 80 ? "text-green-700 bg-green-50" :
+                                              submission.autoScore >= 50 ? "text-amber-700 bg-amber-50" :
+                                              "text-red-700 bg-red-50"
+                                            }`}>
+                                              {submission.autoScore}%
+                                            </span>
+                                          )}
+                                          <span className="text-gray-500">
+                                            {submission.resultStatus === "success" ? "Completed" :
+                                             submission.resultStatus === "partial" ? "Partial" :
+                                             submission.resultStatus === "fail" ? "Failed" : "Submitted"}
+                                          </span>
+                                          {submission.testSummary && (
+                                            <span className="text-gray-500">
+                                              · {submission.testSummary.passCount}/{submission.testSummary.totalCount} passed
+                                            </span>
+                                          )}
+                                          <span className="text-gray-400">
+                                            {submission.submittedAt?.toLocaleDateString?.() || "N/A"}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               );
               })}
+        </div>
+
+        {/* Full MCQ practice */}
+        {displayCourse?.title && (
+          <div className="mt-10 p-6 sm:p-7 rounded-2xl border border-gray-200/90 bg-white shadow-md">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-1">Full MCQ practice</h3>
+                <p className="text-sm text-gray-500">
+                  Practice all questions for this course in one place.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const slug = createCourseUrl(displayCourse.title || "");
+                  if (!slug) return;
+                  router.push(`/practice/${slug}`);
+                }}
+                className="inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-semibold rounded-xl bg-[#00448a] text-white hover:bg-[#003a76] shadow-md shadow-[#00448a]/20 hover:shadow-lg hover:shadow-[#00448a]/25 transition-all"
+              >
+                <Radio className="w-4 h-4" />
+                Open MCQ practice
+              </button>
             </div>
           </div>
-
-          {/* Full MCQ practice for this course */}
-          {displayCourse && displayCourse.title && (
-            <div className="pt-4 border-t border-gray-100">
-              <h3 className="text-base font-semibold text-gray-900 mb-3">
-                Full MCQ Practice
-              </h3>
-              <p className="text-xs sm:text-sm text-gray-500 mb-3">
-                Use this link to attempt full MCQ practice for this course.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const slug = createCourseUrl(displayCourse.title || "");
-                    if (!slug) return;
-                    router.push(`/practice/${slug}`);
-                  }}
-                  className="inline-flex items-center px-3 py-1.5 text-xs rounded-full bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100"
-                >
-                  <Radio className="w-3 h-3 mr-1" />
-                  Full MCQ Practice
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );

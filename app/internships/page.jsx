@@ -13,43 +13,18 @@ import {
   ArrowRightIcon,
 } from "@heroicons/react/24/solid";
 
-const INTERNSHIP_PROGRAMS = [
-  {
-    id: "python",
-    title: "Python",
-    description: "Hands-on Python internship covering fundamentals, OOP, Django/Flask, and real-world projects.",
-    icon: CodeBracketIcon,
-    duration: "3-6 months",
-    gradient: "from-amber-100 via-orange-50 to-white",
-    iconBg: "bg-amber-400/90",
-  },
-  {
-    id: "java-fullstack",
-    title: "Java Full Stack",
-    description: "End-to-end Java Full Stack internship: Core Java, Spring Boot, React, and database integration.",
-    icon: CodeBracketIcon,
-    duration: "4-6 months",
-    gradient: "from-rose-100 via-pink-50 to-white",
-    iconBg: "bg-rose-400/90",
-  },
-  {
-    id: "data-science",
-    title: "Data Science",
-    description: "Data Science internship with Python, statistics, ML, and visualization using real datasets.",
-    icon: ChartBarIcon,
-    duration: "3-6 months",
-    gradient: "from-sky-100 via-blue-50 to-white",
-    iconBg: "bg-sky-500/90",
-  },
-  {
-    id: "data-analytics",
-    title: "Data Analytics",
-    description: "Data Analytics internship: SQL, Excel, Power BI/Tableau, and business reporting.",
-    icon: Squares2X2Icon,
-    duration: "2-4 months",
-    gradient: "from-emerald-100 via-green-50 to-white",
-    iconBg: "bg-emerald-500/90",
-  },
+const ICON_MAP = {
+  code: CodeBracketIcon,
+  chart: ChartBarIcon,
+  squares: Squares2X2Icon,
+};
+
+// Fallback when Firebase has no programs or on error
+const FALLBACK_PROGRAMS = [
+  { id: "python", title: "Python", description: "Hands-on Python internship covering fundamentals, OOP, Django/Flask, and real-world projects.", icon: CodeBracketIcon, duration: "3-6 months", gradient: "from-amber-100 via-orange-50 to-white", iconBg: "bg-amber-400/90" },
+  { id: "java-fullstack", title: "Java Full Stack", description: "End-to-end Java Full Stack internship: Core Java, Spring Boot, React, and database integration.", icon: CodeBracketIcon, duration: "4-6 months", gradient: "from-rose-100 via-pink-50 to-white", iconBg: "bg-rose-400/90" },
+  { id: "data-science", title: "Data Science", description: "Data Science internship with Python, statistics, ML, and visualization using real datasets.", icon: ChartBarIcon, duration: "3-6 months", gradient: "from-sky-100 via-blue-50 to-white", iconBg: "bg-sky-500/90" },
+  { id: "data-analytics", title: "Data Analytics", description: "Data Analytics internship: SQL, Excel, Power BI/Tableau, and business reporting.", icon: Squares2X2Icon, duration: "2-4 months", gradient: "from-emerald-100 via-green-50 to-white", iconBg: "bg-emerald-500/90" },
 ];
 
 // Dummy courses per program (shown when Firestore has no courses)
@@ -85,38 +60,115 @@ const DUMMY_COURSES_BY_PROGRAM = {
 
 export default function InternshipsPage() {
   const router = useRouter();
+  const [programs, setPrograms] = useState([]);
+  const [loadingPrograms, setLoadingPrograms] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedProgram, setSelectedProgram] = useState(null);
   const [courses, setCourses] = useState([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
   const [studentChapterAccess, setStudentChapterAccess] = useState({});
+  const [studentDocId, setStudentDocId] = useState(null);
+  const [assignedProgramIds, setAssignedProgramIds] = useState([]);
 
-  // Resolve student doc for chapterAccess (progress)
+  // Fetch internship programs from Firebase (collection: internships, each doc = one program)
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingPrograms(true);
+    getDocs(collection(db, "internships"))
+      .then((snap) => {
+        if (cancelled) return;
+        const list = snap.docs
+          .map((d) => {
+            const data = d.data() || {};
+            const iconKey = data.iconKey || "code";
+            return {
+              id: d.id,
+              title: data.title || data.name || d.id,
+              description: data.description || "",
+              duration: data.duration || "",
+              gradient: data.gradient || "from-slate-100 to-white",
+              iconBg: data.iconBg || "bg-slate-400/90",
+              icon: ICON_MAP[iconKey] || CodeBracketIcon,
+              order: typeof data.order === "number" ? data.order : 999,
+            };
+          })
+          .filter((p) => p.id);
+        list.sort((a, b) => a.order - b.order);
+        setPrograms(list);
+      })
+      .catch(() => {
+        if (!cancelled) setPrograms([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPrograms(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Resolve student doc for chapterAccess and studentDocId (for assigned-internship check)
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setStudentChapterAccess({});
+        setStudentDocId(null);
         return;
       }
       try {
         const q = query(collection(db, "students"), where("uid", "==", user.uid));
         const snap = await getDocs(q);
         if (!snap.empty) {
-          const data = snap.docs[0].data();
-          setStudentChapterAccess(data.chapterAccess || {});
+          const docRef = snap.docs[0];
+          setStudentChapterAccess(docRef.data().chapterAccess || {});
+          setStudentDocId(docRef.id);
         } else {
           const byUid = doc(db, "students", user.uid);
           const byUidSnap = await getDoc(byUid);
-          if (byUidSnap.exists())
+          if (byUidSnap.exists()) {
             setStudentChapterAccess(byUidSnap.data().chapterAccess || {});
-          else setStudentChapterAccess({});
+            setStudentDocId(byUidSnap.id);
+          } else {
+            setStudentChapterAccess({});
+            setStudentDocId(null);
+          }
         }
       } catch {
         setStudentChapterAccess({});
+        setStudentDocId(null);
       }
     });
     return () => unsub();
   }, []);
+
+  // When student is logged in, find which internship program(s) they are assigned to
+  useEffect(() => {
+    if (!studentDocId) {
+      setAssignedProgramIds([]);
+      return;
+    }
+    const programList = programs.length > 0 ? programs : FALLBACK_PROGRAMS;
+    const ids = programList.map((p) => p.id);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    Promise.all(
+      ids.map(async (programId) => {
+        try {
+          const snap = await getDocs(
+            query(
+              collection(db, "internships", programId, "students"),
+              where("studentId", "==", studentDocId)
+            )
+          );
+          return snap.empty ? null : programId;
+        } catch {
+          return null;
+        }
+      })
+    ).then((results) => {
+      if (cancelled) return;
+      setAssignedProgramIds(results.filter(Boolean));
+    });
+    return () => { cancelled = true; };
+  }, [studentDocId, programs]);
 
   // When modal opens for a program, fetch its courses and progress
   useEffect(() => {
@@ -220,14 +272,33 @@ export default function InternshipsPage() {
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {INTERNSHIP_PROGRAMS.map((program) => {
-              const Icon = program.icon;
-              return (
-                <div
+            {loadingPrograms ? (
+              [...Array(4)].map((_, i) => (
+                <div key={i} className="flex flex-col bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden animate-pulse">
+                  <div className="h-36 bg-gray-200" />
+                  <div className="p-5 space-y-3">
+                    <div className="h-4 bg-gray-200 rounded w-3/4" />
+                    <div className="h-3 bg-gray-100 rounded w-full" />
+                    <div className="h-3 bg-gray-100 rounded w-full" />
+                    <div className="h-10 bg-gray-200 rounded-xl mt-4" />
+                  </div>
+                </div>
+              ))
+            ) : (
+              (programs.length > 0 ? programs : FALLBACK_PROGRAMS).map((program) => {
+                const Icon = program.icon;
+                const isAssigned = assignedProgramIds.includes(program.id);
+                return (
+                  <div
                   key={program.id}
                   onClick={() => openModal(program)}
-                  className="group flex flex-col bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
+                  className="group relative flex flex-col bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
                 >
+                  {isAssigned && (
+                    <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-full bg-[#00448a] text-white text-[11px] font-semibold shadow-md whitespace-nowrap">
+                      Your current internship
+                    </div>
+                  )}
                   <div className={`bg-gradient-to-b ${program.gradient} px-5 pt-6 pb-5`}>
                     <div className={`w-12 h-12 rounded-xl ${program.iconBg} flex items-center justify-center mb-4`}>
                       <Icon className="w-6 h-6 text-white" />
@@ -250,9 +321,10 @@ export default function InternshipsPage() {
                       <span className="group-hover:translate-x-0.5 transition-transform">→</span>
                     </button>
                   </div>
-                </div>
-              );
-            })}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -291,12 +363,27 @@ export default function InternshipsPage() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     {courses.map((course) => {
                       const title = course.title || course.name || course.id;
+                      const total = course.totalChapters ?? 0;
+                      const done = course.openedChapters ?? 0;
+                      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
                       return (
                         <div
                           key={course.id}
                           className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col"
                         >
-                          <h3 className="text-base font-bold text-gray-900 mb-4">{title}</h3>
+                          <h3 className="text-base font-bold text-gray-900 mb-2">{title}</h3>
+                          <div className="mb-3">
+                            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                              <span>{done} / {total} classes</span>
+                              <span>{pct}%</span>
+                            </div>
+                            <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-[#00448a] rounded-full transition-all duration-300"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
                           <div className="flex items-center justify-between gap-2 mt-auto">
                             <button
                               onClick={(e) => {

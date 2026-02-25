@@ -2,6 +2,23 @@ import { NextResponse } from "next/server";
 import { toE164 } from "@/lib/otpStore";
 
 const WABA_TOKEN = process.env.WHATSAPP_CLOUD_API_TOKEN;
+
+// Sanitize template parameter for WhatsApp (avoid error 132018)
+const MAX_PARAM_LENGTH = 1024;
+function sanitizeTemplateParam(value, maxLen = MAX_PARAM_LENGTH) {
+  if (value == null) return "";
+  let s = String(value);
+  // BOM and other problematic chars
+  s = s.replace(/\uFEFF/g, "");
+  // Remove null bytes and control chars
+  s = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
+  // WhatsApp template body params often reject newlines – replace with space so "text\nlink" works
+  s = s.replace(/\r\n|\r|\n/g, " ");
+  // Collapse multiple spaces
+  s = s.replace(/\s{2,}/g, " ").trim();
+  if (s.length > maxLen) s = s.slice(0, maxLen);
+  return s;
+}
 const WABA_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
 export async function POST(req) {
@@ -27,9 +44,10 @@ export async function POST(req) {
 
     const templateComponents = [];
     if (Array.isArray(bodyParams) && bodyParams.length > 0) {
+      const sanitized = bodyParams.map((p) => sanitizeTemplateParam(p));
       templateComponents.push({
         type: "body",
-        parameters: bodyParams.map((p) => ({ type: "text", text: String(p) })),
+        parameters: sanitized.map((text) => ({ type: "text", text })),
       });
     }
     if (Array.isArray(buttonParams) && buttonParams.length > 0) {
@@ -88,6 +106,8 @@ export async function POST(req) {
         errorMessage = "Template does not exist or has not been approved yet.";
       } else if (data.error?.code === 131047) {
         errorMessage = "Invalid template parameters. Check template placeholders.";
+      } else if (data.error?.code === 132018) {
+        errorMessage = "Template parameter value is invalid. Ensure name and message contain only normal text (no special/control characters) and try language en_US if you use en.";
       }
 
       return NextResponse.json(

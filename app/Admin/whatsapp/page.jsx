@@ -18,7 +18,7 @@ export default function WhatsAppMessagingPage() {
   const [param2, setParam2] = useState("");
   const [sending, setSending] = useState(false);
   const [sentCount, setSentCount] = useState(0);
-
+  
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -178,12 +178,20 @@ export default function WhatsAppMessagingPage() {
   return (
     <CheckAdminAuth>
       <div className="mx-auto p-6 bg-white shadow-md rounded-md">
-        <button
-          onClick={() => router.back()}
-          className="mb-4 px-4 py-2 rounded bg-gray-500 hover:bg-gray-600 text-white"
-        >
-          ⬅ Back
-        </button>
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => router.back()}
+            className="px-4 py-2 rounded bg-gray-500 hover:bg-gray-600 text-white"
+          >
+            ⬅ Back
+          </button>
+          <button
+            onClick={() => router.push("/Admin/whatsapp/unregister")}
+            className="px-4 py-2 rounded bg-[#00448a] hover:bg-[#003a76] text-white"
+          >
+            Send to unregistered (Excel)
+          </button>
+        </div>
         <h2 className="text-2xl font-bold mb-6 text-center text-emerald-700">WhatsApp Messaging</h2>
 
         {loading ? (

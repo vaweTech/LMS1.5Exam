@@ -1373,7 +1373,7 @@ export default function ManageCRTCourses() {
                       className="border rounded-md px-3 py-2 w-full min-h-[80px] resize-y md:col-span-8"
                       value={newChapter.topics}
                       onChange={(e) =>
-                        setNewChapter((s) => ({ ...s, topics: e.target.value }))
+                        setNewChapter((s) => ({ ...s, topics: e.target.value }))  
                       }
                       placeholder={"e.g. This chapter covers:\nTopic one\nTopic two\n..."}
                     /><br/>
