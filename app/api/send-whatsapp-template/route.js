@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { toE164 } from "@/lib/otpStore";
 
+// Intentionally do not store sent messages in DB – send-only to WhatsApp Cloud API.
 const WABA_TOKEN = process.env.WHATSAPP_CLOUD_API_TOKEN;
 
 // Sanitize template parameter for WhatsApp (avoid error 132018)
@@ -41,6 +42,13 @@ export async function POST(req) {
     if (!template) return NextResponse.json({ error: "template is required" }, { status: 400 });
 
     const phoneE164 = toE164(phone);
+    // Reject invalid E.164 (e.g. +0... or too short) so we don't report "sent" when number is bad
+    if (!/^\+[1-9]\d{10,14}$/.test(phoneE164)) {
+      return NextResponse.json(
+        { error: "Invalid phone number. Use digits with country code (e.g. 91 for India, no leading 0).", phoneE164 },
+        { status: 400 }
+      );
+    }
 
     const templateComponents = [];
     if (Array.isArray(bodyParams) && bodyParams.length > 0) {

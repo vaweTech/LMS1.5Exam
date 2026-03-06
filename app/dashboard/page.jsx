@@ -37,6 +37,7 @@ import CheckAuth from "../../lib/CheckAuth";
 import { makeAuthenticatedRequest } from "@/lib/authUtils";
 import { createCourseUrl } from "../../lib/urlUtils";
 import EnquiryManager from "../../components/EnquiryManager";
+import CRTProgramView from "../../components/CRTProgramView";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -2249,6 +2250,28 @@ export default function DashboardPage() {
   // Student/Admin/Trainer Dashboard View (Non-SuperAdmin users)
   return (
     <CheckAuth>
+      {/* If CRT student, show same CRT interface here */}
+      {isCrtStudent ? (
+        <CRTProgramView
+          user={user}
+          profile={{
+            name: displayName,
+            email: user.email || "",
+            phone,
+            address: "",
+            resume: "",
+            education10: "",
+            education12: "",
+            educationDegree: "",
+            educationPg: "",
+            experience: "",
+            educationEntries: [],
+          }}
+          setProfile={() => {}}
+          showBackToDashboard={false}
+          studentDocId={studentDocId}
+        />
+      ) : (
       <div className="min-h-screen bg-gradient-to-br from-[#fdc377]/30 via-[#26ebe5]/20 to-[#00448a]/10 p-4 sm:p-6 lg:p-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 sm:mb-10 space-y-4 sm:space-y-0">
@@ -4114,6 +4137,7 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+      )}
     </CheckAuth>
   );
 }

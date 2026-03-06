@@ -1,9 +1,10 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import CheckAuth from "../../lib/CheckAuth";
-import { CRT_PROGRAMS_DATA, CRT_COMMON_200HR, CRT_TECHNICAL_200HR } from "../../lib/crtProgramsData";
+import { db, firestoreHelpers } from "../../lib/firebase";
+import { createSlug } from "../../lib/urlUtils";
 import {
   CodeBracketIcon,
   CpuChipIcon,
@@ -14,15 +15,65 @@ import {
 
 const ICON_MAP = { code: CodeBracketIcon, cpu: CpuChipIcon };
 
-const CRT_PROGRAMS = CRT_PROGRAMS_DATA.map((p) => ({
-  ...p,
-  icon: ICON_MAP[p.iconKey] || CodeBracketIcon,
-}));
+const STYLE_BY_ICON = {
+  code: { iconBg: "bg-red-100", iconColor: "text-red-600", bg: "bg-red-50" },
+  cpu: { iconBg: "bg-violet-100", iconColor: "text-violet-600", bg: "bg-violet-50" },
+};
+
+function mapCrtToProgram(doc) {
+  const d = doc.data();
+  const id = doc.id;
+  const iconKey = d.iconKey === "cpu" ? "cpu" : "code";
+  const style = STYLE_BY_ICON[iconKey] || STYLE_BY_ICON.code;
+  const totalHours = typeof d.totalHours === "number" ? d.totalHours : 400;
+  const commonHours = typeof d.commonHours === "number" ? d.commonHours : 200;
+  const technicalHours = typeof d.technicalHours === "number" ? d.technicalHours : 200;
+  const commonCourses = Array.isArray(d.commonCourses) ? d.commonCourses : [];
+  const technicalCourses = Array.isArray(d.technicalCourses) ? d.technicalCourses : [];
+  return {
+    id,
+    title: d.name || id,
+    description: d.description || "",
+    duration: d.duration || "12–16 weeks",
+    image: d.image || "/LmsImg.jpg",
+    iconKey,
+    icon: ICON_MAP[iconKey] || CodeBracketIcon,
+    ...style,
+    totalHours,
+    commonHours,
+    commonLabel: d.commonLabel || "Non-technical",
+    commonCourses,
+    technicalHours,
+    technicalCourses,
+  };
+}
 
 export default function CRTPage() {
   const router = useRouter();
   const [imageErrors, setImageErrors] = useState({});
   const [expandedId, setExpandedId] = useState(null);
+  const [crts, setCrts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await firestoreHelpers.getDocs(
+          firestoreHelpers.collection(db, "crt")
+        );
+        if (cancelled) return;
+        setCrts(snap.docs.map(mapCrtToProgram));
+      } catch (e) {
+        if (!cancelled) setCrts([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const programs = useMemo(() => crts, [crts]);
 
   return (
     <CheckAuth>
@@ -48,20 +99,25 @@ export default function CRTPage() {
             >
               Programmes
             </h1>
-            {/* <p className=" text-black text-base sm:text-lg max-w-xl mx-auto leading-relaxed mb-3">
-              Join well-planned courses that help you clear coding exams and technical interviews and get a job.
-            </p> */}
-            {/* <p className="text-black text-sm mt-14 font-semibold">
-              400 hr programme • 200 hr Aptitude, Reasoning & Soft Skills + 200 hr Technical
-            </p> */}
           </div>
         </div>
 
         {/* Program blocks */}
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12 sm:py-16 space-y-8 sm:space-y-10">
-          {CRT_PROGRAMS.map((program) => {
+          {loading && (
+            <div className="text-center py-12 text-slate-500">Loading programmes...</div>
+          )}
+          {!loading && programs.length === 0 && (
+            <div className="text-center py-12 text-slate-500">No CRT programmes yet.</div>
+          )}
+          {!loading && programs.map((program) => {
             const Icon = program.icon;
-            const technicalCourses = CRT_TECHNICAL_200HR[program.id] || [];
+            const totalHours = program.totalHours ?? 400;
+            const commonHours = program.commonHours ?? 200;
+            const technicalHours = program.technicalHours ?? 200;
+            const commonLabel = program.commonLabel || "Non-technical";
+            const commonCourses = program.commonCourses || [];
+            const technicalCourses = program.technicalCourses || [];
             const showCourses = expandedId === program.id;
 
             return (
@@ -105,12 +161,12 @@ export default function CRTPage() {
                         <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center">
                           <BookOpenIcon className="w-5 h-5 text-white" />
                         </div>
-                        <span className="text-white/95 font-semibold text-sm uppercase tracking-wider">400 hr programme</span>
+                        <span className="text-white/95 font-semibold text-sm uppercase tracking-wider">{totalHours} hr programme</span>
                       </div>
-                      {/* 200 hr – Aptitude, Reasoning, Soft Skills */}
-                      <p className="text-white/90 text-xs font-semibold uppercase tracking-wider mb-2">200 hr – Aptitude, Reasoning & Soft Skills</p>
+                      {/* Non-technical (common) block */}
+                      <p className="text-white/90 text-xs font-semibold uppercase tracking-wider mb-2">{commonHours} hr – {commonLabel}</p>
                       <div className="flex flex-wrap gap-1.5 mb-4">
-                        {CRT_COMMON_200HR.map((name) => (
+                        {commonCourses.map((name) => (
                           <span
                             key={name}
                             className="inline-flex items-center px-2.5 py-1 rounded-md bg-white/20 text-white text-xs font-medium border border-white/15"
@@ -119,8 +175,8 @@ export default function CRTPage() {
                           </span>
                         ))}
                       </div>
-                      {/* 200 hr – Technical */}
-                      <p className="text-white/90 text-xs font-semibold uppercase tracking-wider mb-2">200 hr – Technical</p>
+                      {/* Technical block */}
+                      <p className="text-white/90 text-xs font-semibold uppercase tracking-wider mb-2">{technicalHours} hr – Technical</p>
                       <div className="flex flex-wrap gap-1.5">
                         {technicalCourses.map((name) => (
                           <span
@@ -140,7 +196,7 @@ export default function CRTPage() {
                 {/* Description – always right */}
                 <div
                   className="flex-1 flex flex-col justify-center px-6 py-8 sm:px-10 sm:py-10 md:py-12 md:order-2 md:pl-4"
-                  onClick={() => router.push(`/crt/${program.id}`)}
+                  onClick={() => router.push(`/crt/${createSlug(program.title)}`)}
                 >
                   <div>
                     <div className="flex items-center gap-3 mb-3">
@@ -153,7 +209,7 @@ export default function CRTPage() {
                       <span className={`inline-block text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-md ${program.bg} ${program.iconColor}`}>
                         {program.duration}
                       </span>
-                      <span className="text-xs font-semibold text-slate-500">400 hr programme</span>
+                      <span className="text-xs font-semibold text-slate-500">{program.totalHours ?? 400} hr programme</span>
                     </div>
                     <p className="text-slate-600 leading-relaxed mb-6 max-w-lg text-sm sm:text-base">
                       {program.description}

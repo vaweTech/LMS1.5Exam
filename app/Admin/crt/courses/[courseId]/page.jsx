@@ -53,6 +53,10 @@ export default function CourseSyllabusDays() {
   const [questionDrafts, setQuestionDrafts] = useState([]);
   const [expandedChapterId, setExpandedChapterId] = useState(null);
 
+  const [editingCourseInfo, setEditingCourseInfo] = useState(false);
+  const [courseInfoDraft, setCourseInfoDraft] = useState({ title: "", courseCode: "", description: "" });
+  const [savingCourseInfo, setSavingCourseInfo] = useState(false);
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
@@ -80,6 +84,7 @@ export default function CourseSyllabusDays() {
           title: data.title || "",
           description: data.description || "",
           courseCode: data.courseCode || "",
+          isNonTechnical: data.isNonTechnical === true,
         });
       }
     } catch (e) {
@@ -283,6 +288,63 @@ export default function CourseSyllabusDays() {
       firestoreHelpers.doc(db, "crtCourses", courseId, "chapters", id)
     );
     await fetchChapters();
+  }
+
+  async function toggleNonTechnical() {
+    if (!courseId) return;
+    const next = !course?.isNonTechnical;
+    try {
+      await firestoreHelpers.updateDoc(
+        firestoreHelpers.doc(db, "crtCourses", courseId),
+        { isNonTechnical: next, updatedAt: new Date().toISOString() }
+      );
+      setCourse((c) => (c ? { ...c, isNonTechnical: next } : c));
+    } catch (e) {
+      console.error("Failed to update course:", e);
+      alert("Failed to update.");
+    }
+  }
+
+  function startEditCourseInfo() {
+    setCourseInfoDraft({
+      title: course?.title || "",
+      courseCode: course?.courseCode || "",
+      description: course?.description || "",
+    });
+    setEditingCourseInfo(true);
+  }
+
+  async function saveCourseInfo() {
+    if (!courseId) return;
+    try {
+      setSavingCourseInfo(true);
+      await firestoreHelpers.updateDoc(
+        firestoreHelpers.doc(db, "crtCourses", courseId),
+        {
+          title: (courseInfoDraft.title || "").trim(),
+          courseCode: (courseInfoDraft.courseCode || "").trim(),
+          description: (courseInfoDraft.description || "").trim(),
+          updatedAt: new Date().toISOString(),
+        }
+      );
+      setCourse((c) =>
+        c
+          ? {
+              ...c,
+              title: (courseInfoDraft.title || "").trim(),
+              courseCode: (courseInfoDraft.courseCode || "").trim(),
+              description: (courseInfoDraft.description || "").trim(),
+            }
+          : c
+      );
+      setEditingCourseInfo(false);
+      alert("Course information updated.");
+    } catch (e) {
+      console.error("Failed to update course info:", e);
+      alert("Failed to update course information.");
+    } finally {
+      setSavingCourseInfo(false);
+    }
   }
 
   async function addProgressTestForDay(dayNumber, type) {
@@ -1245,26 +1307,6 @@ export default function CourseSyllabusDays() {
               </div>
             </form>
           </div>
-
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="font-semibold mb-4">Course Information</h2>
-            <div className="space-y-2">
-              <div>
-                <label className="text-sm text-slate-600">Title</label>
-                <div className="text-base font-medium">{course.title}</div>
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">Course Code</label>
-                <div className="text-base">{course.courseCode || "N/A"}</div>
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">Description</label>
-                <div className="text-base text-slate-700">
-                  {course.description || "No description"}
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
 
         <div className="lg:col-span-1 space-y-4">
@@ -1303,6 +1345,117 @@ export default function CourseSyllabusDays() {
                   Manage CRT Courses
                 </Link>
               )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold">Course Information</h2>
+              {!editingCourseInfo ? (
+                <button
+                  type="button"
+                  onClick={startEditCourseInfo}
+                  className="px-3 py-1.5 rounded-md bg-amber-500 text-white text-sm hover:bg-amber-600"
+                >
+                  Edit
+                </button>
+              ) : null}
+            </div>
+            <div className="space-y-2">
+              {editingCourseInfo ? (
+                <>
+                  <div>
+                    <label className="text-sm text-slate-600 block mb-1">Title</label>
+                    <input
+                      type="text"
+                      value={courseInfoDraft.title}
+                      onChange={(e) =>
+                        setCourseInfoDraft((d) => ({ ...d, title: e.target.value }))
+                      }
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                      placeholder="Course title"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-600 block mb-1">Course Code</label>
+                    <input
+                      type="text"
+                      value={courseInfoDraft.courseCode}
+                      onChange={(e) =>
+                        setCourseInfoDraft((d) => ({ ...d, courseCode: e.target.value }))
+                      }
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                      placeholder="Course code"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-600 block mb-1">Description</label>
+                    <textarea
+                      rows={3}
+                      value={courseInfoDraft.description}
+                      onChange={(e) =>
+                        setCourseInfoDraft((d) => ({ ...d, description: e.target.value }))
+                      }
+                      className="w-full border rounded-md px-3 py-2 text-sm resize-y"
+                      placeholder="Course description"
+                    />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={saveCourseInfo}
+                      disabled={savingCourseInfo}
+                      className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      {savingCourseInfo ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingCourseInfo(false)}
+                      disabled={savingCourseInfo}
+                      className="px-3 py-1.5 rounded-md bg-slate-400 text-white text-sm hover:bg-slate-500 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-sm text-slate-600">Title</label>
+                    <div className="text-base font-medium">{course.title}</div>
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-600">Course Code</label>
+                    <div className="text-base">{course.courseCode || "N/A"}</div>
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-600">Description</label>
+                    <div className="text-base text-slate-700">
+                      {course.description || "No description"}
+                    </div>
+                  </div>
+                </>
+              )}
+              <div className="pt-4 mt-4 border-t border-slate-200">
+                <div className="flex items-start gap-3">
+                  <input
+                    id="course-non-technical"
+                    type="checkbox"
+                    checked={course.isNonTechnical === true}
+                    onChange={toggleNonTechnical}
+                    className="mt-1 w-5 h-5 min-w-[1.25rem] min-h-[1.25rem] rounded border-2 border-slate-300 text-amber-600 focus:ring-2 focus:ring-amber-500 focus:ring-offset-1 cursor-pointer"
+                  />
+                  <div>
+                    <label htmlFor="course-non-technical" className="text-sm font-medium text-slate-700 cursor-pointer block">
+                      Non-technical (Aptitude &amp; Soft Skills)
+                    </label>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      When checked, this course is treated as common/non-technical in CRT programmes.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 

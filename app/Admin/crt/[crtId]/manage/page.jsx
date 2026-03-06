@@ -26,7 +26,10 @@ export default function ManageCRTCourses() {
   const [loading, setLoading] = useState(true);
 
   const [crtCourses, setCrtCourses] = useState([]);
+  const [crtTests, setCrtTests] = useState([]);
   const [activeCourseId, setActiveCourseId] = useState(initialCourseId);
+  const [activeTestId, setActiveTestId] = useState("");
+  const [activeItemType, setActiveItemType] = useState("course"); // "course" | "test"
 
   const [course, setCourse] = useState(null);
   const [savingCourse, setSavingCourse] = useState(false);
@@ -52,6 +55,16 @@ export default function ManageCRTCourses() {
   const [questionDrafts, setQuestionDrafts] = useState([]);
   const [removingCourseId, setRemovingCourseId] = useState("");
   const [expandedChapterId, setExpandedChapterId] = useState(null);
+  const [showCreateCrtTestModal, setShowCreateCrtTestModal] = useState(false);
+  const [newCrtTest, setNewCrtTest] = useState({
+    name: "",
+    durationMinutes: "",
+  });
+  const [creatingCrtTest, setCreatingCrtTest] = useState(false);
+  const [crtTestSections, setCrtTestSections] = useState([]);
+  const [savingCrtTestQuestions, setSavingCrtTestQuestions] = useState(false);
+  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  const [editingCrtTestId, setEditingCrtTestId] = useState("");
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -83,6 +96,25 @@ export default function ManageCRTCourses() {
       }
     }
   }, [crtId, activeCourseId, initialCourseId]);
+
+  const fetchCrtTests = useCallback(async function fetchCrtTests() {
+    if (!crtId) return;
+    const snap = await firestoreHelpers.getDocs(
+      firestoreHelpers.collection(db, "crt", crtId, "tests")
+    );
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    setCrtTests(list);
+    // If currently viewing a test that no longer exists, clear it
+    if (activeItemType === "test" && activeTestId) {
+      const stillExists = list.some((t) => t.id === activeTestId);
+      if (!stillExists) {
+        setActiveTestId("");
+        setActiveItemType("course");
+        setCrtTestSections([]);
+        setQuestionDrafts([]);
+      }
+    }
+  }, [crtId, activeItemType, activeTestId]);
 
   const fetchCourseAndChapters = useCallback(
     async function fetchCourseAndChapters(courseId) {
@@ -125,12 +157,15 @@ export default function ManageCRTCourses() {
   useEffect(() => {
     if (!crtId || !user) return;
     fetchCrtCourses();
-  }, [crtId, user, fetchCrtCourses]);
+    fetchCrtTests();
+  }, [crtId, user, fetchCrtCourses, fetchCrtTests]);
 
   useEffect(() => {
-    if (!activeCourseId) return;
+    if (activeItemType !== "course" || !activeCourseId) {
+      return;
+    }
     fetchCourseAndChapters(activeCourseId);
-  }, [activeCourseId, fetchCourseAndChapters]);
+  }, [activeItemType, activeCourseId, fetchCourseAndChapters]);
 
   async function fetchChapters(courseId) {
     if (!crtId || !courseId) return;
@@ -148,6 +183,47 @@ export default function ManageCRTCourses() {
     list.sort((a, b) => (a.order || 0) - (b.order || 0));
     setChapters(list);
   }
+
+  useEffect(() => {
+    if (activeItemType !== "test" || !activeTestId) {
+      setCrtTestSections([]);
+      setActiveSectionIndex(0);
+      return;
+    }
+    const test = crtTests.find((t) => t.id === activeTestId);
+    if (!test) {
+      setCrtTestSections([]);
+      setActiveSectionIndex(0);
+      return;
+    }
+
+    // Prefer structured sections if present; otherwise wrap flat questions in a single section
+    if (Array.isArray(test.sections) && test.sections.length > 0) {
+      setCrtTestSections(test.sections);
+      setActiveSectionIndex(0);
+    } else if (Array.isArray(test.questions) && test.questions.length > 0) {
+      setCrtTestSections([
+        {
+          title: "Section 1",
+          questions: test.questions.map((q) => ({
+            text: q.text || q.question || "",
+            options: Array.isArray(q.options) ? q.options : ["", "", "", ""],
+            correctAnswers: Array.isArray(q.correctAnswers)
+              ? q.correctAnswers
+              : [],
+            isMultiple:
+              typeof q.isMultiple === "boolean"
+                ? q.isMultiple
+                : Array.isArray(q.correctAnswers) && q.correctAnswers.length > 1,
+          })),
+        },
+      ]);
+      setActiveSectionIndex(0);
+    } else {
+      setCrtTestSections([]);
+      setActiveSectionIndex(0);
+    }
+  }, [activeItemType, activeTestId, crtTests]);
 
   useEffect(() => {
     async function fetchProgressTests() {
@@ -354,6 +430,97 @@ export default function ManageCRTCourses() {
     }
   }
 
+  async function createOrUpdateCrtTest(e) {
+    e.preventDefault();
+    if (!crtId || !newCrtTest.name.trim()) {
+      alert("Please enter a test name.");
+      return;
+    }
+    try {
+      setCreatingCrtTest(true);
+      const duration = Number(newCrtTest.durationMinutes) || 0;
+      if (editingCrtTestId) {
+        // Update existing test meta only
+        await firestoreHelpers.updateDoc(
+          firestoreHelpers.doc(db, "crt", crtId, "tests", editingCrtTestId),
+          {
+            name: newCrtTest.name.trim(),
+            durationMinutes: duration,
+            updatedAt: new Date().toISOString(),
+          }
+        );
+        setActiveItemType("test");
+        setActiveTestId(editingCrtTestId);
+      } else {
+        // Create new test
+        const ref = await firestoreHelpers.addDoc(
+          firestoreHelpers.collection(db, "crt", crtId, "tests"),
+          {
+            name: newCrtTest.name.trim(),
+            durationMinutes: duration,
+            createdAt: new Date().toISOString(),
+            createdBy: user?.uid || null,
+            sections: [],
+          }
+        );
+        setActiveItemType("test");
+        setActiveTestId(ref.id);
+      }
+      setNewCrtTest({ name: "", durationMinutes: "" });
+      setEditingCrtTestId("");
+      setShowCreateCrtTestModal(false);
+      await fetchCrtTests();
+    } catch (e) {
+      console.error(e);
+      alert(editingCrtTestId ? "Failed to update CRT test." : "Failed to create CRT test.");
+    } finally {
+      setCreatingCrtTest(false);
+    }
+  }
+
+  async function saveCrtTestQuestions() {
+    if (!crtId || !activeTestId) return;
+    try {
+      setSavingCrtTestQuestions(true);
+      await firestoreHelpers.updateDoc(
+        firestoreHelpers.doc(db, "crt", crtId, "tests", activeTestId),
+        {
+          sections: crtTestSections,
+          updatedAt: new Date().toISOString(),
+        }
+      );
+      await fetchCrtTests();
+      alert("Questions saved for this CRT test.");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to save CRT test questions.");
+    } finally {
+      setSavingCrtTestQuestions(false);
+    }
+  }
+
+  async function deleteCrtTest(testId) {
+    if (!crtId || !testId) return;
+    const confirmed = confirm(
+      "Are you sure you want to delete this CRT test? This will remove all its sections and questions."
+    );
+    if (!confirmed) return;
+    try {
+      await firestoreHelpers.deleteDoc(
+        firestoreHelpers.doc(db, "crt", crtId, "tests", testId)
+      );
+      if (activeItemType === "test" && activeTestId === testId) {
+        setActiveTestId("");
+        setCrtTestSections([]);
+        setActiveSectionIndex(0);
+      }
+      await fetchCrtTests();
+    } catch (e) {
+      console.error(e);
+      alert("Failed to delete CRT test.");
+    }
+  }
+
   async function saveProgressTestMeta() {
     if (!course || !course.id || !editingTestId || !editingTest) return;
     const courseIdToUse = course.id;
@@ -503,8 +670,17 @@ export default function ManageCRTCourses() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <aside className="lg:col-span-1 rounded-xl border bg-white p-4">
-          <h2 className="font-semibold mb-3">Courses in CRT</h2>
+        <aside className="lg:col-span-1 rounded-xl border bg-white p-4 space-y-4">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="font-semibold">Courses in CRT</h2>
+            <button
+              type="button"
+              onClick={() => setShowCreateCrtTestModal(true)}
+              className="px-2 py-1 rounded-md bg-emerald-600 text-white text-xs hover:bg-emerald-700"
+            >
+              + Create CRT Test
+            </button>
+          </div>
           <div className="space-y-2">
             {crtCourses.length === 0 && (
               <div className="text-sm text-slate-500">No courses assigned.</div>
@@ -512,14 +688,18 @@ export default function ManageCRTCourses() {
             {crtCourses.map((c) => (
               <div
                 key={c.id}
-                className={`border rounded-md px-3 py-2 flex items-center justify-between ${activeCourseId === c.id ? "bg-blue-50 border-blue-200" : ""}`}
+                className={`border rounded-md px-3 py-2 flex items-center justify-between ${
+                  activeItemType === "course" && activeCourseId === c.id
+                    ? "bg-blue-50 border-blue-200"
+                    : ""
+                }`}
               >
                 <button
                   onClick={() => {
+                    setActiveItemType("course");
                     setActiveCourseId(c.id);
-                    router.push(
-                      `/Admin/crt/${crtId}/manage?course=${c.id}`
-                    );
+                    setActiveTestId("");
+                    router.push(`/Admin/crt/${crtId}/manage?course=${c.id}`);
                   }}
                   className="text-left flex-1"
                 >
@@ -538,10 +718,543 @@ export default function ManageCRTCourses() {
               </div>
             ))}
           </div>
+
+          <div className="border-t pt-3 mt-4">
+            <h3 className="font-semibold text-sm mb-2">CRT Tests</h3>
+            <div className="space-y-2">
+              {crtTests.length === 0 && (
+                <div className="text-xs text-slate-500">
+                  No CRT tests yet. Use &quot;Create CRT Test&quot; above.
+                </div>
+              )}
+              {crtTests.map((t) => (
+                <div
+                  key={t.id}
+                  className={`border rounded-md px-3 py-2 flex items-center justify-between text-xs ${
+                    activeItemType === "test" && activeTestId === t.id
+                      ? "bg-purple-50 border-purple-300"
+                      : "bg-white"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveItemType("test");
+                      setActiveTestId(t.id);
+                    }}
+                    className="text-left flex-1"
+                  >
+                    <div className="font-medium text-slate-800">
+                      {t.name || "Unnamed CRT Test"}
+                    </div>
+                    <div className="text-[11px] text-slate-500 flex gap-2 flex-wrap">
+                      {t.durationMinutes
+                        ? `Duration: ${t.durationMinutes} min`
+                        : "No duration set"}
+                      {Array.isArray(t.sections) && t.sections.length > 0 && (
+                        <span>
+                          • Questions:{" "}
+                          {t.sections.reduce(
+                            (sum, sec) =>
+                              sum +
+                              (Array.isArray(sec.questions)
+                                ? sec.questions.length
+                                : 0),
+                            0
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                  <div className="flex items-center gap-1 ml-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingCrtTestId(t.id);
+                        setNewCrtTest({
+                          name: t.name || "",
+                          durationMinutes: t.durationMinutes
+                            ? String(t.durationMinutes)
+                            : "",
+                        });
+                        setShowCreateCrtTestModal(true);
+                      }}
+                      className="px-2 py-1 rounded-md bg-slate-100 text-[11px] hover:bg-slate-200"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteCrtTest(t.id)}
+                      className="px-2 py-1 rounded-md bg-red-600 text-white text-[11px]"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </aside>
 
         <section className="lg:col-span-2 rounded-xl border bg-white p-4">
-          {!activeCourseId || !course ? (
+          {activeItemType === "test" ? (
+            !activeTestId ? (
+              <div className="text-sm text-slate-500">
+                Select a CRT test from the left to manage its questions.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {(() => {
+                  const test = crtTests.find((t) => t.id === activeTestId);
+                  if (!test) {
+                    return (
+                      <p className="text-sm text-slate-500">
+                        CRT test not found. Please select another test.
+                      </p>
+                    );
+                  }
+                  return (
+                    <>
+                      <div className="space-y-1">
+                        <h2 className="text-lg font-semibold text-slate-800">
+                          {test.name || "Unnamed CRT Test"}
+                        </h2>
+                        <p className="text-xs text-slate-500">
+                          Duration:{" "}
+                          {test.durationMinutes
+                            ? `${test.durationMinutes} minutes`
+                            : "Not set"}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-4">
+                        <h3 className="font-semibold text-sm">
+                          Sections & Questions
+                        </h3>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCrtTestSections((prev) => {
+                                const next = [
+                                  ...prev,
+                                  {
+                                    title: `Section ${prev.length + 1}`,
+                                    questions: [],
+                                  },
+                                ];
+                                setActiveSectionIndex(next.length - 1);
+                                return next;
+                              })
+                            }
+                            className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs"
+                          >
+                            + Add Section
+                          </button>
+                          <button
+                            type="button"
+                            onClick={saveCrtTestQuestions}
+                            disabled={savingCrtTestQuestions}
+                            className="px-3 py-1.5 rounded-md bg-blue-600 text-white text-xs disabled:opacity-50"
+                          >
+                            {savingCrtTestQuestions
+                              ? "Saving..."
+                              : "Save All"}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1 mt-2">
+                        {crtTestSections.length === 0 && (
+                          <p className="text-xs text-slate-500">
+                            No sections yet. Click &quot;Add Section&quot; to
+                            start.
+                          </p>
+                        )}
+                        {crtTestSections.length > 0 && (
+                          <div className="flex items-center gap-2 mb-1">
+                            <label className="text-[11px] text-slate-600">
+                              Active section:
+                            </label>
+                            <select
+                              className="border rounded-md px-2 py-1 text-[11px]"
+                              value={String(activeSectionIndex)}
+                              onChange={(e) => {
+                                const idx = Number(e.target.value);
+                                setActiveSectionIndex(
+                                  Number.isNaN(idx) ? 0 : idx
+                                );
+                              }}
+                            >
+                              <option value="-1">Hide all sections</option>
+                              {crtTestSections.map((section, idx) => (
+                                <option key={idx} value={idx}>
+                                  {`Section ${idx + 1}${
+                                    section.title ? ` - ${section.title}` : ""
+                                  }`}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        {crtTestSections.map((section, sIdx) => {
+                          if (activeSectionIndex === -1 || sIdx !== activeSectionIndex)
+                            return null;
+                          const sectionQuestions =
+                            Array.isArray(section.questions) && section.questions.length
+                              ? section.questions
+                              : [];
+                          return (
+                            <div
+                              key={sIdx}
+                              className="border rounded-md p-3 bg-slate-50 space-y-2"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                                    Section {sIdx + 1}
+                                  </span>
+                                  <input
+                                    className="border rounded-md px-2 py-1 text-xs"
+                                    value={section.title || ""}
+                                    onChange={(e) => {
+                                      const next = [...crtTestSections];
+                                      next[sIdx] = {
+                                        ...next[sIdx],
+                                        title: e.target.value,
+                                      };
+                                      setCrtTestSections(next);
+                                    }}
+                                    placeholder="Section title (optional)"
+                                  />
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setCrtTestSections((prev) => {
+                                      const next = prev.filter((_, i) => i !== sIdx);
+                                      const newIndex =
+                                        next.length === 0
+                                          ? 0
+                                          : Math.min(
+                                              activeSectionIndex >= sIdx
+                                                ? activeSectionIndex - 1
+                                                : activeSectionIndex,
+                                              next.length - 1
+                                            );
+                                      setActiveSectionIndex(newIndex);
+                                      return next;
+                                    })
+                                  }
+                                  className="text-[11px] text-red-600"
+                                >
+                                  Remove Section
+                                </button>
+                              </div>
+
+                              <div className="flex items-center justify-between mt-1 mb-1">
+                                <p className="text-[11px] text-slate-600">
+                                  Questions in this section:{" "}
+                                  {sectionQuestions.length}
+                                </p>
+                              </div>
+
+                              <div className="space-y-2">
+                                {sectionQuestions.length === 0 && (
+                                  <div className="border border-dashed rounded-md px-3 py-4 flex flex-col items-center justify-center gap-2 bg-white/60">
+                                    <p className="text-[11px] text-slate-500 text-center">
+                                      No questions in this section yet.
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setCrtTestSections((prev) => {
+                                          const next = [...prev];
+                                          const qs = Array.isArray(
+                                            next[sIdx].questions
+                                          )
+                                            ? [...next[sIdx].questions]
+                                            : [];
+                                          qs.push({
+                                            text: "",
+                                            options: ["", "", "", ""],
+                                            correctAnswers: [],
+                                            isMultiple: false,
+                                          });
+                                          next[sIdx] = {
+                                            ...next[sIdx],
+                                            questions: qs,
+                                          };
+                                          return next;
+                                        })
+                                      }
+                                      className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-[11px]"
+                                    >
+                                      + Add First Question
+                                    </button>
+                                  </div>
+                                )}
+                                {sectionQuestions.map((q, qIdx) => (
+                                  <div
+                                    key={qIdx}
+                                    className="border rounded-md p-2 bg-white space-y-2"
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[11px] font-medium text-slate-700">
+                                        Q{qIdx + 1}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setCrtTestSections((prev) => {
+                                            const next = [...prev];
+                                            const qs =
+                                              Array.isArray(next[sIdx].questions) &&
+                                              next[sIdx].questions.length
+                                                ? [...next[sIdx].questions]
+                                                : [];
+                                            qs.splice(qIdx, 1);
+                                            next[sIdx] = {
+                                              ...next[sIdx],
+                                              questions: qs,
+                                            };
+                                            return next;
+                                          })
+                                        }
+                                        className="text-[11px] text-red-600"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+
+                                    <textarea
+                                      className="w-full border rounded-md px-2 py-1 text-xs"
+                                      rows={2}
+                                      placeholder="Question text"
+                                      value={q.text || ""}
+                                      onChange={(e) =>
+                                        setCrtTestSections((prev) => {
+                                          const next = [...prev];
+                                          const qs =
+                                            Array.isArray(next[sIdx].questions) &&
+                                            next[sIdx].questions.length
+                                              ? [...next[sIdx].questions]
+                                              : [];
+                                          qs[qIdx] = {
+                                            ...qs[qIdx],
+                                            text: e.target.value,
+                                          };
+                                          next[sIdx] = {
+                                            ...next[sIdx],
+                                            questions: qs,
+                                          };
+                                          return next;
+                                        })
+                                      }
+                                    />
+
+                                    <div className="flex items-center gap-3 text-[11px]">
+                                      <label className="inline-flex items-center gap-1">
+                                        <input
+                                          type="checkbox"
+                                          className="w-3 h-3"
+                                          checked={!!q.isMultiple}
+                                          onChange={(e) =>
+                                            setCrtTestSections((prev) => {
+                                              const next = [...prev];
+                                              const qs =
+                                                Array.isArray(next[sIdx].questions) &&
+                                                next[sIdx].questions.length
+                                                  ? [...next[sIdx].questions]
+                                                  : [];
+                                              const isMultiple = e.target.checked;
+                                              let correct =
+                                                Array.isArray(q.correctAnswers) &&
+                                                q.correctAnswers.length
+                                                  ? [...q.correctAnswers]
+                                                  : [];
+                                              if (!isMultiple && correct.length > 1) {
+                                                correct = [correct[0]];
+                                              }
+                                              qs[qIdx] = {
+                                                ...qs[qIdx],
+                                                isMultiple,
+                                                correctAnswers: correct,
+                                              };
+                                              next[sIdx] = {
+                                                ...next[sIdx],
+                                                questions: qs,
+                                              };
+                                              return next;
+                                            })
+                                          }
+                                        />
+                                        <span>
+                                          Allow multiple correct answers (otherwise
+                                          single answer)
+                                        </span>
+                                      </label>
+                                    </div>
+
+                                    <div className="mt-1 space-y-1">
+                                      <p className="text-[11px] text-slate-500">
+                                        Options and correct answer(s):
+                                      </p>
+                                      {Array.from({ length: 4 }).map((_, optIdx) => {
+                                        const optText =
+                                          Array.isArray(q.options) &&
+                                          q.options[optIdx]
+                                            ? q.options[optIdx]
+                                            : "";
+                                        const correctSet = Array.isArray(
+                                          q.correctAnswers
+                                        )
+                                          ? q.correctAnswers
+                                          : [];
+                                        const isChecked = correctSet.includes(
+                                          optIdx
+                                        );
+                                        return (
+                                          <div
+                                            key={optIdx}
+                                            className="flex items-center gap-2"
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              className="w-3 h-3"
+                                              checked={isChecked}
+                                              onChange={() =>
+                                                setCrtTestSections((prev) => {
+                                                  const next = [...prev];
+                                                  const qs =
+                                                    Array.isArray(
+                                                      next[sIdx].questions
+                                                    ) && next[sIdx].questions.length
+                                                      ? [...next[sIdx].questions]
+                                                      : [];
+                                                  const currentQ = qs[qIdx] || {
+                                                    options: [],
+                                                    correctAnswers: [],
+                                                  };
+                                                  const currentCorrect = Array.isArray(
+                                                    currentQ.correctAnswers
+                                                  )
+                                                    ? [...currentQ.correctAnswers]
+                                                    : [];
+
+                                                  let updatedCorrect;
+                                                  if (currentQ.isMultiple) {
+                                                    // Toggle membership
+                                                    updatedCorrect = isChecked
+                                                      ? currentCorrect.filter(
+                                                          (i) => i !== optIdx
+                                                        )
+                                                      : [...currentCorrect, optIdx];
+                                                  } else {
+                                                    // Single answer mode
+                                                    updatedCorrect = isChecked
+                                                      ? []
+                                                      : [optIdx];
+                                                  }
+
+                                                  qs[qIdx] = {
+                                                    ...currentQ,
+                                                    correctAnswers: updatedCorrect,
+                                                  };
+                                                  next[sIdx] = {
+                                                    ...next[sIdx],
+                                                    questions: qs,
+                                                  };
+                                                  return next;
+                                                })
+                                              }
+                                            />
+                                            <input
+                                              className="border rounded-md px-2 py-0.5 flex-1 text-xs"
+                                              placeholder={`Option ${
+                                                optIdx + 1
+                                              }`}
+                                              value={optText}
+                                              onChange={(e) =>
+                                                setCrtTestSections((prev) => {
+                                                  const next = [...prev];
+                                                  const qs =
+                                                    Array.isArray(
+                                                      next[sIdx].questions
+                                                    ) && next[sIdx].questions.length
+                                                      ? [...next[sIdx].questions]
+                                                      : [];
+                                                  const currentQ = qs[qIdx] || {
+                                                    options: ["", "", "", ""],
+                                                    correctAnswers: [],
+                                                  };
+                                                  const opts = Array.isArray(
+                                                    currentQ.options
+                                                  )
+                                                    ? [...currentQ.options]
+                                                    : ["", "", "", ""];
+                                                  opts[optIdx] = e.target.value;
+                                                  qs[qIdx] = {
+                                                    ...currentQ,
+                                                    options: opts,
+                                                  };
+                                                  next[sIdx] = {
+                                                    ...next[sIdx],
+                                                    questions: qs,
+                                                  };
+                                                  return next;
+                                                })
+                                              }
+                                            />
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ))}
+                                {sectionQuestions.length > 0 && (
+                                  <div className="pt-2 flex justify-center">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setCrtTestSections((prev) => {
+                                          const next = [...prev];
+                                          const qs = Array.isArray(
+                                            next[sIdx].questions
+                                          )
+                                            ? [...next[sIdx].questions]
+                                            : [];
+                                          qs.push({
+                                            text: "",
+                                            options: ["", "", "", ""],
+                                            correctAnswers: [],
+                                            isMultiple: false,
+                                          });
+                                          next[sIdx] = {
+                                            ...next[sIdx],
+                                            questions: qs,
+                                          };
+                                          return next;
+                                        })
+                                      }
+                                      className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-[11px]"
+                                    >
+                                      + Add Question
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )
+          ) : !activeCourseId || !course ? (
             <div className="text-sm text-slate-500">
               Select a course from the left to begin editing.
             </div>
@@ -1452,6 +2165,91 @@ export default function ManageCRTCourses() {
           )}
         </section>
       </div>
+
+      {showCreateCrtTestModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md">
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <h3 className="text-sm font-semibold">
+                {editingCrtTestId ? "Edit CRT Test" : "Create CRT Test"}
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreateCrtTestModal(false);
+                  setEditingCrtTestId("");
+                  setNewCrtTest({ name: "", durationMinutes: "" });
+                }}
+                className="text-slate-500 hover:text-slate-700 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+            <form
+              onSubmit={createOrUpdateCrtTest}
+              className="px-4 py-3 space-y-3"
+            >
+              <div className="space-y-1">
+                <label className="text-xs text-slate-600">Test name</label>
+                <input
+                  type="text"
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  value={newCrtTest.name}
+                  onChange={(e) =>
+                    setNewCrtTest((s) => ({ ...s, name: e.target.value }))
+                  }
+                  placeholder="e.g., CRT Full-Length Test 1"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-slate-600">
+                  Duration (minutes)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  value={newCrtTest.durationMinutes}
+                  onChange={(e) =>
+                    setNewCrtTest((s) => ({
+                      ...s,
+                      durationMinutes: e.target.value,
+                    }))
+                  }
+                  placeholder="e.g., 90"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateCrtTestModal(false);
+                    setEditingCrtTestId("");
+                    setNewCrtTest({ name: "", durationMinutes: "" });
+                  }}
+                  className="px-3 py-1.5 rounded-md bg-slate-100 text-xs hover:bg-slate-200"
+                  disabled={creatingCrtTest}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingCrtTest || !newCrtTest.name.trim()}
+                  className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs disabled:opacity-50"
+                >
+                  {creatingCrtTest
+                    ? editingCrtTestId
+                      ? "Saving..."
+                      : "Creating..."
+                    : editingCrtTestId
+                    ? "Save"
+                    : "Create"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

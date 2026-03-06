@@ -4,18 +4,20 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import CheckAuth from "../../../../../lib/CheckAuth";
-import { getProgramBySlug, CRT_COMMON_200HR, CRT_TECHNICAL_200HR } from "../../../../../lib/crtProgramsData";
+import { getProgramBySlug } from "../../../../../lib/crtProgramsData";
 import { createSlug, createCourseUrl } from "../../../../../lib/urlUtils";
-import { db, auth } from "../../../../../lib/firebase";
+import { db, auth, firestoreHelpers } from "../../../../../lib/firebase";
 import { mcqDb } from "../../../../../lib/firebaseMCQs";
 import {
   collection,
   doc,
   getDoc,
   getDocs,
+  addDoc,
   orderBy,
   query,
   where,
+  serverTimestamp,
 } from "firebase/firestore";
 import {
   ArrowLeftIcon,
@@ -29,6 +31,7 @@ import {
   ChevronUpIcon,
   ClipboardDocumentListIcon,
   UserGroupIcon,
+  LockClosedIcon,
 } from "@heroicons/react/24/solid";
 
 function titleFromSlug(slug) {
@@ -51,55 +54,90 @@ function getEmbedUrl(url) {
   return url;
 }
 
-// Dummy day-wise data when no course/chapters from Firebase (for demo)
-const DUMMY_CHAPTERS = [
-  {
-    id: "dummy-1",
-    order: 1,
-    title: "Introduction and History of Python",
-    topics: "Introduction to Python\nHistory of Python\nWhy Python Became Popular",
-    pdfDocument: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
-    pptUrl: "https://docs.google.com/presentation/d/1/dummy/view",
-    liveClassLink: "https://meet.google.com/dummy",
-    recordedClassLink: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-    classDocs: "https://docs.google.com/document/d/1/dummy/view",
-  },
-  {
-    id: "dummy-2",
-    order: 2,
-    title: "Variables and Data Types",
-    topics: "Variables and Identifiers\nNumeric Types\nStrings and Basic Operations",
-    pdfDocument: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
-    pptUrl: "https://docs.google.com/presentation/d/2/dummy/view",
-    liveClassLink: "https://meet.google.com/dummy",
-    recordedClassLink: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-    classDocs: "https://docs.google.com/document/d/2/dummy/view",
-  },
-  {
-    id: "dummy-3",
-    order: 3,
-    title: "Control Flow and Functions",
-    topics: "Conditionals and Loops\nDefining Functions\nScope and Return Values",
-    pdfDocument: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
-    pptUrl: "https://docs.google.com/presentation/d/3/dummy/view",
-    liveClassLink: "",
-    recordedClassLink: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-    classDocs: "https://docs.google.com/document/d/3/dummy/view",
-  },
-];
+function programFromCrtDoc(id, data) {
+  if (!data) return null;
+  return {
+    id,
+    title: data.name || id,
+    commonCourses: Array.isArray(data.commonCourses) ? data.commonCourses : [],
+    technicalCourses: Array.isArray(data.technicalCourses) ? data.technicalCourses : [],
+  };
+}
+
+function StarRating({ value, onChange, max = 5, showValue }) {
+  const [hover, setHover] = useState(0);
+  const display = hover || value;
+  return (
+    <div className="flex flex-col gap-1">
+      <div
+        className="flex items-center gap-0.5"
+        onMouseLeave={() => setHover(0)}
+      >
+        {Array.from({ length: max }, (_, i) => i + 1).map((star) => (
+          <button
+            key={star}
+            type="button"
+            onClick={() => onChange(star)}
+            onMouseEnter={() => setHover(star)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onChange(star); }}
+            className="p-1 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 transition-all duration-150 hover:scale-110 active:scale-95"
+            aria-label={`${star} star${star > 1 ? "s" : ""}`}
+            aria-pressed={value === star}
+          >
+            <StarIcon
+              className={`w-9 h-9 sm:w-10 sm:h-10 transition-colors ${
+                display >= star ? "text-amber-400 drop-shadow-sm" : "text-slate-200"
+              } ${display >= star ? "fill-amber-400" : ""}`}
+            />
+          </button>
+        ))}
+      </div>
+      {showValue && value > 0 && (
+        <span className="text-xs font-medium text-amber-700">{value} of {max}</span>
+      )}
+    </div>
+  );
+}
 
 export default function CRTCoursePage() {
   const router = useRouter();
   const params = useParams();
   const programSlug = params?.slug;
   const courseSlug = params?.courseId;
-  const program = programSlug ? getProgramBySlug(programSlug) : null;
+  const staticProgram = programSlug ? getProgramBySlug(programSlug) : null;
+  const [firestoreProgram, setFirestoreProgram] = useState(null);
+  const program = staticProgram || firestoreProgram;
 
-  const allCommon = CRT_COMMON_200HR.map((n) => ({ name: n, slug: createSlug(n) }));
-  const allTechnical =
-    program && CRT_TECHNICAL_200HR[program.id]
-      ? CRT_TECHNICAL_200HR[program.id].map((n) => ({ name: n, slug: createSlug(n) }))
-      : [];
+  useEffect(() => {
+    if (!programSlug || staticProgram) {
+      setFirestoreProgram(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const ref = firestoreHelpers.doc(db, "crt", programSlug);
+        const snap = await firestoreHelpers.getDoc(ref);
+        if (cancelled) return;
+        if (snap.exists()) {
+          setFirestoreProgram(programFromCrtDoc(snap.id, snap.data()));
+          return;
+        }
+        const crtSnap = await firestoreHelpers.getDocs(firestoreHelpers.collection(db, "crt"));
+        if (cancelled) return;
+        const found = crtSnap.docs.find(
+          (d) => createSlug(d.data().name || "") === programSlug
+        );
+        setFirestoreProgram(found ? programFromCrtDoc(found.id, found.data()) : null);
+      } catch (_) {
+        if (!cancelled) setFirestoreProgram(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [programSlug, staticProgram]);
+
+  const allCommon = (program?.commonCourses || []).map((n) => ({ name: n, slug: createSlug(n) }));
+  const allTechnical = (program?.technicalCourses || []).map((n) => ({ name: n, slug: createSlug(n) }));
   const commonMatch = allCommon.find((c) => c.slug === courseSlug);
   const technicalMatch = allTechnical.find((c) => c.slug === courseSlug);
   const courseName = commonMatch?.name || technicalMatch?.name || titleFromSlug(courseSlug);
@@ -117,6 +155,20 @@ export default function CRTCoursePage() {
   const [activeChapterId, setActiveChapterId] = useState(null);
   const [user, setUser] = useState(null);
   const [attendanceStats, setAttendanceStats] = useState({ total: 0, present: 0, percent: 0 });
+  const [resolvedCrtId, setResolvedCrtId] = useState(null);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackChapter, setFeedbackChapter] = useState(null);
+  const [feedbackForm, setFeedbackForm] = useState({
+    practicalOriented: 0,
+    adminSupport: 0,
+    overallTraining: 0,
+    classLinkOnTime: 0,
+    comments: "",
+  });
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [hasCourseAccess, setHasCourseAccess] = useState(false);
+  const [roleCheckDone, setRoleCheckDone] = useState(false);
 
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => {
@@ -124,6 +176,44 @@ export default function CRTCoursePage() {
     });
     return () => unsub();
   }, []);
+
+  // Resolve if user can access course content: admin, superadmin, or CRT student only
+  useEffect(() => {
+    if (!user) {
+      setHasCourseAccess(false);
+      setRoleCheckDone(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [userSnap, studentDirectSnap] = await Promise.all([
+          getDoc(doc(db, "users", user.uid)),
+          getDoc(doc(db, "students", user.uid)),
+        ]);
+        if (cancelled) return;
+        const userRole = userSnap.exists() ? userSnap.data().role : null;
+        let studentData = studentDirectSnap.exists() ? studentDirectSnap.data() : null;
+        if (!studentData) {
+          const q = query(collection(db, "students"), where("uid", "==", user.uid));
+          const studentSnap = await getDocs(q);
+          if (!studentSnap.empty) studentData = studentSnap.docs[0].data();
+        }
+        const studentRole = studentData?.role;
+        const isAdmin = userRole === "admin" || userRole === "superadmin";
+        const isCrtStudent =
+          userRole === "crtStudent" ||
+          studentRole === "crtStudent" ||
+          studentData?.isCrt === true;
+        setHasCourseAccess(Boolean(isAdmin || isCrtStudent));
+      } catch (_) {
+        if (!cancelled) setHasCourseAccess(false);
+      } finally {
+        if (!cancelled) setRoleCheckDone(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user]);
 
   // Fetch attendance for this course (when course + user available)
   useEffect(() => {
@@ -194,6 +284,7 @@ export default function CRTCoursePage() {
         for (const crtDoc of crtSnap.docs) {
           const data = crtDoc.data();
           const matchesProgram =
+            crtDoc.id === programSlug ||
             (data.programId && data.programId === programSlug) ||
             (data.name && createSlug(data.name) === programSlug) ||
             (data.name && data.name === program.title);
@@ -202,7 +293,7 @@ export default function CRTCoursePage() {
           const coursesRef = collection(db, "crt", crtDoc.id, "courses");
           const coursesSnap = await getDocs(coursesRef);
           const found = coursesSnap.docs.find(
-            (c) => createSlug(c.data().title || "") === courseSlug
+            (c) => c.id === courseSlug || createSlug(c.data().title || "") === courseSlug
           );
           if (found) {
             resolvedCourse = { id: found.id, ...found.data() };
@@ -213,10 +304,12 @@ export default function CRTCoursePage() {
           setCourse(null);
           setChapters([]);
           setProgressTests([]);
+          setResolvedCrtId(null);
           setLoading(false);
           return;
         }
         setCourse(resolvedCourse);
+        setResolvedCrtId(resolvedCrtId);
 
         const chaptersRef = collection(
           db,
@@ -272,6 +365,7 @@ export default function CRTCoursePage() {
         setCourse(null);
         setChapters([]);
         setProgressTests([]);
+        setResolvedCrtId(null);
       } finally {
         setLoading(false);
       }
@@ -279,15 +373,12 @@ export default function CRTCoursePage() {
     resolveAndFetch();
   }, [programSlug, courseSlug, program?.id, program?.title, program, user?.uid, user]);
 
-  // Expand first day by default for better experience (once content is ready)
+  // Expand first day by default only when user has access (once content is ready)
   useEffect(() => {
-    if (loading || initialExpandDone) return;
-    const list = chapters.length > 0 ? chapters : DUMMY_CHAPTERS;
-    if (list.length > 0) {
-      setExpandedDay(list[0].id);
-      setInitialExpandDone(true);
-    }
-  }, [loading, chapters, initialExpandDone]);
+    if (loading || !hasCourseAccess || initialExpandDone || chapters.length === 0) return;
+    setExpandedDay(chapters[0].id);
+    setInitialExpandDone(true);
+  }, [loading, hasCourseAccess, chapters, initialExpandDone]);
 
   if (!program) {
     return (
@@ -322,7 +413,64 @@ export default function CRTCoursePage() {
     );
   };
 
-  const displayChapters = chapters.length > 0 ? chapters : DUMMY_CHAPTERS;
+  const openFeedbackModal = (ch, dayNumber) => {
+    setFeedbackChapter({
+      id: ch.id,
+      title: ch.title || `Day ${dayNumber}`,
+      dayNumber: typeof ch.order === "number" ? ch.order : dayNumber,
+    });
+    setFeedbackForm({
+      practicalOriented: 0,
+      adminSupport: 0,
+      overallTraining: 0,
+      classLinkOnTime: 0,
+      comments: "",
+    });
+    setFeedbackSubmitted(false);
+    setShowFeedbackModal(true);
+  };
+
+  const closeFeedbackModal = () => {
+    setShowFeedbackModal(false);
+    setFeedbackChapter(null);
+  };
+
+  const submitFeedback = async () => {
+    if (!user?.uid || !feedbackChapter || !resolvedCrtId || !course?.id) return;
+    const { practicalOriented, adminSupport, overallTraining, classLinkOnTime, comments } = feedbackForm;
+    if (practicalOriented === 0 || adminSupport === 0 || overallTraining === 0 || classLinkOnTime === 0) {
+      alert("Please rate all four criteria (1–5 stars) before submitting.");
+      return;
+    }
+    try {
+      setFeedbackSubmitting(true);
+      await addDoc(collection(db, "feedback"), {
+        userId: user.uid,
+        userName: user.displayName || user.email || "Anonymous",
+        crtId: resolvedCrtId,
+        courseId: course.id,
+        courseName: courseName || course.title,
+        chapterId: feedbackChapter.id,
+        chapterTitle: feedbackChapter.title,
+        day: feedbackChapter.dayNumber,
+        practicalOriented,
+        adminSupport,
+        overallTraining,
+        classLinkOnTime,
+        comments: (comments || "").trim(),
+        createdAt: serverTimestamp(),
+      });
+      setFeedbackSubmitted(true);
+      setTimeout(closeFeedbackModal, 1500);
+    } catch (e) {
+      console.error("Feedback submit error:", e);
+      alert("Failed to submit feedback. Please try again.");
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
+  const displayChapters = chapters;
 
   const pendingAssignments = progressTests.filter((t) => !progressTestSubmissions[t.id]);
 
@@ -354,7 +502,7 @@ export default function CRTCoursePage() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-white/80 text-xs sm:text-sm font-semibold uppercase tracking-wider">
-                      {program.title} • {isCommon ? "Aptitude & Soft Skills" : "Technical"}
+                      {program.title}
                     </p>
                     <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-white mt-1 truncate">{courseName}</h1>
                   </div>
@@ -363,16 +511,40 @@ export default function CRTCoursePage() {
                 <div className="p-6 sm:p-8 lg:p-10">
                   {loading ? (
                     <p className="text-slate-500">Loading course content...</p>
+                  ) : displayChapters.length === 0 ? (
+                    <p className="text-slate-500">No course content added yet.</p>
+                  ) : !roleCheckDone ? (
+                    <p className="text-slate-500">Checking access...</p>
                   ) : (
                     <>
                   <div className="space-y-4">
                   <h2 className="text-lg sm:text-xl font-bold text-slate-900 mb-5">Course content (day-wise)</h2>
+                
                   {displayChapters.map((ch, idx) => {
                     const dayNumber = typeof ch.order === "number" ? ch.order : idx + 1;
                     const dayTests = progressTests.filter(
                       (t) => (typeof t.day === "number" ? t.day : 1) === dayNumber
                     );
-                    const isExpanded = expandedDay === ch.id || expandedDay === dayNumber;
+                    const isExpanded = hasCourseAccess && (expandedDay === ch.id || expandedDay === dayNumber);
+
+                    if (!hasCourseAccess) {
+                      return (
+                        <div
+                          key={ch.id}
+                          className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50 shadow-sm"
+                        >
+                          <div className="w-full px-4 sm:px-5 py-3.5 sm:py-4 flex items-center justify-between gap-3">
+                            <span className="font-semibold text-slate-600 text-base sm:text-lg">
+                              Day {dayNumber}: {ch.title || `Day ${dayNumber}`}
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600">
+                              <LockClosedIcon className="w-4 h-4" />
+                              Locked
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    }
 
                     return (
                       <div
@@ -413,22 +585,22 @@ export default function CRTCoursePage() {
                             <div className="flex flex-wrap gap-2 sm:gap-3">
                               <button
                                 type="button"
+                                disabled={!ch.pdfDocument}
                                 onClick={() => {
-                                  const url = ch.pdfDocument || "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
-                                  openPdf(url, ch.title || courseName || "PDF");
+                                  if (ch.pdfDocument) openPdf(ch.pdfDocument, ch.title || courseName || "PDF");
                                 }}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-100 text-violet-800 hover:bg-violet-200 text-sm font-medium"
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-100 text-violet-800 hover:bg-violet-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <DocumentArrowDownIcon className="w-4 h-4" />
                                 PDF
                               </button>
                               <button
                                 type="button"
+                                disabled={!ch.pptUrl}
                                 onClick={() => {
-                                  const url = ch.pptUrl || "https://docs.google.com/presentation/d/1/dummy/view";
-                                  openPpt(url, ch.title || courseName || "PPT");
+                                  if (ch.pptUrl) openPpt(ch.pptUrl, ch.title || courseName || "PPT");
                                 }}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-100 text-amber-800 hover:bg-amber-200 text-sm font-medium"
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-100 text-amber-800 hover:bg-amber-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <DocumentTextIcon className="w-4 h-4" />
                                 PPT
@@ -446,9 +618,9 @@ export default function CRTCoursePage() {
                               )}
                               <button
                                 type="button"
+                                disabled={!ch.recordedClassLink || !getEmbedUrl(ch.recordedClassLink)}
                                 onClick={() => {
-                                  const url = ch.recordedClassLink || "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
-                                  const embed = getEmbedUrl(url);
+                                  const embed = ch.recordedClassLink ? getEmbedUrl(ch.recordedClassLink) : "";
                                   if (!embed) return;
                                   if (activeChapterId === ch.id && activeVideoUrl === embed) {
                                     setActiveVideoUrl("");
@@ -460,7 +632,7 @@ export default function CRTCoursePage() {
                                     setActiveChapterId(ch.id);
                                   }
                                 }}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-100 text-amber-800 hover:bg-amber-200 text-sm font-medium"
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-100 text-amber-800 hover:bg-amber-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <VideoCameraIcon className="w-4 h-4" />
                                 Recorded Class
@@ -497,21 +669,19 @@ export default function CRTCoursePage() {
                               )}
                               <button
                                 type="button"
+                                disabled={!(ch.referenceDocument || ch.classDocs)}
                                 onClick={() => {
-                                  const url = ch.referenceDocument || ch.classDocs || "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
-                                  openPdf(url, `${ch.title || "Reference"} - Trainer document`);
+                                  const url = ch.referenceDocument || ch.classDocs;
+                                  if (url) openPdf(url, `${ch.title || "Reference"} - Trainer document`);
                                 }}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-100 text-indigo-800 hover:bg-indigo-200 text-sm font-medium"
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-100 text-indigo-800 hover:bg-indigo-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <AcademicCapIcon className="w-4 h-4" />
                                 Trainer reference document
                               </button>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  const subject = encodeURIComponent(`Feedback: ${courseName} - Day ${dayNumber}`);
-                                  window.location.href = `mailto:feedback@example.com?subject=${subject}`;
-                                }}
+                                onClick={() => openFeedbackModal(ch, dayNumber)}
                                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-pink-100 text-pink-800 hover:bg-pink-200 text-sm font-medium"
                               >
                                 <StarIcon className="w-4 h-4" />
@@ -603,6 +773,126 @@ export default function CRTCoursePage() {
           </div>
         </div>
       </div>
+
+      {/* Feedback modal */}
+      {showFeedbackModal && feedbackChapter && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+          onClick={closeFeedbackModal}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="feedback-modal-title"
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-slate-200/80"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="bg-gradient-to-br from-amber-50 via-white to-pink-50 px-5 sm:px-6 py-5 border-b border-amber-100/80">
+              <div className="flex items-start gap-3">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-amber-500 flex items-center justify-center shadow-md shrink-0">
+                  <StarIcon className="w-6 h-6 text-white" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 id="feedback-modal-title" className="text-lg font-bold text-slate-800">
+                    Session feedback
+                  </h3>
+                  <p className="text-sm text-slate-600 mt-0.5">
+                    Day {feedbackChapter.dayNumber} · {feedbackChapter.title}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    1 = Poor · 5 = Excellent
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 sm:p-6 space-y-5">
+              {feedbackSubmitted ? (
+                <div className="text-center py-10">
+                  <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <p className="text-emerald-700 font-semibold text-lg">Thank you!</p>
+                  <p className="text-slate-600 text-sm mt-1">Your feedback has been submitted.</p>
+                </div>
+              ) : (
+                <>
+                  {[
+                    { key: "practicalOriented", label: "Practical Oriented" },
+                    { key: "adminSupport", label: "Admin Support" },
+                    { key: "overallTraining", label: "Overall class training" },
+                    { key: "classLinkOnTime", label: "Class link on time" },
+                  ].map((item, idx) => (
+                    <div
+                      key={item.key}
+                      className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 mb-3">
+                       
+                        <label className="text-sm font-semibold text-slate-800">{item.label}</label>
+                      </div>
+                      <StarRating
+                        value={feedbackForm[item.key]}
+                        onChange={(v) => setFeedbackForm((f) => ({ ...f, [item.key]: v }))}
+                        showValue
+                      />
+                    </div>
+                  ))}
+
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+                    <label className="block text-sm font-semibold text-slate-800 mb-2">
+                      Comments for trainer <span className="text-slate-400 font-normal">(optional)</span>
+                    </label>
+                    <textarea
+                      value={feedbackForm.comments}
+                      onChange={(e) => setFeedbackForm((f) => ({ ...f, comments: e.target.value }))}
+                      placeholder="Share any additional feedback for the trainer..."
+                      rows={3}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 focus:outline-none transition"
+                    />
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={closeFeedbackModal}
+                      disabled={feedbackSubmitting}
+                      className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 hover:border-slate-300 disabled:opacity-50 transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={submitFeedback}
+                      disabled={
+                        feedbackSubmitting ||
+                        feedbackForm.practicalOriented === 0 ||
+                        feedbackForm.adminSupport === 0 ||
+                        feedbackForm.overallTraining === 0 ||
+                        feedbackForm.classLinkOnTime === 0
+                      }
+                      className="flex-1 px-4 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-pink-500 text-white text-sm font-semibold shadow-lg shadow-amber-500/25 hover:from-amber-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none transition"
+                    >
+                      {feedbackSubmitting ? (
+                        <span className="inline-flex items-center justify-center gap-2">
+                          <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Submitting...
+                        </span>
+                      ) : (
+                        "Submit feedback"
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </CheckAuth>
   );
 }
