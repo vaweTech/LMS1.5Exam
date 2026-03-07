@@ -6,7 +6,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, firestoreHelpers } from "../../../lib/firebase";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Cpu, Layers, FileCheck, ChartBar, ArrowLeft } from "lucide-react";
+import { Cpu, Layers, FileCheck, ChartBar, ArrowLeft, Users } from "lucide-react";
 
 export default function CRTDashboardPage() {
   const router = useRouter();
@@ -77,6 +77,13 @@ export default function CRTDashboardPage() {
       title: "Test Analytics",
       description: "Student-wise exam attendance, average scores, and performance analytics.",
       color: "from-violet-500 to-purple-600",
+    },
+    {
+      href: "/Admin/crt/student-user-management",
+      icon: Users,
+      title: "Student User Management",
+      description: "View and manage students (CRT, internship, and general).",
+      color: "from-amber-500 to-orange-600",
     },
   ];
 
