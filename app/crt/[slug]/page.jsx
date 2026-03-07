@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import CheckAuth from "../../../lib/CheckAuth";
-import { getProgramBySlug } from "../../../lib/crtProgramsData";
 import { firestoreHelpers } from "../../../lib/firebase";
 import { createSlug } from "../../../lib/urlUtils";
 import { db, auth } from "../../../lib/firebase";
@@ -51,13 +50,11 @@ function programFromCrtDoc(id, data) {
 export default function CRTProgramDetailPage() {
   const params = useParams();
   const slug = params?.slug;
-  const staticProgram = slug ? getProgramBySlug(slug) : null;
-  const [firestoreProgram, setFirestoreProgram] = useState(null);
-  const [programLoading, setProgramLoading] = useState(!!slug && !staticProgram);
-  const program = staticProgram || firestoreProgram;
+  const [program, setProgram] = useState(null);
+  const [programLoading, setProgramLoading] = useState(!!slug);
 
   useEffect(() => {
-    if (!slug || staticProgram) {
+    if (!slug) {
       setProgramLoading(false);
       return;
     }
@@ -68,7 +65,7 @@ export default function CRTProgramDetailPage() {
         const snap = await firestoreHelpers.getDoc(ref);
         if (cancelled) return;
         if (snap.exists()) {
-          setFirestoreProgram(programFromCrtDoc(snap.id, snap.data()));
+          setProgram(programFromCrtDoc(snap.id, snap.data()));
           return;
         }
         const crtSnap = await firestoreHelpers.getDocs(firestoreHelpers.collection(db, "crt"));
@@ -76,15 +73,15 @@ export default function CRTProgramDetailPage() {
         const found = crtSnap.docs.find(
           (d) => createSlug(d.data().name || "") === slug
         );
-        setFirestoreProgram(found ? programFromCrtDoc(found.id, found.data()) : null);
+        setProgram(found ? programFromCrtDoc(found.id, found.data()) : null);
       } catch (_) {
-        if (!cancelled) setFirestoreProgram(null);
+        if (!cancelled) setProgram(null);
       } finally {
         if (!cancelled) setProgramLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [slug, staticProgram]);
+  }, [slug]);
 
   const [imageError, setImageError] = useState(false);
   const [attendanceStats, setAttendanceStats] = useState({ total: 0, present: 0, percent: 0 });
@@ -101,7 +98,7 @@ export default function CRTProgramDetailPage() {
 
   // When program is from Firestore, fetch actual courses under this CRT and isNonTechnical from master course
   useEffect(() => {
-    if (!program?.id || !firestoreProgram) {
+    if (!program?.id) {
       setCrtCoursesFromFirestore([]);
       return;
     }
@@ -128,7 +125,7 @@ export default function CRTProgramDetailPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [program?.id, firestoreProgram]);
+  }, [program?.id]);
 
   useEffect(() => {
     if (!slug || !program || !user?.uid) {
@@ -316,15 +313,14 @@ export default function CRTProgramDetailPage() {
   const technicalCourseNames = program.technicalCourses || [];
 
   // When we have Firestore courses: common = in commonCourses list OR isNonTechnical from master; technical = rest
-  const isFromFirestore = Boolean(firestoreProgram);
-  const commonCourseDocs = isFromFirestore && crtCoursesFromFirestore.length > 0
+  const commonCourseDocs = crtCoursesFromFirestore.length > 0
     ? crtCoursesFromFirestore.filter(
         (c) =>
           c.isNonTechnical === true ||
           (program.commonCourses || []).includes(c.title)
       )
     : [];
-  const technicalCourseDocs = isFromFirestore && crtCoursesFromFirestore.length > 0
+  const technicalCourseDocs = crtCoursesFromFirestore.length > 0
     ? crtCoursesFromFirestore.filter(
         (c) => !commonCourseDocs.some((x) => x.id === c.id)
       )

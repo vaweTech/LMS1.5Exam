@@ -564,6 +564,52 @@ export default function CRTManager() {
               chapterCopyError
             );
           }
+
+          // Copy day-wise progress tests for the course copy
+          try {
+            const masterAssignmentsSnap = await mcqGetDocs(
+              mcqCollection(mcqDb, "copiedcourses", courseId, "assignments")
+            );
+            const assignments = masterAssignmentsSnap.docs.map((d) => ({
+              id: d.id,
+              ...d.data(),
+            }));
+
+            const copyResults = await Promise.allSettled(
+              assignments.map(async (assignment) => {
+                const { id: sourceAssignmentId, ...payload } = assignment;
+                return mcqAddDoc(
+                  mcqCollection(
+                    mcqDb,
+                    "copiedcourses",
+                    courseCopyRef.id,
+                    "assignments"
+                  ),
+                  {
+                    ...payload,
+                    day: Number(payload.day) || 1,
+                    sourceAssignmentId,
+                    copiedAt: new Date().toISOString(),
+                    copiedBy: user?.uid || null,
+                  }
+                );
+              })
+            );
+
+            const failures = copyResults.filter((result) => result.status === "rejected");
+            if (failures.length > 0) {
+              console.error(
+                `Failed to copy ${failures.length} progress test(s) for course ${courseId}`,
+                failures
+              );
+            }
+          } catch (assignmentCopyError) {
+            console.error(
+              "Failed to copy progress tests for course",
+              courseId,
+              assignmentCopyError
+            );
+          }
         }
       }
       
@@ -571,7 +617,7 @@ export default function CRTManager() {
       await fetchAllCrtCourses();
       alert(
         toAssign.length > 0
-          ? `${toAssign.length} course(s) assigned to CRT. Each CRT has its own independent copy.`
+          ? `${toAssign.length} course(s) assigned to CRT with day-wise progress tests. Each CRT has its own independent copy.`
           : "All selected courses are already assigned to this CRT."
       );
     } catch (e) {

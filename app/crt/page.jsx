@@ -161,10 +161,10 @@ export default function CRTPage() {
                         <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center">
                           <BookOpenIcon className="w-5 h-5 text-white" />
                         </div>
-                        <span className="text-white/95 font-semibold text-sm uppercase tracking-wider">{totalHours} hr programme</span>
+                        <span className="text-white/95 font-semibold text-sm uppercase tracking-wider">{totalHours}hours program</span>
                       </div>
                       {/* Non-technical (common) block */}
-                      <p className="text-white/90 text-xs font-semibold uppercase tracking-wider mb-2">{commonHours} hr – {commonLabel}</p>
+                      <p className="text-white/90 text-xs font-semibold uppercase tracking-wider mb-2">{commonHours}hours – {commonLabel}</p>
                       <div className="flex flex-wrap gap-1.5 mb-4">
                         {commonCourses.map((name) => (
                           <span
@@ -176,7 +176,7 @@ export default function CRTPage() {
                         ))}
                       </div>
                       {/* Technical block */}
-                      <p className="text-white/90 text-xs font-semibold uppercase tracking-wider mb-2">{technicalHours} hr – Technical</p>
+                      <p className="text-white/90 text-xs font-semibold uppercase tracking-wider mb-2">{technicalHours}hours – Technical</p>
                       <div className="flex flex-wrap gap-1.5">
                         {technicalCourses.map((name) => (
                           <span
@@ -209,7 +209,7 @@ export default function CRTPage() {
                       <span className={`inline-block text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-md ${program.bg} ${program.iconColor}`}>
                         {program.duration}
                       </span>
-                      <span className="text-xs font-semibold text-slate-500">{program.totalHours ?? 400} hr programme</span>
+                      <span className="text-xs font-semibold text-slate-500">{program.totalHours ?? 400} hours programme</span>
                     </div>
                     <p className="text-slate-600 leading-relaxed mb-6 max-w-lg text-sm sm:text-base">
                       {program.description}
