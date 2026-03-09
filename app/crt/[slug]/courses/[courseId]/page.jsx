@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import CheckAuth from "../../../../../lib/CheckAuth";
-import { getProgramBySlug } from "../../../../../lib/crtProgramsData";
 import { createSlug, createCourseUrl } from "../../../../../lib/urlUtils";
 import { db, auth, firestoreHelpers } from "../../../../../lib/firebase";
 import { mcqDb } from "../../../../../lib/firebaseMCQs";
@@ -33,13 +32,6 @@ import {
   UserGroupIcon,
   LockClosedIcon,
 } from "@heroicons/react/24/solid";
-
-function titleFromSlug(slug) {
-  return slug
-    ?.split("-")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ") || "";
-}
 
 function getEmbedUrl(url) {
   if (!url) return "";
@@ -104,13 +96,11 @@ export default function CRTCoursePage() {
   const params = useParams();
   const programSlug = params?.slug;
   const courseSlug = params?.courseId;
-  const staticProgram = programSlug ? getProgramBySlug(programSlug) : null;
-  const [firestoreProgram, setFirestoreProgram] = useState(null);
-  const program = staticProgram || firestoreProgram;
+  const [program, setProgram] = useState(null);
 
   useEffect(() => {
-    if (!programSlug || staticProgram) {
-      setFirestoreProgram(null);
+    if (!programSlug) {
+      setProgram(null);
       return;
     }
     let cancelled = false;
@@ -120,7 +110,7 @@ export default function CRTCoursePage() {
         const snap = await firestoreHelpers.getDoc(ref);
         if (cancelled) return;
         if (snap.exists()) {
-          setFirestoreProgram(programFromCrtDoc(snap.id, snap.data()));
+          setProgram(programFromCrtDoc(snap.id, snap.data()));
           return;
         }
         const crtSnap = await firestoreHelpers.getDocs(firestoreHelpers.collection(db, "crt"));
@@ -128,20 +118,18 @@ export default function CRTCoursePage() {
         const found = crtSnap.docs.find(
           (d) => createSlug(d.data().name || "") === programSlug
         );
-        setFirestoreProgram(found ? programFromCrtDoc(found.id, found.data()) : null);
+        setProgram(found ? programFromCrtDoc(found.id, found.data()) : null);
       } catch (_) {
-        if (!cancelled) setFirestoreProgram(null);
+        if (!cancelled) setProgram(null);
       }
     })();
     return () => { cancelled = true; };
-  }, [programSlug, staticProgram]);
+  }, [programSlug]);
 
   const allCommon = (program?.commonCourses || []).map((n) => ({ name: n, slug: createSlug(n) }));
   const allTechnical = (program?.technicalCourses || []).map((n) => ({ name: n, slug: createSlug(n) }));
   const commonMatch = allCommon.find((c) => c.slug === courseSlug);
   const technicalMatch = allTechnical.find((c) => c.slug === courseSlug);
-  const courseName = commonMatch?.name || technicalMatch?.name || titleFromSlug(courseSlug);
-  const isCommon = Boolean(commonMatch);
 
   const [course, setCourse] = useState(null);
   const [chapters, setChapters] = useState([]);
@@ -169,6 +157,8 @@ export default function CRTCoursePage() {
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [hasCourseAccess, setHasCourseAccess] = useState(false);
   const [roleCheckDone, setRoleCheckDone] = useState(false);
+  const courseName = course?.title || commonMatch?.name || technicalMatch?.name || "";
+  const isCommon = Boolean(commonMatch);
 
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => {
@@ -409,7 +399,7 @@ export default function CRTCoursePage() {
     const slug = createCourseUrl(course?.title || courseName);
     if (!slug) return;
     router.push(
-      `/courses/${slug}/assignments/${test.id}?courseId=${course?.id || ""}`
+      `/crt/${programSlug}/courses/${slug}/dayassignment/${test.id}`
     );
   };
 
@@ -637,36 +627,25 @@ export default function CRTCoursePage() {
                                 <VideoCameraIcon className="w-4 h-4" />
                                 Recorded Class
                               </button>
-                              {dayTests.length > 0 ? (
-                                dayTests.map((test, testIdx) => {
-                                  const submission = progressTestSubmissions[test.id];
-                                  const isSubmitted = !!submission;
-                                  const label = dayTests.length === 1 ? "Progress Test (1)" : `Progress Test (${testIdx + 1})`;
-                                  return (
-                                    <button
-                                      key={test.id}
-                                      type="button"
-                                      onClick={() => openProgressTest(test)}
-                                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-100 text-blue-800 hover:bg-blue-200 text-sm font-medium"
-                                    >
-                                      <DocumentTextIcon className="w-4 h-4" />
-                                      {test.title || label}
-                                      {isSubmitted && (
-                                        <span className="ml-1 w-4 h-4 rounded-full bg-green-500 text-white text-[10px] flex items-center justify-center">✓</span>
-                                      )}
-                                    </button>
-                                  );
-                                })
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => alert("Progress test will be available when assigned to this day.")}
-                                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-100 text-blue-800 hover:bg-blue-200 text-sm font-medium"
-                                >
-                                  <DocumentTextIcon className="w-4 h-4" />
-                                  Progress Test (1)
-                                </button>
-                              )}
+                              {dayTests.map((test, testIdx) => {
+                                const submission = progressTestSubmissions[test.id];
+                                const isSubmitted = !!submission;
+                                const label = dayTests.length === 1 ? "Progress Test (1)" : `Progress Test (${testIdx + 1})`;
+                                return (
+                                  <button
+                                    key={test.id}
+                                    type="button"
+                                    onClick={() => openProgressTest(test)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-100 text-blue-800 hover:bg-blue-200 text-sm font-medium"
+                                  >
+                                    <DocumentTextIcon className="w-4 h-4" />
+                                    {test.title || label}
+                                    {isSubmitted && (
+                                      <span className="ml-1 w-4 h-4 rounded-full bg-green-500 text-white text-[10px] flex items-center justify-center">✓</span>
+                                    )}
+                                  </button>
+                                );
+                              })}
                               <button
                                 type="button"
                                 disabled={!(ch.referenceDocument || ch.classDocs)}
