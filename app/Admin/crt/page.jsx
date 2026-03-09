@@ -6,7 +6,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, firestoreHelpers } from "../../../lib/firebase";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Cpu, Layers, FileCheck, ChartBar, ArrowLeft, Users } from "lucide-react";
+import { Cpu, Layers, FileCheck, ChartBar, ArrowLeft, Users, UserCog } from "lucide-react";
 
 export default function CRTDashboardPage() {
   const router = useRouter();
@@ -81,12 +81,20 @@ export default function CRTDashboardPage() {
     {
       href: "/Admin/crt/student-user-management",
       icon: Users,
-      title: "Student User Management",
-      description: "View and manage students (CRT, internship, and general).",
+      title: "Student Management",
+      description: "View and manage CRT students only.",
       color: "from-amber-500 to-orange-600",
+    },
+    {
+      href: "/Admin/crt/trainer-management",
+      icon: UserCog,
+      title: "CRT Trainers",
+      description: "View CRT trainers and create new trainer accounts.",
+      color: "from-blue-500 to-indigo-600",
     },
   ];
 
+  
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto px-4 py-10">

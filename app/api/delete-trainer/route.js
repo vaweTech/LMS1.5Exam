@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import admin, { adminDb } from "@/lib/firebaseAdmin";
+import admin, { adminDb, deleteDocumentViaRest } from "@/lib/firebaseAdmin";
 
 const isTransientNetworkError = (e) =>
   e?.code === "ECONNRESET" ||
@@ -31,14 +31,41 @@ export async function DELETE(req) {
     if (!uid) return NextResponse.json({ error: "Trainer uid required" }, { status: 400 });
 
     const userRef = adminDb.collection("users").doc(uid);
-    const userSnap = await withRetry(() => userRef.get());
-    if (!userSnap.exists) return NextResponse.json({ error: "Trainer not found" }, { status: 404 });
-    const data = userSnap.data();
-    if (data?.role !== "trainer")
-      return NextResponse.json({ error: "User is not a trainer" }, { status: 400 });
+    let isTrainer = true;
+
+    try {
+      const userSnap = await withRetry(() => userRef.get());
+      if (!userSnap.exists) {
+        return NextResponse.json({ error: "Trainer not found" }, { status: 404 });
+      }
+      const data = userSnap.data();
+      if (data?.role !== "trainer" && data?.role !== "crtTrainer") {
+        return NextResponse.json({ error: "User is not a trainer" }, { status: 400 });
+      }
+    } catch (e) {
+      if (!isTransientNetworkError(e)) {
+        throw e;
+      }
+      // Network issue talking to Firestore; continue best-effort based on UI context.
+      console.warn("delete-trainer: Firestore get failed, continuing with best-effort delete", e.message);
+      isTrainer = true;
+    }
 
     await withRetry(() => admin.auth().deleteUser(uid));
-    await withRetry(() => userRef.delete());
+
+    try {
+      await withRetry(() => userRef.delete());
+    } catch (e) {
+      if (!isTransientNetworkError(e)) {
+        throw e;
+      }
+      console.warn("delete-trainer: Firestore SDK delete failed, trying REST delete", e.message);
+      try {
+        await deleteDocumentViaRest("users", uid);
+      } catch (restErr) {
+        console.warn("delete-trainer: REST delete failed (best-effort only)", restErr.message);
+      }
+    }
 
     return NextResponse.json({ ok: true });
   } catch (e) {

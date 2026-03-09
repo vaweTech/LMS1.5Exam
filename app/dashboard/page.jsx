@@ -4126,7 +4126,7 @@ export default function DashboardPage() {
         
 
         {/* Trainer Button (non-admin) */}
-        {role === "trainer" && (
+        {(role === "trainer" || role === "crtTrainer") && (
           <div className="mt-8 sm:mt-10 text-center">
             <button
               onClick={() => router.push("/trainer")}

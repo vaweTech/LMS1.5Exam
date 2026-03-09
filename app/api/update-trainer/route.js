@@ -26,10 +26,10 @@ async function withRetry(fn, maxAttempts = 3) {
 
 export async function PATCH(req) {
   try {
-    const { uid, name, email } = await req.json();
+    const { uid, name, email, phone } = await req.json();
     if (!uid) return NextResponse.json({ error: "Trainer uid required" }, { status: 400 });
-    if (!name?.trim() && !email?.trim())
-      return NextResponse.json({ error: "Provide at least name or email" }, { status: 400 });
+    if (!name?.trim() && !email?.trim() && !phone?.trim())
+      return NextResponse.json({ error: "Provide at least name, email or phone" }, { status: 400 });
 
     const updates = {};
     if (name?.trim()) updates.displayName = name.trim();
@@ -42,6 +42,7 @@ export async function PATCH(req) {
     const firestoreUpdates = {};
     if (name?.trim()) firestoreUpdates.name = name.trim();
     if (email?.trim()) firestoreUpdates.email = email.trim();
+    if (phone?.trim()) firestoreUpdates.phone = phone.trim();
     if (Object.keys(firestoreUpdates).length > 0) {
       await withRetry(() =>
         adminDb.collection("users").doc(uid).set(firestoreUpdates, { merge: true })

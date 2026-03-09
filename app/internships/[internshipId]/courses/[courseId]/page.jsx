@@ -122,7 +122,7 @@ export default function InternshipCoursePage() {
           const userSnap = await getDoc(doc(db, "users", u.uid));
           const role = userSnap.exists() ? userSnap.data().role : undefined;
           const trainerLike =
-            role === "trainer" || role === "admin" || role === "superadmin";
+            role === "trainer" || role === "crtTrainer" || role === "admin" || role === "superadmin";
           setIsTrainerUser(trainerLike);
         } catch {
           setIsTrainerUser(false);
