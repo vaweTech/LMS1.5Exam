@@ -52,6 +52,19 @@ function groupBySection(questionsList) {
   return Array.from(map.entries()).map(([sectionTitle, indices]) => ({ sectionTitle, indices }));
 }
 
+// Check if user answer is correct for one question
+function isAnswerCorrect(question, userAnswer) {
+  const correctAnswers = Array.isArray(question.correctAnswers) ? question.correctAnswers : [];
+  const isMultiple = question.isMultiple === true;
+  if (isMultiple) {
+    const userSet = new Set(Array.isArray(userAnswer) ? userAnswer : []);
+    const correctSet = new Set(correctAnswers);
+    return userSet.size === correctSet.size && [...userSet].every((x) => correctSet.has(x));
+  }
+  const userSingle = typeof userAnswer === "number" ? userAnswer : (Array.isArray(userAnswer) ? userAnswer[0] : undefined);
+  return correctAnswers.includes(userSingle);
+}
+
 export default function CRTExamTestPage() {
   const params = useParams();
   const slug = params?.slug;
@@ -203,6 +216,50 @@ export default function CRTExamTestPage() {
   const totalQuestions = questionsList.length;
   const sectionGroups = groupBySection(questionsList);
   const safeIndex = totalQuestions > 0 ? Math.min(currentQuestionIndex, totalQuestions - 1) : 0;
+
+  // Section-wise score breakdown for result dashboard (uses submitted answers or existingSubmission.answers)
+  const sectionWiseScores = useMemo(() => {
+    const resultAnswers = submitted ? answers : (existingSubmission?.answers ?? {});
+    if (!questionsList.length || !sectionGroups.length) return [];
+    return sectionGroups.map(({ sectionTitle, indices }) => {
+      let correct = 0;
+      for (const idx of indices) {
+        const item = questionsList[idx];
+        if (!item) continue;
+        const userAnswer = resultAnswers[idx] ?? resultAnswers[String(idx)];
+        if (isAnswerCorrect(item.question, userAnswer)) correct++;
+      }
+      const total = indices.length;
+      const percent = total > 0 ? Math.round((correct / total) * 100) : 0;
+      return { sectionTitle: sectionTitle || "Section", correct, total, percent };
+    });
+  }, [submitted, existingSubmission, answers, questionsList, sectionGroups]);
+
+  // Overall performance summary for result view
+  const performanceSummary = useMemo(() => {
+    if (!totalQuestions || !questionsList.length) {
+      return { attempted: 0, correct: 0, wrong: 0, notAnswered: totalQuestions || 0 };
+    }
+    const resultAnswers = submitted ? answers : (existingSubmission?.answers ?? {});
+    let attempted = 0;
+    let correct = 0;
+    for (let i = 0; i < totalQuestions; i++) {
+      const item = questionsList[i];
+      if (!item) continue;
+      const userAnswer = resultAnswers[i] ?? resultAnswers[String(i)];
+      const hasAnswer =
+        userAnswer !== undefined &&
+        userAnswer !== null &&
+        (!Array.isArray(userAnswer) || userAnswer.length > 0);
+      if (hasAnswer) {
+        attempted++;
+        if (isAnswerCorrect(item.question, userAnswer)) correct++;
+      }
+    }
+    const wrong = Math.max(0, attempted - correct);
+    const notAnswered = Math.max(0, totalQuestions - attempted);
+    return { attempted, correct, wrong, notAnswered };
+  }, [submitted, existingSubmission, answers, questionsList, totalQuestions]);
   const currentItem = totalQuestions > 0 ? questionsList[safeIndex] : null;
   const isFirst = safeIndex === 0;
   const isLast = safeIndex === totalQuestions - 1;
@@ -433,25 +490,119 @@ export default function CRTExamTestPage() {
 
             <div className={showResult ? "" : "grid grid-cols-1 lg:grid-cols-5 gap-4 sm:gap-6"}>
               {showResult ? (
-                <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-8 sm:p-12 text-center max-w-2xl mx-auto">
-                  <div className="inline-flex items-center gap-2 rounded-xl bg-green-100 text-green-800 px-4 py-3 mb-4">
-                    <CheckBadgeIcon className="w-6 h-6" />
-                    <span className="font-semibold">{resultLabel}</span>
-                  </div>
-                  <p className="text-3xl font-bold text-gray-800">
-                    {typeof resultScore === "number" ? `${resultScore}%` : resultScore}
-                  </p>
-                  {submitted && (
-                    <p className="text-gray-600 mt-1">
-                      {submitted.score} / {submitted.total} correct
+                <div className="max-w-2xl mx-auto space-y-6">
+                  {/* Overall score card */}
+                  <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-8 sm:p-12 text-center">
+                    <div className="inline-flex items-center gap-2 rounded-xl bg-green-100 text-green-800 px-4 py-3 mb-4">
+                      <CheckBadgeIcon className="w-6 h-6" />
+                      <span className="font-semibold">{resultLabel}</span>
+                    </div>
+                    <p className="text-3xl font-bold text-gray-800">
+                      {typeof resultScore === "number" ? `${resultScore}%` : resultScore}
                     </p>
+                    {(submitted || existingSubmission) && (
+                      <p className="text-gray-600 mt-1">
+                        {submitted?.score ?? existingSubmission?.score ?? 0} / {submitted?.total ?? existingSubmission?.total ?? totalQuestions} correct
+                      </p>
+                    )}
+                    {/* Performance summary */}
+                    {totalQuestions > 0 && (
+                      <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                        <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                          <p className="text-xs text-slate-500">Attempted</p>
+                          <p className="text-base font-semibold text-slate-900">
+                            {performanceSummary.attempted}
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2">
+                          <p className="text-xs text-emerald-700">Correct</p>
+                          <p className="text-base font-semibold text-emerald-800">
+                            {performanceSummary.correct}
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+                          <p className="text-xs text-red-700">Incorrect</p>
+                          <p className="text-base font-semibold text-red-800">
+                            {performanceSummary.wrong}
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                          <p className="text-xs text-amber-700">Not Answered</p>
+                          <p className="text-base font-semibold text-amber-800">
+                            {performanceSummary.notAnswered}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Detailed score card – section-wise + total */}
+                  {sectionWiseScores.length > 0 && (
+                    <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+                      <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-gray-50/80">
+                        <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                          <DocumentTextIcon className="w-5 h-5 text-cyan-600" />
+                          Detailed Score by Section
+                        </h2>
+                        <p className="text-sm text-gray-500 mt-0.5">Section-wise breakdown and total marks</p>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                          <thead>
+                            <tr className="border-b border-gray-200 bg-gray-50">
+                              <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">Section</th>
+                              <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider text-center">Score</th>
+                              <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider text-center">Total</th>
+                              <th className="px-4 sm:px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">%</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sectionWiseScores.map((row, i) => (
+                              <tr key={row.sectionTitle + i} className="border-b border-gray-100 hover:bg-gray-50/50">
+                                <td className="px-4 sm:px-6 py-3 font-medium text-gray-800">{row.sectionTitle}</td>
+                                <td className="px-4 sm:px-6 py-3 text-center text-cyan-700 font-semibold">{row.correct}</td>
+                                <td className="px-4 sm:px-6 py-3 text-center text-gray-600">{row.total}</td>
+                                <td className="px-4 sm:px-6 py-3 text-right">
+                                  <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                    row.percent >= 70 ? "bg-green-100 text-green-800" :
+                                    row.percent >= 50 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"
+                                  }`}>
+                                    {row.percent}%
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                            <tr className="bg-cyan-50/80 border-t-2 border-cyan-200 font-semibold">
+                              <td className="px-4 sm:px-6 py-3 text-gray-800">Total</td>
+                              <td className="px-4 sm:px-6 py-3 text-center text-cyan-700">
+                                {sectionWiseScores.reduce((s, r) => s + r.correct, 0)}
+                              </td>
+                              <td className="px-4 sm:px-6 py-3 text-center text-gray-700">
+                                {sectionWiseScores.reduce((s, r) => s + r.total, 0)}
+                              </td>
+                              <td className="px-4 sm:px-6 py-3 text-right">
+                                <span className="inline-flex px-2.5 py-1 rounded-lg bg-cyan-100 text-cyan-800 text-sm font-bold">
+                                  {totalQuestions > 0
+                                    ? Math.round((sectionWiseScores.reduce((s, r) => s + r.correct, 0) / totalQuestions) * 100)
+                                    : 0}%
+                                </span>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   )}
-                  <Link
-                    href={`/crt/${slug}/exams`}
-                    className="inline-flex items-center gap-2 mt-6 px-5 py-2.5 rounded-lg bg-cyan-600 text-white font-medium hover:bg-cyan-700"
-                  >
-                    Back to exams
-                  </Link>
+
+                  <div className="text-center">
+                    <Link
+                      href={`/crt/${slug}/exams`}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-cyan-600 text-white font-medium hover:bg-cyan-700"
+                    >
+                      <ArrowLeftIcon className="w-4 h-4" />
+                      Back to exams
+                    </Link>
+                  </div>
                 </div>
               ) : totalQuestions === 0 ? (
                 <p className="text-gray-500 text-center py-12 bg-white rounded-xl border border-gray-200 shadow-sm">No questions in this test.</p>

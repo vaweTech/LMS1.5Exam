@@ -4126,10 +4126,12 @@ export default function DashboardPage() {
         
 
         {/* Trainer Button (non-admin) */}
-        {role === "trainer" && (
+        {(role === "trainer" || role === "crtTrainer") && (
           <div className="mt-8 sm:mt-10 text-center">
             <button
-              onClick={() => router.push("/trainer")}
+              onClick={() =>
+                router.push(role === "crtTrainer" ? "/crtTrainar" : "/trainer")
+              }
               className="bg-[#00448a] text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl shadow-md hover:bg-[#003a76] transition text-sm sm:text-base"
             >
               Open Trainer Panel

@@ -4,9 +4,46 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { auth, db, firestoreHelpers } from "../../../../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { ArrowLeftIcon, UserGroupIcon, ChartBarIcon } from "@heroicons/react/24/solid";
+import { ArrowLeftIcon, UserGroupIcon, ChartBarIcon, DocumentTextIcon } from "@heroicons/react/24/solid";
 
 const NO_BATCH_KEY = "__no_batch__";
+
+// Section analytics helpers (same logic as exam page for section-wise scoring)
+function flattenQuestions(sections) {
+  if (!Array.isArray(sections)) return [];
+  const out = [];
+  let globalIndex = 0;
+  for (const section of sections) {
+    const questions = Array.isArray(section.questions) ? section.questions : [];
+    const sectionTitle = section.title || section.name || "";
+    for (let i = 0; i < questions.length; i++) {
+      out.push({ sectionTitle, question: questions[i], globalIndex: globalIndex++ });
+    }
+  }
+  return out;
+}
+
+function groupBySection(questionsList) {
+  const map = new Map();
+  for (let i = 0; i < questionsList.length; i++) {
+    const title = questionsList[i].sectionTitle || "Questions";
+    if (!map.has(title)) map.set(title, []);
+    map.get(title).push(i);
+  }
+  return Array.from(map.entries()).map(([sectionTitle, indices]) => ({ sectionTitle, indices }));
+}
+
+function isAnswerCorrect(question, userAnswer) {
+  const correctAnswers = Array.isArray(question.correctAnswers) ? question.correctAnswers : [];
+  const isMultiple = question.isMultiple === true;
+  if (isMultiple) {
+    const userSet = new Set(Array.isArray(userAnswer) ? userAnswer : []);
+    const correctSet = new Set(correctAnswers);
+    return userSet.size === correctSet.size && [...userSet].every((x) => correctSet.has(x));
+  }
+  const userSingle = typeof userAnswer === "number" ? userAnswer : (Array.isArray(userAnswer) ? userAnswer[0] : undefined);
+  return correctAnswers.includes(userSingle);
+}
 
 // Dummy data for demo when no submissions exist
 const now = Date.now();
@@ -21,8 +58,15 @@ const DUMMY_SUBMISSIONS = [
   { id: "d8", userId: "u8", userName: "Rajesh Gupta", batchId: null, batchName: null, score: 11, total: 20, autoScore: 55, submittedAt: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString() },
 ];
 
+// Dummy section-wise analytics for demo
+const DUMMY_SECTION_ANALYTICS = [
+  { sectionTitle: "Quantitative Aptitude", totalQuestions: 8, totalCorrect: 52, studentCount: 8, avgPercent: 81 },
+  { sectionTitle: "Verbal Ability", totalQuestions: 6, totalCorrect: 34, studentCount: 8, avgPercent: 71 },
+  { sectionTitle: "Logical Reasoning", totalQuestions: 6, totalCorrect: 41, studentCount: 8, avgPercent: 85 },
+];
+
 export default function CRTTestSubmissionPage() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(null); 
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -152,6 +196,42 @@ export default function CRTTestSubmissionPage() {
     [tests, selectedTestId]
   );
 
+  // Section-wise analytics: from test sections + submission answers, or dummy
+  const sectionAnalytics = useMemo(() => {
+    if (useDummyData) return DUMMY_SECTION_ANALYTICS;
+    const sections = selectedTest?.sections;
+    if (!Array.isArray(sections) || sections.length === 0) return [];
+    const questionsList = flattenQuestions(sections);
+    const sectionGroups = groupBySection(questionsList);
+    const subsWithAnswers = effectiveSubmissions.filter((s) => s.answers && typeof s.answers === "object");
+    if (subsWithAnswers.length === 0) return [];
+
+    return sectionGroups.map(({ sectionTitle, indices }) => {
+      const totalQuestions = indices.length;
+      const aggregateCorrect = subsWithAnswers.reduce((sum, sub) => {
+        const answers = sub.answers ?? {};
+        let c = 0;
+        for (const idx of indices) {
+          const item = questionsList[idx];
+          if (!item) continue;
+          const userAnswer = answers[idx] ?? answers[String(idx)];
+          if (isAnswerCorrect(item.question, userAnswer)) c++;
+        }
+        return sum + c;
+      }, 0);
+      const avgPercent = totalQuestions > 0 && subsWithAnswers.length > 0
+        ? Math.round((aggregateCorrect / (totalQuestions * subsWithAnswers.length)) * 100)
+        : 0;
+      return {
+        sectionTitle: sectionTitle || "Section",
+        totalQuestions,
+        totalCorrect: aggregateCorrect,
+        studentCount: subsWithAnswers.length,
+        avgPercent,
+      };
+    });
+  }, [useDummyData, selectedTest?.sections, effectiveSubmissions]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -280,6 +360,96 @@ export default function CRTTestSubmissionPage() {
             )}
           </div>
         ) : null}
+
+        {/* Analytics by Section */}
+        {sectionAnalytics.length > 0 && !loadingSubmissions && (
+          <div className="mb-8 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-cyan-50 to-blue-50">
+              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <ChartBarIcon className="w-5 h-5 text-cyan-600" />
+                Analytics by Section
+              </h2>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Section-wise performance across all submissions
+                {useDummyData && (
+                  <span className="ml-2 px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-medium">Demo</span>
+                )}
+              </p>
+            </div>
+            <div className="p-4 sm:p-6">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {sectionAnalytics.map((section, i) => {
+                  const pct = section.avgPercent ?? 0;
+                  const barColor = pct >= 70 ? "bg-green-500" : pct >= 50 ? "bg-amber-500" : "bg-red-500";
+                  return (
+                    <div
+                      key={section.sectionTitle + i}
+                      className="rounded-xl border border-gray-200 bg-gray-50/50 p-4 hover:border-cyan-200 hover:bg-cyan-50/30 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-9 h-9 rounded-lg bg-cyan-100 flex items-center justify-center shrink-0">
+                            <DocumentTextIcon className="w-4 h-4 text-cyan-600" />
+                          </div>
+                          <h3 className="font-semibold text-gray-800 text-sm truncate" title={section.sectionTitle}>
+                            {section.sectionTitle}
+                          </h3>
+                        </div>
+                        <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-bold ${
+                          pct >= 70 ? "bg-green-100 text-green-800" : pct >= 50 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800"
+                        }`}>
+                          {pct}%
+                        </span>
+                      </div>
+                      <div className="mb-2">
+                        <div className="h-2.5 w-full rounded-full bg-gray-200 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${barColor} transition-all duration-500`}
+                            style={{ width: `${Math.min(100, pct)}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
+                        <span>Correct: <strong className="text-gray-800">{section.totalCorrect}</strong> / {section.totalQuestions * (section.studentCount || 1)}</span>
+                        <span>Students: <strong className="text-gray-800">{section.studentCount ?? 0}</strong></span>
+                        <span>Q’s/section: <strong className="text-gray-800">{section.totalQuestions}</strong></span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Summary table for sections */}
+              <div className="mt-6 overflow-x-auto rounded-lg border border-gray-200">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-600">
+                      <th className="px-4 py-3 font-semibold">Section</th>
+                      <th className="px-4 py-3 font-semibold text-center">Questions</th>
+                      <th className="px-4 py-3 font-semibold text-center">Total correct</th>
+                      <th className="px-4 py-3 font-semibold text-center">Students</th>
+                      <th className="px-4 py-3 font-semibold text-right">Avg %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sectionAnalytics.map((section, i) => (
+                      <tr key={i} className="border-t border-gray-100 hover:bg-gray-50/50">
+                        <td className="px-4 py-3 font-medium text-gray-800">{section.sectionTitle}</td>
+                        <td className="px-4 py-3 text-center text-gray-600">{section.totalQuestions}</td>
+                        <td className="px-4 py-3 text-center text-cyan-700 font-medium">{section.totalCorrect}</td>
+                        <td className="px-4 py-3 text-center text-gray-600">{section.studentCount ?? 0}</td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`font-semibold ${section.avgPercent >= 70 ? "text-green-600" : section.avgPercent >= 50 ? "text-amber-600" : "text-red-600"}`}>
+                            {section.avgPercent}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
 
         {loadingSubmissions && !useDummyData ? (
           <div className="flex items-center justify-center py-12">
