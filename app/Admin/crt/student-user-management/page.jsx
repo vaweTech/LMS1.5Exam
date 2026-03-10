@@ -351,13 +351,23 @@ export default function CRTStudentUserManagementPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto px-4 py-10 max-w-6xl">
+        <div className="mb-4 flex items-center gap-3">
+          <Link
+            href="/Admin/crt"
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to CRT Admin
+          </Link>
+        </div>
+
         <div className="mb-8 flex items-center justify-between flex-wrap gap-4">
           <div>
             <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
                 <GraduationCap className="w-6 h-6 text-white" />
               </div>
-              Student User Management
+              Student Management
             </h1>
             <p className="text-slate-600 mt-1">
               View and manage CRT students only.

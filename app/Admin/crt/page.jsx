@@ -92,6 +92,13 @@ export default function CRTDashboardPage() {
       description: "View CRT trainers and create new trainer accounts.",
       color: "from-blue-500 to-indigo-600",
     },
+    {
+      href: "/Admin/crt/po-management",
+      icon: Layers,
+      title: "CRT PO Management",
+      description: "Manage CRT-related purchase orders and tracking.",
+      color: "from-rose-500 to-pink-600",
+    },
   ];
 
   
