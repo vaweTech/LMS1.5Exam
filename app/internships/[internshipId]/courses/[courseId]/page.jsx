@@ -16,6 +16,12 @@ import {
 import { BookOpen, ArrowLeft, Play, FileText, Radio, Lock, Video, Presentation, ExternalLink, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react";
 import { createCourseUrl } from "../../../../../lib/urlUtils";
 
+// Helper: is this a Google Drive URL? (use secure viewer). Otherwise use simple viewer for direct PDFs.
+function isGoogleDriveUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  return /drive\.google\.com/i.test(url);
+}
+
 // Helper to convert raw URLs into embeddable video URLs (YouTube / Google Drive) 
 function getEmbedUrl(url) {
   if (!url) return "";
@@ -532,7 +538,8 @@ export default function InternshipCoursePage() {
                         <button
                           type="button"
                           onClick={() => {
-                            router.push(`/view-pdf-secure?url=${encodeURIComponent(ch.pdfDocument)}&title=${encodeURIComponent(ch.title || displayCourse.title || "PDF Document")}`);
+                            const base = isGoogleDriveUrl(ch.pdfDocument) ? "/view-pdf-secure" : "/view-pdf-simple";
+                            router.push(`${base}?url=${encodeURIComponent(ch.pdfDocument)}&title=${encodeURIComponent(ch.title || displayCourse.title || "PDF Document")}`);
                           }}
                           className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium rounded-xl bg-rose-50 text-rose-700 border border-rose-200/80 hover:bg-rose-100 hover:border-rose-300 transition-all"
                       >
@@ -589,8 +596,8 @@ export default function InternshipCoursePage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const url = `/view-pdf-secure?url=${encodeURIComponent(ch.referenceDocument)}&title=${encodeURIComponent(`${ch.title || displayCourse.title || "Reference"} - Reference Document`)}`;
-                            router.push(url);
+                            const base = isGoogleDriveUrl(ch.referenceDocument) ? "/view-pdf-secure" : "/view-pdf-simple";
+                            router.push(`${base}?url=${encodeURIComponent(ch.referenceDocument)}&title=${encodeURIComponent(`${ch.title || displayCourse.title || "Reference"} - Reference Document`)}`);
                           }}
                           className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200/80 hover:bg-indigo-100 hover:border-indigo-300 transition-all"
                         >
