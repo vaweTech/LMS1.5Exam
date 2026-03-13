@@ -6,7 +6,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, firestoreHelpers } from "../../../lib/firebase";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Cpu, Layers, FileCheck, ChartBar, ArrowLeft, Users, UserCog } from "lucide-react";
+import { Cpu, Layers, FileCheck, ChartBar, ArrowLeft, Users, UserCog, UserCheck } from "lucide-react";
 
 export default function CRTDashboardPage() {
   const router = useRouter();
@@ -98,6 +98,13 @@ export default function CRTDashboardPage() {
       title: "CRT PO Management",
       description: "Manage CRT-related purchase orders and tracking.",
       color: "from-rose-500 to-pink-600",
+    },
+    {
+      href: "/Admin/crt/active-incharge",
+      icon: UserCheck,
+      title: "Active Incharge",
+      description: "View and manage active incharge users for CRT programs.",
+      color: "from-sky-500 to-indigo-600",
     },
   ];
 

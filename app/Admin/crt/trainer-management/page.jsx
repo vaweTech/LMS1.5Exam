@@ -47,13 +47,14 @@ export default function CRTTrainerManagementPage() {
     if (!db) return;
     setLoadingTrainers(true);
     try {
+      // users (collection) -> crtTrainers (document) -> trainers (subcollection)
       const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "users")
+        firestoreHelpers.collection(db, "users", "crtTrainers", "trainers")
       );
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((u) => u.role === "crtTrainer");
-      setTrainers(list.sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      setTrainers(list);
     } catch (err) {
       console.error(err);
       alert("Failed to load trainers.");
@@ -195,6 +196,19 @@ export default function CRTTrainerManagementPage() {
         }
       }
 
+      // Store in users/crtTrainers/trainers/{uid} (doc id = Auth uid)
+      if (db && data.uid) {
+        const trainerDoc = firestoreHelpers.doc(db, "users", "crtTrainers", "trainers", data.uid);
+        await firestoreHelpers.setDoc(trainerDoc, {
+          name: createForm.name.trim(),
+          email: createForm.email.trim(),
+          phone: createForm.phone?.trim() || "",
+          empId: createForm.empId?.trim() || "",
+          role: "crtTrainer",
+          createdAt: new Date().toISOString(),
+        });
+      }
+
       setShowCreateModal(false);
       setCreateForm({ name: "", email: "", phone: "", empId: "" });
       setPendingSync(null);
@@ -212,6 +226,17 @@ export default function CRTTrainerManagementPage() {
     setSubmitting(true);
     try {
       await syncTrainerDoc(pendingSync.uid, pendingSync.trainerData);
+      if (db) {
+        const trainerDoc = firestoreHelpers.doc(db, "users", "crtTrainers", "trainers", pendingSync.uid);
+        await firestoreHelpers.setDoc(trainerDoc, {
+          name: pendingSync.trainerData.name || "",
+          email: pendingSync.trainerData.email || "",
+          phone: pendingSync.trainerData.phone || "",
+          empId: pendingSync.trainerData.empId || "",
+          role: "crtTrainer",
+          createdAt: new Date().toISOString(),
+        });
+      }
       setShowCreateModal(false);
       setCreateForm({ name: "", email: "", phone: "", empId: "" });
       setPendingSync(null);
@@ -246,6 +271,13 @@ export default function CRTTrainerManagementPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Update trainer failed");
+      if (db) {
+        const trainerRef = firestoreHelpers.doc(db, "users", "crtTrainers", "trainers", editingTrainer.id);
+        await firestoreHelpers.updateDoc(trainerRef, {
+          name: name || editingTrainer.name || "",
+          phone: phone ?? editingTrainer.phone ?? "",
+        });
+      }
       await fetchTrainers();
       closeEditModal();
       alert("Trainer updated.");
@@ -263,6 +295,10 @@ export default function CRTTrainerManagementPage() {
     if (!confirmed) return;
     setDeletingId(trainer.id);
     try {
+      if (db) {
+        const trainerRef = firestoreHelpers.doc(db, "users", "crtTrainers", "trainers", trainer.id);
+        await firestoreHelpers.deleteDoc(trainerRef);
+      }
       const res = await fetch(`/api/delete-trainer?uid=${encodeURIComponent(trainer.id)}`, {
         method: "DELETE",
       });
@@ -346,7 +382,7 @@ export default function CRTTrainerManagementPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto px-4 py-10 max-w-4xl">
+      <div className="mx-auto px-4 py-10 w-full">
         <div className="mb-4 flex items-center gap-3">
           <Link
             href="/Admin/crt"

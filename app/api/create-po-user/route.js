@@ -81,15 +81,18 @@ export async function POST(req) {
         userId: userRecord.uid,
       };
 
-      // Store PO under subcollection `users/{uid}/po`
+      // Store PO under per-user subcollection `users/{uid}/po`
       const poRef = await withRetry(() =>
         userRef.collection("po").add(poData)
       );
 
-      // Also store PO in top-level `crtPOs` to keep the admin list simple
-      await withRetry(() =>
-        adminDb.collection("crtPOs").doc(poRef.id).set(poData)
-      );
+      // Also store PO under central admin path: users/crtPO/po/{poId}
+      const centralPoRef = adminDb
+        .collection("users")
+        .doc("crtPO")
+        .collection("po")
+        .doc(poRef.id);
+      await withRetry(() => centralPoRef.set(poData, { merge: true }));
 
       return NextResponse.json({
         ok: true,
@@ -107,7 +110,7 @@ export async function POST(req) {
         firestoreError.message
       );
 
-      // REST fallback – write user and one PO doc via REST
+      // REST fallback – write user and one PO doc via REST (no crtPOs collection)
       const basePoId = `${userRecord.uid}-${Date.now()}`;
 
       const poDataRest = {
@@ -123,8 +126,8 @@ export async function POST(req) {
       };
 
       await writeDocumentViaRest("users", userRecord.uid, userDoc);
-      await writeDocumentViaRest("crtPOs", basePoId, poDataRest);
       await writeDocumentViaRest(`users/${userRecord.uid}/po`, basePoId, poDataRest);
+      await writeDocumentViaRest(`users/crtPO/po`, basePoId, poDataRest);
 
       return NextResponse.json({
         ok: true,

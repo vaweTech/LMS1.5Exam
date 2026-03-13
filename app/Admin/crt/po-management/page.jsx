@@ -56,17 +56,25 @@ export default function POManagementPage() {
   }, [user, isAdmin]);
 
   async function fetchPos() {
+    if (!db) return;
     setLoadingPos(true);
     try {
-      const poCol = firestoreHelpers.collection(db, "crtPOs");
-      const snap = await firestoreHelpers.getDocs(poCol);
-      const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() || {}) }));
-      list.sort((a, b) => {
+      // Load POs from central document path: users/crtPO/po/{poId}
+      const poCol = firestoreHelpers.collection(db, "users", "crtPO", "po");
+      const poSnap = await firestoreHelpers.getDocs(poCol);
+
+      const allPos = poSnap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() || {}),
+      }));
+
+      allPos.sort((a, b) => {
         const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return tb - ta;
       });
-      setPos(list);
+
+      setPos(allPos);
     } finally {
       setLoadingPos(false);
     }
@@ -109,8 +117,14 @@ export default function POManagementPage() {
     if (!editingPo) return;
     try {
       setSavingPo(true);
-      const docRef = firestoreHelpers.doc(db, "crtPOs", editingPo.id);
-      await firestoreHelpers.updateDoc(docRef, {
+      const centralPoRef = firestoreHelpers.doc(
+        db,
+        "users",
+        "crtPO",
+        "po",
+        editingPo.id
+      );
+      await firestoreHelpers.updateDoc(centralPoRef, {
         name: editForm.name.trim(),
         empId: editForm.empId.trim(),
         email: editForm.email.trim(),
@@ -136,8 +150,8 @@ export default function POManagementPage() {
     if (!confirmed) return;
     try {
       setDeletingId(po.id);
-      const docRef = firestoreHelpers.doc(db, "crtPOs", po.id);
-      await firestoreHelpers.deleteDoc(docRef);
+      const centralPoRef = firestoreHelpers.doc(db, "users", "crtPO", "po", po.id);
+      await firestoreHelpers.deleteDoc(centralPoRef);
       await fetchPos();
       alert("PO deleted.");
     } catch (err) {
@@ -154,49 +168,25 @@ export default function POManagementPage() {
     try {
       setSavingPo(true);
       let defaultPassword = null;
-      try {
-        const res = await fetch("/api/create-po-user", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: poForm.name.trim(),
-            empId: poForm.empId.trim(),
-            email: poForm.email.trim(),
-            department: poForm.department.trim(),
-            mobile: poForm.mobile.trim(),
-            notes: poForm.notes.trim(),
-            createdBy: user?.uid || null,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data?.error || "Failed to create PO user");
-        }
-        defaultPassword = data?.defaultPassword || null;
-      } catch (err) {
-        // If admin API fails (like socket hang up), fall back to saving only PO data
-        const msg = String(err?.message || "").toLowerCase();
-        if (msg.includes("socket hang up") || msg.includes("ecconnreset")) {
-          await firestoreHelpers.addDoc(
-            firestoreHelpers.collection(db, "crtPOs"),
-            {
-              name: poForm.name.trim(),
-              empId: poForm.empId.trim(),
-              email: poForm.email.trim(),
-              department: poForm.department.trim(),
-              mobile: poForm.mobile.trim(),
-              notes: poForm.notes.trim(),
-              createdAt: new Date().toISOString(),
-              createdBy: user?.uid || null,
-            }
-          );
-          alert(
-            "PO was saved, but creating the login account failed due to a Firestore connection issue. You can create the user later when connectivity is stable."
-          );
-        } else {
-          throw err;
-        }
+
+      const res = await fetch("/api/create-po-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: poForm.name.trim(),
+          empId: poForm.empId.trim(),
+          email: poForm.email.trim(),
+          department: poForm.department.trim(),
+          mobile: poForm.mobile.trim(),
+          notes: poForm.notes.trim(),
+          createdBy: user?.uid || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to create PO user");
       }
+      defaultPassword = data?.defaultPassword || null;
       if (defaultPassword) {
         alert(`PO created. Default password: ${defaultPassword}`);
       }
@@ -210,6 +200,9 @@ export default function POManagementPage() {
       });
       setShowForm(false);
       await fetchPos();
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || "Failed to create PO user");
     } finally {
       setSavingPo(false);
     }
