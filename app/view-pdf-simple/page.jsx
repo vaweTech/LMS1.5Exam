@@ -30,6 +30,14 @@ function SimplePDFViewerContent() {
     return () => unsubscribe();
   }, [router]);
 
+  useEffect(() => {
+    const noPrint = () => {
+      window.getSelection()?.removeAllRanges();
+    };
+    window.addEventListener("beforeprint", noPrint);
+    return () => window.removeEventListener("beforeprint", noPrint);
+  }, []);
+
   // Get file extension to determine file type
   const fileExtension = pdfUrl?.split('.').pop()?.toLowerCase();
   const isPdf = fileExtension === 'pdf';
@@ -69,8 +77,34 @@ function SimplePDFViewerContent() {
     );
   }
 
+  // Block right-click and copy only on the document area (so header/footer and keyboard keep working)
+  const preventCapture = (e) => {
+    e.preventDefault();
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
+      {/* Styles: disable selection, disable print of content */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        .pdf-viewer-protected {
+          -webkit-user-select: none;
+          -moz-user-select: none;
+          -ms-user-select: none;
+          user-select: none;
+          -webkit-touch-callout: none;
+        }
+        .pdf-viewer-protected * {
+          -webkit-user-select: none;
+          -moz-user-select: none;
+          -ms-user-select: none;
+          user-select: none;
+        }
+        @media print {
+          .pdf-viewer-protected .pdf-content-area { display: none !important; }
+          .pdf-viewer-protected .pdf-no-print-msg { display: block !important; }
+        }
+        .pdf-no-print-msg { display: none; }
+      `}} />
       {/* Header */}
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -88,23 +122,31 @@ function SimplePDFViewerContent() {
         </div>
       </div>
 
-             {/* PDF Viewer */}
-       <div className="max-w-7xl mx-auto p-4">
-         <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+      {/* PDF Viewer - header/footer stay fully usable (keyboard, buttons); only document area protected */}
+      <div className="max-w-7xl mx-auto p-4">
+        <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+          <div className="pdf-no-print-msg p-8 text-center text-gray-600 print:block">
+            This document is protected. Screenshots, printing, and copying are not permitted.
+          </div>
+          <div
+            className="pdf-content-area pdf-viewer-protected"
+            onContextMenu={preventCapture}
+            onCopy={preventCapture}
+            onCut={preventCapture}
+          >
            {isPdf ? (
-             // For PDF files, use iframe with disabled download/print
              <>
                <iframe
                  src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0&download=0&print=0`}
                  title={title}
-                 className="w-full h-[calc(100vh-120px)] min-h-[600px]"
+                 className="w-full h-[calc(100vh-120px)] min-h-[600px] select-none"
                  frameBorder="0"
                  onLoad={() => console.log('PDF iframe loaded successfully')}
                  onError={() => console.log('PDF iframe failed to load')}
                />
                <div className="p-4 bg-gray-50 border-t">
                  <p className="text-sm text-gray-600 text-center">
-                   PDF viewer - Download and print options have been disabled for security.
+                   PDF viewer – Download and print disabled for security.
                  </p>
                </div>
              </>
@@ -183,8 +225,7 @@ function SimplePDFViewerContent() {
                </div>
              </div>
            )}
-           
-           
+          </div>
          </div>
        </div>
     </div>

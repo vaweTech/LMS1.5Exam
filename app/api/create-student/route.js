@@ -352,10 +352,48 @@ async function createStudentHandler(req) {
         authUserCreated: !!userRecord,
       };
       
-      await adminDb.collection("students").add(studentData);
+      const docRef = await adminDb.collection("students").add(studentData);
+      const studentDocId = docRef.id;
+      
+      // CRT students: store full admission form in students/crtstudent/admission/{studentDocId}
+      if (isCrt) {
+        const crtAdmissionData = {
+          regNo: body.regdNo,
+          studentName: name,
+          fatherName: body.fatherName || '',
+          gender: body.gender || '',
+          dateOfBirth: body.dob || '',
+          aadharNo: body.aadharNo || '',
+          email,
+          phone1: body.phone1 || '',
+          phone2: body.phone2 || '',
+          qualification: body.qualification || '',
+          collegeUniversity: body.college || '',
+          degree: body.degree || '',
+          branch: body.branch || '',
+          yearOfPassing: body.yearOfPassing || '',
+          workExperienceYears: body.workExperienceYears || body.workExperience || '',
+          company: body.company || body.workCompany || '',
+          skillSet: body.skillSet || '',
+          courseProjectTitle: body.courseTitle || '',
+          dateOfJoining: body.dateOfJoining || '',
+          timings: body.timings || '',
+          totalFee: body.totalFee ?? '',
+          paidFee: body.PayedFee ?? body.paidFee ?? '',
+          remarks: body.remarks || '',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdBy: req.user.uid,
+        };
+        await adminDb
+          .collection("students")
+          .doc("crtstudent")
+          .collection("admission")
+          .doc(studentDocId)
+          .set(crtAdmissionData);
+      }
       
       studentCreated = true;
-      console.log(`Student created successfully with UID: ${studentUid}, authUserCreated: ${!!userRecord}`);
+      console.log(`Student created successfully with UID: ${studentUid}, docId: ${studentDocId}, authUserCreated: ${!!userRecord}`);
     } catch (firestoreWriteError) {
       // Handle DECODER errors in Firestore writes
       const writeErrorMsg = String(firestoreWriteError?.message || '');
@@ -448,6 +486,53 @@ async function createStudentHandler(req) {
           if (!restResponse.ok) {
             const errorData = await restResponse.json().catch(() => ({}));
             throw new Error(`REST API failed: ${JSON.stringify(errorData)}`);
+          }
+          
+          const restResult = await restResponse.json();
+          const docName = restResult.name || '';
+          const studentDocIdMatch = docName.match(/\/documents\/students\/([^/]+)$/);
+          const studentDocId = studentDocIdMatch ? studentDocIdMatch[1] : null;
+          
+          // CRT students: create students/crtstudent/admission/{studentDocId} via REST
+          if (isCrtRest && studentDocId) {
+            const crtAdmissionRest = {
+              fields: {
+                regNo: { stringValue: String(body.regdNo || '') },
+                studentName: { stringValue: name },
+                fatherName: { stringValue: String(body.fatherName || '') },
+                gender: { stringValue: String(body.gender || '') },
+                dateOfBirth: { stringValue: String(body.dob || '') },
+                aadharNo: { stringValue: String(body.aadharNo || '') },
+                email: { stringValue: email },
+                phone1: { stringValue: String(body.phone1 || '') },
+                phone2: { stringValue: String(body.phone2 || '') },
+                qualification: { stringValue: String(body.qualification || '') },
+                collegeUniversity: { stringValue: String(body.college || '') },
+                degree: { stringValue: String(body.degree || '') },
+                branch: { stringValue: String(body.branch || '') },
+                yearOfPassing: { stringValue: String(body.yearOfPassing || '') },
+                workExperienceYears: { stringValue: String(body.workExperienceYears || body.workExperience || '') },
+                company: { stringValue: String(body.company || body.workCompany || '') },
+                skillSet: { stringValue: String(body.skillSet || '') },
+                courseProjectTitle: { stringValue: String(body.courseTitle || '') },
+                dateOfJoining: { stringValue: String(body.dateOfJoining || '') },
+                timings: { stringValue: String(body.timings || '') },
+                totalFee: { stringValue: String(body.totalFee ?? '') },
+                paidFee: { stringValue: String(body.PayedFee ?? body.paidFee ?? '') },
+                remarks: { stringValue: String(body.remarks || '') },
+                createdAt: { timestampValue: new Date().toISOString() },
+                createdBy: { stringValue: req.user.uid },
+              }
+            };
+            const crtRestUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/students/crtstudent/admission?documentId=${studentDocId}`;
+            const crtRestRes = await fetch(crtRestUrl, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify(crtAdmissionRest),
+            });
+            if (!crtRestRes.ok) {
+              console.warn('⚠️ CRT admission subcollection write failed:', await crtRestRes.text());
+            }
           }
           
           studentCreated = true;

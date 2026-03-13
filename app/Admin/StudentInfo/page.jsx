@@ -16,6 +16,9 @@ export default function StudentListPage() {
   const [phoneQuery, setPhoneQuery] = useState("");
   const [lockFilter, setLockFilter] = useState("all"); // "all", "locked", "unlocked"
   const [roleFilter, setRoleFilter] = useState(""); // "", "student", "internship", "crtStudent"
+  const [deptFilter, setDeptFilter] = useState(""); // branch / department
+  const [courseFilter, setCourseFilter] = useState(""); // course title
+  const [batchFilter, setBatchFilter] = useState(""); // classId / batch
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -249,7 +252,36 @@ export default function StudentListPage() {
   const getStudentRole = (s) =>
     s.role || (s.isCrt ? "crtStudent" : s.isInternship ? "internship" : "student");
 
-  // Students filtered by phone, lock, and role (for table and summary)
+  const departments = Array.from(
+    new Set(
+      students
+        .map((s) => s.branch || s.department || "")
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  const courses = Array.from(
+    new Set(
+      students.flatMap((s) => {
+        const titles = Array.isArray(s.coursesTitle)
+          ? s.coursesTitle
+          : s.courseTitle
+          ? [s.courseTitle]
+          : [];
+        return titles;
+      })
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  const batches = Array.from(
+    new Set(
+      students
+        .map((s) => (Array.isArray(s.classIds) ? s.classIds[0] : s.classId || ""))
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  // Students filtered by phone, lock, role, department, course and batch (for table and summary)
   const filteredStudents = students.filter((s) => {
     if (phoneQuery) {
       const digits = String(s.phone1 || s.phone || "").replace(/\D/g, "");
@@ -260,6 +292,20 @@ export default function StudentListPage() {
     if (lockFilter === "locked" && !isLocked) return false;
     if (lockFilter === "unlocked" && isLocked) return false;
     if (roleFilter && getStudentRole(s) !== roleFilter) return false;
+
+    const dept = s.branch || s.department || "";
+    if (deptFilter && dept !== deptFilter) return false;
+
+    const titles = Array.isArray(s.coursesTitle)
+      ? s.coursesTitle
+      : s.courseTitle
+      ? [s.courseTitle]
+      : [];
+    if (courseFilter && !titles.includes(courseFilter)) return false;
+
+    const batch = Array.isArray(s.classIds) ? s.classIds[0] : s.classId || "";
+    if (batchFilter && batch !== batchFilter) return false;
+
     return true;
   });
 
@@ -848,7 +894,7 @@ export default function StudentListPage() {
           👨‍🎓 Students List
         </h2>
 
-        {/* Search by mobile number and Lock filter */}
+        {/* Search and filters */}
         <div className="mb-4 flex items-center gap-2 flex-wrap">
           <input
             type="text"
@@ -887,7 +933,56 @@ export default function StudentListPage() {
             <option value="internship">Internship</option>
             <option value="crtStudent">CRT Student</option>
           </select>
-          {roleFilter && (
+        </div>
+
+        {/* Department / Course / Batch filters */}
+        <div className="mb-4 flex items-center gap-2 flex-wrap">
+          <select
+            value={deptFilter}
+            onChange={(e) => setDeptFilter(e.target.value)}
+            disabled={isProcessingPayment}
+            className={`border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
+              isProcessingPayment ? "bg-gray-100 cursor-not-allowed" : ""
+            }`}
+          >
+            <option value="">All Departments</option>
+            {departments.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+          <select
+            value={courseFilter}
+            onChange={(e) => setCourseFilter(e.target.value)}
+            disabled={isProcessingPayment}
+            className={`border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
+              isProcessingPayment ? "bg-gray-100 cursor-not-allowed" : ""
+            }`}
+          >
+            <option value="">All Courses</option>
+            {courses.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          <select
+            value={batchFilter}
+            onChange={(e) => setBatchFilter(e.target.value)}
+            disabled={isProcessingPayment}
+            className={`border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
+              isProcessingPayment ? "bg-gray-100 cursor-not-allowed" : ""
+            }`}
+          >
+            <option value="">All Batches</option>
+            {batches.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+          {(roleFilter || phoneQuery || lockFilter !== "all" || deptFilter || courseFilter || batchFilter) && (
             <span className="text-sm text-gray-500">
               {filteredStudents.length} / {students.length}
             </span>

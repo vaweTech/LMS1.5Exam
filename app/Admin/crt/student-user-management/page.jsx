@@ -7,6 +7,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, GraduationCap, Search, RefreshCw, UserPlus, X, Phone, CheckCircle2 } from "lucide-react";
+import { makeAuthenticatedRequest, handleAuthError } from "@/lib/authUtils";
 
 function isCrtStudent(s) {
   return s.role === "crtStudent" || s.isCrt === true;
@@ -52,6 +53,17 @@ export default function CRTStudentUserManagementPage() {
   const [phoneOtpValue, setPhoneOtpValue] = useState("");
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [otpVerifying, setOtpVerifying] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState(null); // { email, defaultPassword }
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    email: "",
+    role: "",
+    password: "",
+    phone: "",
+  });
+  const [deleteBusyId, setDeleteBusyId] = useState(null);
 
   const updateForm = (key, value) => {
     setAdmissionForm((f) => ({ ...f, [key]: value }));
@@ -139,6 +151,7 @@ export default function CRTStudentUserManagementPage() {
     setPhoneOtpSent(false);
     setPhoneOtpValue("");
     setPhoneVerified(false);
+    setSubmitSuccess(null);
     setShowAdmissionModal(true);
   };
 
@@ -146,17 +159,165 @@ export default function CRTStudentUserManagementPage() {
     setShowAdmissionModal(false);
   };
 
-  const handleAdmissionSubmit = (e) => {
+  const handleAdmissionSubmit = async (e) => {
     e.preventDefault();
     if (!phoneVerified) {
       alert("Please verify your mobile number with OTP first.");
       return;
     }
-    alert("Admission form submitted (dummy).");
+    const { regNo, studentName, fatherName, email, phone1, phone2, gender, dateOfBirth, aadharNo, qualification, collegeUniversity, degree, branch, yearOfPassing, workExperienceYears, company, skillSet, courseProjectTitle, dateOfJoining, timings, totalFee, paidFee, remarks } = admissionForm;
+    if (!regNo?.trim() || !studentName?.trim() || !email?.trim()) {
+      alert("Please fill Regd. No., Student Name, and Email (required).");
+      return;
+    }
+    setSubmitting(true);
+    setSubmitSuccess(null);
+    try {
+      const payload = {
+        classId: "crt",
+        regdNo: regNo.trim(),
+        name: studentName.trim(),
+        email: email.trim().toLowerCase(),
+        fatherName: fatherName?.trim() || undefined,
+        phone1: phone1?.trim() || undefined,
+        phone2: phone2?.trim() || undefined,
+        phone: phone1?.trim() || undefined,
+        gender: gender || undefined,
+        dob: dateOfBirth || undefined,
+        aadharNo: aadharNo?.trim() || undefined,
+        qualification: qualification?.trim() || undefined,
+        college: collegeUniversity?.trim() || undefined,
+        degree: degree?.trim() || undefined,
+        branch: branch?.trim() || undefined,
+        yearOfPassing: yearOfPassing?.trim() || undefined,
+        workExperienceYears: workExperienceYears?.trim() || undefined,
+        company: company?.trim() || undefined,
+        skillSet: skillSet?.trim() || undefined,
+        courseTitle: courseProjectTitle?.trim() || undefined,
+        dateOfJoining: dateOfJoining?.trim() || undefined,
+        timings: timings?.trim() || undefined,
+        totalFee: totalFee ? Number(totalFee) : undefined,
+        PayedFee: paidFee ? Number(paidFee) : undefined,
+        remarks: remarks?.trim() || undefined,
+        isCrt: true,
+        role: "crtStudent",
+      };
+      const res = await makeAuthenticatedRequest("/api/create-student", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to create student");
+      }
+      const defaultPassword = data.defaultPassword || "Vawe@2026";
+      setSubmitSuccess({ email: email.trim(), defaultPassword });
+      await fetchStudents();
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Failed to create CRT student. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const closeAdmissionModalAfterSuccess = () => {
     setShowAdmissionModal(false);
     setAdmissionForm({ ...INITIAL_ADMISSION_FORM });
     setPhoneVerified(false);
     setPhoneOtpSent(false);
+    setSubmitSuccess(null);
+  };
+
+  const startEditRow = (student) => {
+    setEditingId(student.id);
+    setEditForm({
+      name: student.name || "",
+      email: student.email || "",
+      role: student.role || (student.isCrt ? "crtStudent" : ""),
+      password: student.password || "",
+      phone: student.phone1 || student.phone || "",
+    });
+  };
+
+  const cancelEditRow = () => {
+    setEditingId(null);
+  };
+
+  const updateEditField = (key, value) => {
+    setEditForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const saveEditRow = async (student) => {
+    try {
+      if (!db || !student?.id) return;
+      const docRef = firestoreHelpers.doc(db, "students", student.id);
+      const updatePayload = {
+        name: editForm.name.trim(),
+        email: editForm.email.trim().toLowerCase(),
+        emailNormalized: editForm.email.trim().toLowerCase(),
+        role: editForm.role || (student.isCrt ? "crtStudent" : "student"),
+        password: editForm.password,
+        phone1: editForm.phone,
+        phone: editForm.phone,
+      };
+      await firestoreHelpers.updateDoc(docRef, updatePayload);
+      await fetchStudents();
+      setEditingId(null);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to update student. " + (err.message || ""));
+    }
+  };
+
+  const handleDeleteStudent = async (studentId) => {
+    if (!studentId) return;
+    const confirmed = confirm(
+      "Delete this CRT student from the system? This will also remove their login access."
+    );
+    if (!confirmed) return;
+
+    setDeleteBusyId(studentId);
+    try {
+      const res = await makeAuthenticatedRequest("/api/delete-student", {
+        method: "POST",
+        body: JSON.stringify({ id: studentId }),
+      });
+
+      if (res.status >= 200 && res.status < 300) {
+        await fetchStudents();
+        alert("Student deleted successfully.");
+        return;
+      }
+
+      let errorMessage = `Failed to delete student (${res.status})`;
+      try {
+        const text = await res.text();
+        if (text?.trim()) {
+          try {
+            const data = JSON.parse(text);
+            if (data?.error) {
+              errorMessage = data.error;
+            } else {
+              errorMessage = text.substring(0, 200);
+            }
+          } catch {
+            errorMessage = text.substring(0, 200);
+          }
+        }
+      } catch {
+        // ignore parse errors, use default message
+      }
+      throw new Error(errorMessage);
+    } catch (e) {
+      console.error("Delete student failed:", e);
+      handleAuthError(e, () => {
+        alert("Your session expired. Please log in again.");
+      });
+      alert(e.message || "Failed to delete student");
+    } finally {
+      setDeleteBusyId(null);
+    }
   };
 
   if (loading) {
@@ -221,25 +382,38 @@ export default function CRTStudentUserManagementPage() {
               <UserPlus className="w-4 h-4" />
               Create Admission
             </button>
-            <Link
-              href="/Admin/userManager"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium transition-colors"
-            >
-              Full Student Manager
-            </Link>
           </div>
         </div>
 
         {/* Create Admission Modal – CRT Student (dummy) */}
         {showAdmissionModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={closeAdmissionModal}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={submitSuccess ? closeAdmissionModalAfterSuccess : closeAdmissionModal}>
             <div className="w-[540px] max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200" onClick={(e) => e.stopPropagation()}>
               <div className="sticky top-0 z-10 flex items-center justify-between bg-gradient-to-r from-[#00448a] to-[#0066b3] px-6 py-4 rounded-t-2xl">
                 <h2 className="text-lg font-bold text-white">CRT Student Admission</h2>
-                <button type="button" onClick={closeAdmissionModal} className="rounded-lg p-1.5 text-white/90 hover:bg-white/20 transition-colors">
+                <button type="button" onClick={submitSuccess ? closeAdmissionModalAfterSuccess : closeAdmissionModal} className="rounded-lg p-1.5 text-white/90 hover:bg-white/20 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
+              {submitSuccess ? (
+                <div className="p-6 bg-slate-50/50">
+                  <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-5 mb-4">
+                    <h3 className="text-sm font-semibold text-emerald-800 mb-2 flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5" /> Student created with login credentials
+                    </h3>
+                    <p className="text-sm text-emerald-700 mb-3">Share these credentials with the student for login:</p>
+                    <div className="rounded-lg bg-white border border-emerald-200 p-4 font-mono text-sm space-y-1">
+                      <p><span className="text-slate-500">Email:</span> <strong className="text-slate-900">{submitSuccess.email}</strong></p>
+                      <p><span className="text-slate-500">Password:</span> <strong className="text-slate-900">{submitSuccess.defaultPassword}</strong></p>
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <button type="button" onClick={closeAdmissionModalAfterSuccess} className="px-5 py-2.5 rounded-xl bg-[#00448a] text-white font-medium hover:bg-[#003a76] transition-colors">
+                      Done
+                    </button>
+                  </div>
+                </div>
+              ) : (
               <form onSubmit={handleAdmissionSubmit} className="p-6 bg-slate-50/50">
                 <p className="text-xs text-slate-500 mb-5">Demo OTP: <strong>1234</strong></p>
 
@@ -418,9 +592,12 @@ export default function CRTStudentUserManagementPage() {
 
                 <div className="flex gap-3 justify-end pt-2">
                   <button type="button" onClick={closeAdmissionModal} className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition-colors">Cancel</button>
-                  <button type="submit" disabled={!phoneVerified} className="px-5 py-2.5 rounded-xl bg-[#00448a] text-white font-medium hover:bg-[#003a76] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Submit Admission</button>
+                  <button type="submit" disabled={!phoneVerified || submitting} className="px-5 py-2.5 rounded-xl bg-[#00448a] text-white font-medium hover:bg-[#003a76] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                    {submitting ? "Creating…" : "Submit Admission"}
+                  </button>
                 </div>
               </form>
+              )}
             </div>
           </div>
         )}
@@ -472,24 +649,136 @@ export default function CRTStudentUserManagementPage() {
                   <table className="w-full text-left">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50/80">
+                        <th className="p-4 font-semibold text-slate-700">S.No</th>
                         <th className="p-4 font-semibold text-slate-700">Name</th>
                         <th className="p-4 font-semibold text-slate-700">Email</th>
-                        <th className="p-4 font-semibold text-slate-700">Reg No</th>
+                        <th className="p-4 font-semibold text-slate-700">Role</th>
+                        <th className="p-4 font-semibold text-slate-700">Password</th>
+                        <th className="p-4 font-semibold text-slate-700">Phone</th>
+                        <th className="p-4 font-semibold text-slate-700">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredStudents.map((s) => (
-                        <tr
-                          key={s.id}
-                          className="border-b border-slate-100 hover:bg-slate-50/50"
-                        >
-                          <td className="p-4 text-slate-900 font-medium">
-                            {s.name || "—"}
-                          </td>
-                          <td className="p-4 text-slate-600">{s.email || "—"}</td>
-                          <td className="p-4 text-slate-600">{s.regNo || "—"}</td>
-                        </tr>
-                      ))}
+                      {filteredStudents.map((s, index) => {
+                        const isEditing = editingId === s.id;
+                        const role = isEditing
+                          ? editForm.role
+                          : s.role || (s.isCrt ? "crtStudent" : "—");
+                        const password = isEditing ? editForm.password : s.password || "—";
+                        const phone = isEditing ? editForm.phone : s.phone1 || s.phone || "—";
+                        return (
+                          <tr
+                            key={s.id}
+                            className="border-b border-slate-100 hover:bg-slate-50/50"
+                          >
+                            <td className="p-4 text-slate-600 whitespace-nowrap">
+                              {index + 1}
+                            </td>
+                            <td className="p-4 text-slate-900 font-medium">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={editForm.name}
+                                  onChange={(e) => updateEditField("name", e.target.value)}
+                                  className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                                />
+                              ) : (
+                                s.name || "—"
+                              )}
+                            </td>
+                            <td className="p-4 text-slate-600">
+                              {isEditing ? (
+                                <input
+                                  type="email"
+                                  value={editForm.email}
+                                  onChange={(e) => updateEditField("email", e.target.value)}
+                                  className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                                />
+                              ) : (
+                                s.email || "—"
+                              )}
+                            </td>
+                            <td className="p-4 text-slate-600">
+                              {isEditing ? (
+                                <select
+                                  value={editForm.role}
+                                  onChange={(e) => updateEditField("role", e.target.value)}
+                                  className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                                >
+                                  <option value="">Select</option>
+                                  <option value="crtStudent">crtStudent</option>
+                                  <option value="student">student</option>
+                                  <option value="internship">internship</option>
+                                </select>
+                              ) : (
+                                role
+                              )}
+                            </td>
+                            <td className="p-4 text-slate-600">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={editForm.password}
+                                  onChange={(e) => updateEditField("password", e.target.value)}
+                                  className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                                />
+                              ) : (
+                                password
+                              )}
+                            </td>
+                            <td className="p-4 text-slate-600">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={editForm.phone}
+                                  onChange={(e) => updateEditField("phone", e.target.value)}
+                                  className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                                />
+                              ) : (
+                                phone
+                              )}
+                            </td>
+                            <td className="p-4">
+                              {isEditing ? (
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => saveEditRow(s)}
+                                    className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium bg-[#00448a] hover:bg-[#003a76] text-white"
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={cancelEditRow}
+                                    className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditRow(s)}
+                                    className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={deleteBusyId === s.id}
+                                    onClick={() => handleDeleteStudent(s.id)}
+                                    className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 hover:bg-red-100 text-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                  >
+                                    {deleteBusyId === s.id ? "Deleting..." : "Delete"}
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

@@ -115,6 +115,15 @@ function SecurePDFViewerContent() {
     }
   }, [pdfUrl, title, convertToEmbedUrl]);
 
+  // Clear selection on print attempt (must be called unconditionally for Rules of Hooks)
+  useEffect(() => {
+    const noPrint = () => {
+      window.getSelection()?.removeAllRanges();
+    };
+    window.addEventListener("beforeprint", noPrint);
+    return () => window.removeEventListener("beforeprint", noPrint);
+  }, []);
+
   // Show loading while checking authentication
   if (authLoading) {
     return (
@@ -188,8 +197,33 @@ function SecurePDFViewerContent() {
     );
   }
 
+  const preventCapture = (e) => {
+    e.preventDefault();
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-100 via-blue-50 to-cyan-100">
+      {/* Styles: disable selection, disable print of content */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        .pdf-viewer-protected {
+          -webkit-user-select: none;
+          -moz-user-select: none;
+          -ms-user-select: none;
+          user-select: none;
+          -webkit-touch-callout: none;
+        }
+        .pdf-viewer-protected * {
+          -webkit-user-select: none;
+          -moz-user-select: none;
+          -ms-user-select: none;
+          user-select: none;
+        }
+        @media print {
+          .pdf-viewer-protected .pdf-content-area { display: none !important; }
+          .pdf-viewer-protected .pdf-no-print-msg { display: block !important; }
+        }
+        .pdf-no-print-msg { display: none; }
+      `}} />
       {/* Header */}
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-2 sm:px-4 py-2 sm:py-3 flex items-center justify-between gap-2">
@@ -217,9 +251,18 @@ function SecurePDFViewerContent() {
         </div>
       </div>
 
-      {/* PDF Viewer */}
+      {/* PDF Viewer - header and help stay fully usable (keyboard, buttons); only document area protected */}
       <div className="max-w-7xl mx-auto p-2 sm:p-3 lg:p-4">
         <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+          <div className="pdf-no-print-msg p-8 text-center text-gray-600 print:block">
+            This document is protected. Screenshots, printing, and copying are not permitted.
+          </div>
+          <div
+            className="pdf-content-area pdf-viewer-protected"
+            onContextMenu={preventCapture}
+            onCopy={preventCapture}
+            onCut={preventCapture}
+          >
           <div 
             className="w-full aspect-square min-h-[500px] sm:min-h-[600px] lg:min-h-[700px] relative overflow-auto"
             style={{
@@ -230,7 +273,7 @@ function SecurePDFViewerContent() {
             <iframe
               src={showFallback && embedData?.fallbackUrl ? embedData.fallbackUrl : embedData?.embedUrl}
               title={title}
-              className="w-full h-full border-0"
+              className="w-full h-full border-0 select-none"
               allow="fullscreen"
               loading="lazy"
               style={{
@@ -253,8 +296,9 @@ function SecurePDFViewerContent() {
               }}
             />
           </div>
-          
-          {/* Help section for common issues */}
+          </div>
+
+          {/* Help section - outside protected area so keyboard and buttons work */}
           <div className="p-3 sm:p-4 bg-blue-50 border-t border-blue-200">
             <div className="text-xs sm:text-sm text-blue-800">
               <p className="font-medium mb-2">Having trouble viewing the document?</p>
@@ -264,6 +308,7 @@ function SecurePDFViewerContent() {
                 <li className="text-xs sm:text-sm">Ensure the Google Drive file is set to &quot;Anyone with the link can view&quot;</li>
                 <li className="hidden sm:list-item text-xs sm:text-sm">Check that the file is a PDF format</li>
                 <li className="hidden sm:list-item text-xs sm:text-sm">Try refreshing the page if the document doesn&apos;t load</li>
+                <li className="text-xs sm:text-sm">Screenshots and screen capture are not permitted</li>
               </ul>
             </div>
           </div>
