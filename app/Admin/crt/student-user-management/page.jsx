@@ -109,8 +109,10 @@ export default function CRTStudentUserManagementPage() {
     if (!db) return;
     setLoadingStudents(true);
     try {
+      // Central CRT students path:
+      // users (collection) -> crtStudent (document) -> students (subcollection)
       const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "students")
+        firestoreHelpers.collection(db, "users", "crtStudent", "students")
       );
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setStudents(list);
@@ -212,6 +214,32 @@ export default function CRTStudentUserManagementPage() {
       }
       const defaultPassword = data.defaultPassword || "Vawe@2026";
       setSubmitSuccess({ email: email.trim(), defaultPassword });
+
+      // Also store a central record under:
+      // users / crtStudent / students / {uid}
+      if (db && data.uid) {
+        const centralRef = firestoreHelpers.doc(
+          db,
+          "users",
+          "crtStudent",
+          "students",
+          data.uid
+        );
+        await firestoreHelpers.setDoc(centralRef, {
+          uid: data.uid,
+          regNo: regNo.trim(),
+          regdNo: regNo.trim(),
+          name: studentName.trim(),
+          email: email.trim().toLowerCase(),
+          role: "crtStudent",
+          isCrt: true,
+          password: defaultPassword,
+          phone1: phone1?.trim() || "",
+          phone: phone1?.trim() || "",
+          createdAt: new Date().toISOString(),
+        });
+      }
+
       await fetchStudents();
     } catch (err) {
       console.error(err);
@@ -251,7 +279,13 @@ export default function CRTStudentUserManagementPage() {
   const saveEditRow = async (student) => {
     try {
       if (!db || !student?.id) return;
-      const docRef = firestoreHelpers.doc(db, "students", student.id);
+      const docRef = firestoreHelpers.doc(
+        db,
+        "users",
+        "crtStudent",
+        "students",
+        student.id
+      );
       const updatePayload = {
         name: editForm.name.trim(),
         email: editForm.email.trim().toLowerCase(),
@@ -279,6 +313,18 @@ export default function CRTStudentUserManagementPage() {
 
     setDeleteBusyId(studentId);
     try {
+      // Remove central record under users/crtStudent/students/{studentId}
+      if (db) {
+        const centralRef = firestoreHelpers.doc(
+          db,
+          "users",
+          "crtStudent",
+          "students",
+          studentId
+        );
+        await firestoreHelpers.deleteDoc(centralRef);
+      }
+
       const res = await makeAuthenticatedRequest("/api/delete-student", {
         method: "POST",
         body: JSON.stringify({ id: studentId }),
