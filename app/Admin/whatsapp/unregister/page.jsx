@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import CheckAdminAuth from "@/lib/CheckAdminAuth";
 import { useRouter } from "next/navigation";
 import { makeAuthenticatedRequest } from "@/lib/authUtils";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 const TEMPLATE_NAME = "custom_message";
 
@@ -33,13 +33,21 @@ function findColumnIndex(headers, ...possibleNames) {
 function parseExcelFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: "array" });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(e.target.result);
+        const sheet = workbook.worksheets[0];
+        const rows = [];
+        if (sheet) {
+          sheet.eachRow({ includeEmpty: true }, (row) => {
+            rows.push(
+              row.values
+                .slice(1)
+                .map((v) => (v == null ? "" : String(v)))
+            );
+          });
+        }
         if (rows.length < 2) {
           resolve({ headers: [], rows: [] });
           return;

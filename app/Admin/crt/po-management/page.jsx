@@ -7,6 +7,8 @@ import { auth, db, firestoreHelpers } from "../../../../lib/firebase";
 import Link from "next/link";
 import { Layers, ArrowLeft } from "lucide-react";
 
+const DEFAULT_PO_PASSWORD = "VawePO@2025";
+
 export default function POManagementPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
@@ -35,6 +37,12 @@ export default function POManagementPage() {
     mobile: "",
     notes: "",
   });
+  const [crtPrograms, setCrtPrograms] = useState([]);
+  const [crtBatches, setCrtBatches] = useState([]);
+  const [selectedProgramId, setSelectedProgramId] = useState("");
+  const [selectedBatchId, setSelectedBatchId] = useState("");
+  const [selectedPoId, setSelectedPoId] = useState("");
+  const [assigningPo, setAssigningPo] = useState(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -53,7 +61,12 @@ export default function POManagementPage() {
   useEffect(() => {
     if (!user || !isAdmin) return;
     fetchPos();
+    fetchCrtPrograms();
   }, [user, isAdmin]);
+
+  useEffect(() => {
+    fetchCrtBatches(selectedProgramId);
+  }, [selectedProgramId]);
 
   async function fetchPos() {
     if (!db) return;
@@ -75,8 +88,51 @@ export default function POManagementPage() {
       });
 
       setPos(allPos);
+      setSelectedPoId((prev) =>
+        prev && allPos.some((po) => po.id === prev) ? prev : allPos[0]?.id || ""
+      );
     } finally {
       setLoadingPos(false);
+    }
+  }
+
+  async function fetchCrtPrograms() {
+    if (!db) return;
+    try {
+      const snap = await firestoreHelpers.getDocs(
+        firestoreHelpers.collection(db, "crt")
+      );
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      setCrtPrograms(list);
+      setSelectedProgramId((prev) =>
+        prev && list.some((program) => program.id === prev) ? prev : list[0]?.id || ""
+      );
+    } catch (err) {
+      console.error("Failed to load CRT programs", err);
+    }
+  }
+
+  async function fetchCrtBatches(programId) {
+    if (!db || !programId) {
+      setCrtBatches([]);
+      setSelectedBatchId("");
+      return;
+    }
+    try {
+      const snap = await firestoreHelpers.getDocs(
+        firestoreHelpers.collection(db, "crt", programId, "batches")
+      );
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      setCrtBatches(list);
+      setSelectedBatchId((prev) =>
+        prev && list.some((batch) => batch.id === prev) ? prev : list[0]?.id || ""
+      );
+    } catch (err) {
+      console.error("Failed to load CRT batches", err);
     }
   }
 
@@ -208,6 +264,46 @@ export default function POManagementPage() {
     }
   }
 
+  async function handleAssignPoToBatch(e) {
+    e.preventDefault();
+    if (!selectedProgramId || !selectedBatchId || !selectedPoId) {
+      alert("Select CRT program, batch and PO.");
+      return;
+    }
+
+    const selectedPo = pos.find((po) => po.id === selectedPoId);
+    if (!selectedPo) {
+      alert("Selected PO not found.");
+      return;
+    }
+
+    try {
+      setAssigningPo(true);
+      const batchRef = firestoreHelpers.doc(
+        db,
+        "crt",
+        selectedProgramId,
+        "batches",
+        selectedBatchId
+      );
+
+      await firestoreHelpers.updateDoc(batchRef, {
+        poId: selectedPo.id,
+        poEmpId: selectedPo.empId || "",
+        poName: selectedPo.name || "",
+        poEmail: selectedPo.email || "",
+        poDepartment: selectedPo.department || "",
+      });
+
+      alert("PO assigned to batch successfully.");
+    } catch (err) {
+      console.error("Failed to assign PO to batch", err);
+      alert(err?.message || "Failed to assign PO to batch");
+    } finally {
+      setAssigningPo(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -317,6 +413,7 @@ export default function POManagementPage() {
                         <th className="p-4 font-semibold text-slate-700">Email</th>
                         <th className="p-4 font-semibold text-slate-700">Department</th>
                         <th className="p-4 font-semibold text-slate-700">Mobile</th>
+                        <th className="p-4 font-semibold text-slate-700">Password</th>
                         <th className="p-4 font-semibold text-slate-700">Actions</th>
                       </tr>
                     </thead>
@@ -336,6 +433,9 @@ export default function POManagementPage() {
                           </td>
                           <td className="p-4 text-slate-600">
                             {po.mobile || "—"}
+                          </td>
+                          <td className="p-4 text-slate-600">
+                            {po.password || po.defaultPassword || "—"}
                           </td>
                           <td className="p-4">
                             <div className="flex items-center gap-2">
@@ -368,6 +468,99 @@ export default function POManagementPage() {
               </>
             )}
           </div>
+        </div>
+
+        <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+          <h2 className="text-base sm:text-lg font-semibold text-slate-900 mb-2">
+            Assign PO to CRT batch
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-500 mb-4">
+            Select a CRT program, choose a batch, then assign a PO.
+          </p>
+          <form
+            onSubmit={handleAssignPoToBatch}
+            className="grid gap-3 sm:gap-4 md:grid-cols-3"
+          >
+            <div>
+              <label className="mb-1.5 block text-xs sm:text-sm font-medium text-slate-700">
+                CRT program / course
+              </label>
+              <select
+                value={selectedProgramId}
+                onChange={(e) => setSelectedProgramId(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#00448a]/30 focus:border-[#00448a]"
+              >
+                {crtPrograms.length === 0 ? (
+                  <option value="">No CRT programs</option>
+                ) : (
+                  crtPrograms.map((program) => (
+                    <option key={program.id} value={program.id}>
+                      {program.name || "Untitled program"}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs sm:text-sm font-medium text-slate-700">
+                Batch / section
+              </label>
+              <select
+                value={selectedBatchId}
+                onChange={(e) => setSelectedBatchId(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#00448a]/30 focus:border-[#00448a]"
+              >
+                {crtBatches.length === 0 ? (
+                  <option value="">No batches for this program</option>
+                ) : (
+                  crtBatches.map((batch) => (
+                    <option key={batch.id} value={batch.id}>
+                      {batch.name || "Unnamed batch"}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs sm:text-sm font-medium text-slate-700">
+                PO
+              </label>
+              <div className="flex gap-2">
+                <select
+                  value={selectedPoId}
+                  onChange={(e) => setSelectedPoId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#00448a]/30 focus:border-[#00448a]"
+                >
+                  {pos.length === 0 ? (
+                    <option value="">No POs available</option>
+                  ) : (
+                    <>
+                      <option value="">Select PO</option>
+                      {pos.map((po) => (
+                        <option key={po.id} value={po.id}>
+                          {(po.name || "Unnamed PO") + (po.empId ? ` (${po.empId})` : "")}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+                <button
+                  type="submit"
+                  disabled={
+                    assigningPo ||
+                    !selectedProgramId ||
+                    !selectedBatchId ||
+                    !selectedPoId
+                  }
+                  className="whitespace-nowrap px-4 py-2 rounded-xl bg-[#00448a] text-white text-xs sm:text-sm font-medium hover:bg-[#003a76] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {assigningPo ? "Assigning…" : "Assign"}
+                </button>
+              </div>
+            </div>
+          </form>
         </div>
       </div>
 
@@ -437,6 +630,20 @@ export default function POManagementPage() {
                     required
                     className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00448a]/30 focus:border-[#00448a]"
                   />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                    Default Password
+                  </label>
+                  <input
+                    type="text"
+                    value={DEFAULT_PO_PASSWORD}
+                    readOnly
+                    className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3.5 py-2.5 text-slate-700"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    This password will be saved for the new PO user.
+                  </p>
                 </div>
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import CheckAuth from "../../../lib/CheckAuth";
 import { auth, db, firestoreHelpers } from "../../../lib/firebase";
 import readXlsxFile from "read-excel-file";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 export default function AdminInterviewExamsPage() {
   const router = useRouter();
@@ -357,7 +357,7 @@ export default function AdminInterviewExamsPage() {
     setResultsInfo(`Filtered results: ${displayedResults.length}.`);
   };
 
-  const downloadResultsExcel = () => {
+  const downloadResultsExcel = async () => {
     if (displayedResults.length === 0) {
       alert("No results to download. Apply filters or wait for data to load.");
       return;
@@ -378,12 +378,24 @@ export default function AdminInterviewExamsPage() {
       const codingStr = r.codingScore != null ? Number(r.codingScore).toFixed(1) : "—";
       return [date, r.examTitle || "", r.name || "", r.phone || "", mcqScore, codingStr, total];
     });
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-    const wb = XLSX.utils.book_new();
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Results");
+    ws.addRow(headers);
+    rows.forEach((row) => ws.addRow(row));
     const examLabel = resultExamId === "all" ? "all-exams" : (exams.find((e) => e.id === resultExamId)?.title || resultExamId).replace(/[^\w\-]/g, "-");
-    XLSX.utils.book_append_sheet(wb, ws, "Results");
     const filename = `interview-results-${examLabel}-${new Date().toISOString().slice(0, 10)}.xlsx`;
-    XLSX.writeFile(wb, filename);
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const addMcqQuestion = () => {

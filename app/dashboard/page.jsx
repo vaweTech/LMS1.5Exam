@@ -2285,6 +2285,14 @@ export default function DashboardPage() {
                 Admin Panel
               </button>
             )}
+            {(role === "crtPoUser" || role === "po" || role === "crtPO") && (
+              <button
+                onClick={() => router.push("/po-analytics-dashboard")}
+                className="px-3 sm:px-4 py-2 bg-[#00448a] text-white rounded-xl hover:bg-[#003a76] transition text-sm sm:text-base"
+              >
+                Go to PO Dashboard
+              </button>
+            )}
 
           </div>
         </div>
