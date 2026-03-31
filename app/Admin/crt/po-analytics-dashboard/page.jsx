@@ -14,7 +14,7 @@ import {
   Users,
   UserX,
 } from "lucide-react";
-import { auth, db, firestoreHelpers } from "../../lib/firebase";
+import { auth, db, firestoreHelpers } from "../../../../lib/firebase";
 
 const FILTER_OPTIONS = {
   academicYears: ["2023-24", "2024-25", "2025-26"],
