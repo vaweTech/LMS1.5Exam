@@ -13,10 +13,30 @@ function isIncharge(u) {
   return (
     role === "crtincharge" ||
     role === "incharge" ||
+    role === "classroommonitor" ||
+    role === "activeincharge" ||
     role === "class room monitor" ||
     role === "assignment incharge" ||
     u.isIncharge === true
   );
+}
+
+function normalizeInchargeRole(role, subcollection) {
+  const value = (role || "").toLowerCase().trim();
+  if (
+    value === "classroommonitor" ||
+    value === "class room monitor" ||
+    subcollection === "classroomMonitor"
+  ) {
+    return "classroomMonitor";
+  }
+  return "activeIncharge";
+}
+
+function inchargeRoleLabel(role) {
+  return normalizeInchargeRole(role) === "classroomMonitor"
+    ? "Class Room Monitor"
+    : "Active Incharge";
 }
 
 export default function ActiveInchargePage() {
@@ -77,26 +97,26 @@ export default function ActiveInchargePage() {
     if (!db) return;
     setLoadingIncharges(true);
     try {
-      // 1. activeIncharge subcollection = role "assignment incharge"
+      // 1. activeIncharge subcollection = role "activeIncharge"
       const activeSnap = await firestoreHelpers.getDocs(
         firestoreHelpers.collection(db, "users", "crtActiveIncharge", "activeIncharge")
       );
       const assignmentList = activeSnap.docs.map((d) => ({
         id: d.id,
         subcollection: "activeIncharge",
-        role: "assignment incharge",
         ...d.data(),
+        role: normalizeInchargeRole(d.data()?.role, "activeIncharge"),
       }));
 
-      // 2. classroomMonitor subcollection = role "class room monitor"
+      // 2. classroomMonitor subcollection = role "classroomMonitor"
       const classroomSnap = await firestoreHelpers.getDocs(
         firestoreHelpers.collection(db, "users", "crtActiveIncharge", "classroomMonitor")
       );
       const classroomList = classroomSnap.docs.map((d) => ({
         id: d.id,
         subcollection: "classroomMonitor",
-        role: "class room monitor",
         ...d.data(),
+        role: normalizeInchargeRole(d.data()?.role, "classroomMonitor"),
       }));
 
       const list = [...assignmentList, ...classroomList].sort((a, b) =>
@@ -135,7 +155,7 @@ export default function ActiveInchargePage() {
   };
 
   const openEditModal = (u) => {
-    const role = (u.role || "").toLowerCase();
+    const role = normalizeInchargeRole(u.role, u.subcollection);
     setEditingIncharge(u);
     setEditForm({
       empId: u.empId || "",
@@ -144,7 +164,7 @@ export default function ActiveInchargePage() {
       phone: u.phone || "",
       departmentName: u.departmentName || "",
       departmentId: u.departmentId || "",
-      isClassRoomMonitor: role === "class room monitor",
+      isClassRoomMonitor: role === "classroomMonitor",
     });
   };
 
@@ -210,7 +230,7 @@ export default function ActiveInchargePage() {
           phone,
           departmentName: createForm.departmentName || "",
           departmentId: createForm.departmentId || "",
-          role: createForm.isClassRoomMonitor ? "class room monitor" : "assignment incharge",
+          role: createForm.isClassRoomMonitor ? "classroomMonitor" : "activeIncharge",
           isIncharge: true,
           createdAt: new Date().toISOString(),
         });
@@ -252,7 +272,7 @@ export default function ActiveInchargePage() {
       return;
     }
 
-    const role = editForm.isClassRoomMonitor ? "class room monitor" : "assignment incharge";
+    const role = editForm.isClassRoomMonitor ? "classroomMonitor" : "activeIncharge";
     const newSubcollection = editForm.isClassRoomMonitor ? "classroomMonitor" : "activeIncharge";
     const oldSubcollection = editingIncharge.subcollection || "activeIncharge";
 
@@ -478,7 +498,7 @@ export default function ActiveInchargePage() {
                   : "No matching incharges for your search."}
               </p>
               <p className="text-sm mt-1">
-                Assignment incharges are stored in{" "}
+                Active incharges are stored in{" "}
                 <code className="bg-slate-100 px-1 rounded">activeIncharge</code>; class room
                 monitors in <code className="bg-slate-100 px-1 rounded">classroomMonitor</code>.
               </p>
@@ -558,17 +578,14 @@ export default function ActiveInchargePage() {
                       <td className="px-3 py-3">
                         <span
                           className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                            (u.role || "").toLowerCase() === "class room monitor"
+                            normalizeInchargeRole(u.role, u.subcollection) === "classroomMonitor"
                               ? "bg-emerald-100 text-emerald-700"
-                              : (u.role || "").toLowerCase() === "assignment incharge"
+                              : normalizeInchargeRole(u.role, u.subcollection) === "activeIncharge"
                               ? "bg-sky-100 text-sky-700"
                               : "bg-slate-100 text-slate-700"
                           }`}
                         >
-                          {(u.role || "assignment incharge")
-                            .split(" ")
-                            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-                            .join(" ")}
+                          {inchargeRoleLabel(u.role)}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-slate-700">
@@ -706,7 +723,7 @@ export default function ActiveInchargePage() {
                 </div>
                 <p className="text-xs text-slate-500">
                   If not checked, job role will be saved as{" "}
-                  <span className="font-semibold">Assignment incharge</span>.
+                  <span className="font-semibold">activeIncharge</span>.
                 </p>
 
                 <div className="flex justify-end gap-3 pt-2">
@@ -839,7 +856,7 @@ export default function ActiveInchargePage() {
                 </div>
                 <p className="text-xs text-slate-500">
                   If not checked, job role will be saved as{" "}
-                  <span className="font-semibold">Assignment incharge</span>.
+                  <span className="font-semibold">activeIncharge</span>.
                 </p>
 
                 <div className="flex justify-end gap-3 pt-2">
