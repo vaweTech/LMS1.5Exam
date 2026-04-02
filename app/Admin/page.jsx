@@ -20,13 +20,15 @@ export default function AdminRootPage() {
       if (u) {
         const ref = firestoreHelpers.doc(db, "users", u.uid);
         const snap = await firestoreHelpers.getDoc(ref);
-        const userRole = snap.exists() ? snap.data().role : null;
+        const userRole = snap.exists()
+          ? (snap.data().role || snap.data().Role)
+          : null;
         const admin = userRole === "admin" || userRole === "superadmin";
         const dataEntry = userRole === "dataentry";
         setIsAdmin(admin);
         setIsDataEntry(dataEntry);
         if (admin || dataEntry) {
-          router.replace("/Admin/StudentInfo");
+          router.replace("/Admin/dashboard");
           return;
         }
       }
@@ -44,7 +46,7 @@ export default function AdminRootPage() {
           className="flex flex-col items-center gap-5"
         >
           <div className="w-12 h-12 rounded-xl border-2 border-[#00448a] border-t-transparent animate-spin" />
-          <p className="text-sm text-slate-500 font-medium">Opening Student Info...</p>
+          <p className="text-sm text-slate-500 font-medium">Opening Admin Dashboard...</p>
         </motion.div>
       </div>
     );
@@ -80,7 +82,7 @@ export default function AdminRootPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
       <div className="flex flex-col items-center gap-5">
         <div className="w-12 h-12 rounded-xl border-2 border-[#00448a] border-t-transparent animate-spin" />
-        <p className="text-sm text-slate-500 font-medium">Redirecting to Student Info...</p>
+        <p className="text-sm text-slate-500 font-medium">Redirecting to Admin Dashboard...</p>
       </div>
     </div>
   );

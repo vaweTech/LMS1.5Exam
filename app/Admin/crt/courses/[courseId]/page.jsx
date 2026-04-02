@@ -20,7 +20,7 @@ export default function CourseSyllabusDays() {
   const courseId = params?.courseId;
 
   const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [canManageCourse, setCanManageCourse] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [course, setCourse] = useState(null);
@@ -63,8 +63,12 @@ export default function CourseSyllabusDays() {
       if (u) {
         const ref = firestoreHelpers.doc(db, "users", u.uid);
         const snap = await firestoreHelpers.getDoc(ref);
-        const role = snap.exists() ? snap.data().role : null;
-        setIsAdmin(role === "admin" || role === "superadmin");
+        const role = snap.exists()
+          ? (snap.data().role || snap.data().Role)
+          : null;
+        setCanManageCourse(
+          role === "admin" || role === "superadmin" || role === "dataentry"
+        );
       }
       setLoading(false);
     });
@@ -431,7 +435,7 @@ export default function CourseSyllabusDays() {
   }
 
   if (loading) return <div>Loading...</div>;
-  if (!user || !isAdmin) return <div>Access Denied</div>;
+  if (!user || !canManageCourse) return <div>Access Denied</div>;
   if (!course) return <div>Course not found</div>;
 
   return (

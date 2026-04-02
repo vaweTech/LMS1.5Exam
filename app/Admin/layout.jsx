@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut } from "firebase/auth";
-import { auth } from "../../lib/firebase";
+import { signOut, onAuthStateChanged } from "firebase/auth";
+import { auth, db, firestoreHelpers } from "../../lib/firebase";
 import { useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -47,7 +47,29 @@ export default function AdminLayout({ children }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isDataEntry, setIsDataEntry] = useState(false);
+  const [roleChecked, setRoleChecked] = useState(false);
   const timerRef = useRef(null);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      try {
+        if (!u) {
+          setIsDataEntry(false);
+          return;
+        }
+        const ref = firestoreHelpers.doc(db, "users", u.uid);
+        const snap = await firestoreHelpers.getDoc(ref);
+        const role = snap.exists()
+          ? (snap.data().role || snap.data().Role)
+          : null;
+        setIsDataEntry(role === "dataentry");
+      } finally {
+        setRoleChecked(true);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -82,10 +104,12 @@ export default function AdminLayout({ children }) {
     router.push("/");
   };
 
+  const showAdminNav = roleChecked ? !isDataEntry : false;
+
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Toggle button - click or hover to show sidebar (hidden while sidebar is open) */}
-      {!sidebarOpen && (
+      {showAdminNav && !sidebarOpen && (
         <button
           type="button"
           onMouseEnter={handleOpenSidebar}
@@ -98,6 +122,7 @@ export default function AdminLayout({ children }) {
       )}
 
       {/* Sidebar - slides in from left, 5s auto-close when not hovering */}
+      {showAdminNav && (
       <aside
         onMouseEnter={handleSidebarMouseEnter}
         onMouseLeave={handleSidebarMouseLeave}
@@ -160,9 +185,10 @@ export default function AdminLayout({ children }) {
           </button>
         </div>
       </aside>
+      )}
 
       {/* Main content - left padding so content clears the toggle button */}
-      <div className="min-h-screen pl-12 sm:pl-14">
+      <div className={`min-h-screen ${showAdminNav ? "pl-12 sm:pl-14" : ""}`}>
         {children}
       </div>
     </div>

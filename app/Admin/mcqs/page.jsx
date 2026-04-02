@@ -50,7 +50,7 @@ import CheckDataEntryAuth from "@/lib/CheckDataEntryAuth";
 
 export default function ManageMCQs() {
   const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [canManageMcqs, setCanManageMcqs] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [question, setQuestion] = useState("");
@@ -124,10 +124,16 @@ export default function ManageMCQs() {
         // Check if user is admin or superadmin
         const userRef = doc(db, "users", u.uid);
         const userSnap = await getDoc(userRef);
-        const userRole = userSnap.exists() ? userSnap.data().role : null;
-        setIsAdmin(userRole === "admin" || userRole === "superadmin");
+        const userRole = userSnap.exists()
+          ? (userSnap.data().role || userSnap.data().Role)
+          : null;
+        const allowedRole =
+          userRole === "admin" ||
+          userRole === "superadmin" ||
+          userRole === "dataentry";
+        setCanManageMcqs(allowedRole);
         
-        if (courses.length > 0 && (userRole === "admin" || userRole === "superadmin")) {
+        if (courses.length > 0 && allowedRole) {
           loadMCQs("all");
         }
       }
@@ -846,7 +852,7 @@ export default function ManageMCQs() {
   }
 
   if (loading || loadingCourses) return <div className="flex items-center justify-center min-h-screen"><div>Loading...</div></div>;
-  if (!user || !isAdmin) return <div className="flex items-center justify-center min-h-screen"><div>Access Denied</div></div>;
+  if (!user || !canManageMcqs) return <div className="flex items-center justify-center min-h-screen"><div>Access Denied</div></div>;
   if (courses.length === 0) return <div className="flex items-center justify-center min-h-screen"><div>No courses found. Please add courses first.</div></div>;
 
   return (

@@ -99,6 +99,8 @@ export default function AdminDashboardPage() {
   const [isDataEntry, setIsDataEntry] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [crtCourses, setCrtCourses] = useState([]);
+  const [loadingCrtCourses, setLoadingCrtCourses] = useState(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -106,7 +108,9 @@ export default function AdminDashboardPage() {
       if (u) {
         const ref = firestoreHelpers.doc(db, "users", u.uid);
         const snap = await firestoreHelpers.getDoc(ref);
-        const userRole = snap.exists() ? snap.data().role : null;
+        const userRole = snap.exists()
+          ? (snap.data().role || snap.data().Role)
+          : null;
         setIsAdmin(userRole === "admin" || userRole === "superadmin");
         setIsDataEntry(userRole === "dataentry");
       }
@@ -114,6 +118,36 @@ export default function AdminDashboardPage() {
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    async function loadCrtCourses() {
+      if (!isAdmin && !isDataEntry) {
+        setCrtCourses([]);
+        return;
+      }
+      try {
+        setLoadingCrtCourses(true);
+        const snap = await firestoreHelpers.getDocs(
+          firestoreHelpers.collection(db, "crtCourses")
+        );
+        const courses = snap.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }));
+        courses.sort((a, b) =>
+          String(a.title || "").localeCompare(String(b.title || ""))
+        );
+        setCrtCourses(courses);
+      } catch (error) {
+        console.error("Failed to load CRT courses:", error);
+        setCrtCourses([]);
+      } finally {
+        setLoadingCrtCourses(false);
+      }
+    }
+
+    loadCrtCourses();
+  }, [isAdmin, isDataEntry]);
 
   const filteredModules = useMemo(() => {
     const canSee = (m) => m.adminOnly ? isAdmin : (isAdmin || isDataEntry);
@@ -133,6 +167,17 @@ export default function AdminDashboardPage() {
     });
     return map;
   }, [filteredModules]);
+
+  const filteredCrtCourses = useMemo(() => {
+    if (!search.trim()) return crtCourses;
+    const q = search.trim().toLowerCase();
+    return crtCourses.filter((course) => {
+      const title = String(course.title || "").toLowerCase();
+      const code = String(course.courseCode || "").toLowerCase();
+      const desc = String(course.description || "").toLowerCase();
+      return title.includes(q) || code.includes(q) || desc.includes(q);
+    });
+  }, [crtCourses, search]);
 
   if (loading) {
     return (
@@ -246,6 +291,47 @@ export default function AdminDashboardPage() {
             </div>
           </motion.section>
         ))}
+
+        {(isAdmin || isDataEntry) && (
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+            className="mb-10"
+          >
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4">
+              CRT Course Management
+            </h2>
+
+            {loadingCrtCourses ? (
+              <div className="rounded-2xl bg-white border border-slate-200 p-8 text-center text-slate-500">
+                Loading CRT courses...
+              </div>
+            ) : filteredCrtCourses.length === 0 ? (
+              <div className="rounded-2xl bg-white border border-slate-200 p-8 text-center text-slate-500">
+                No CRT courses found.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+                {filteredCrtCourses.map((course, i) => (
+                  <AdminCard
+                    key={course.id}
+                    href={`/Admin/crt/courses/${course.id}`}
+                    icon={BookOpen}
+                    title={course.title || "Untitled CRT Course"}
+                    description={
+                      course.courseCode
+                        ? `Course Code: ${course.courseCode}`
+                        : "Open course management page"
+                    }
+                    color="orange"
+                    index={i}
+                  />
+                ))}
+              </div>
+            )}
+          </motion.section>
+        )}
       </main>
     </div>
   );

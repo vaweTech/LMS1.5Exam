@@ -150,7 +150,7 @@ export default function DashboardPage() {
       const userSnap = await getDoc(userRef);
       if (userSnap.exists()) {
         const udata = userSnap.data();
-        setRole(udata.role || "user");
+        setRole(udata.role || udata.Role || "user");
       } else {
         setRole("user");
       }
@@ -2279,10 +2279,10 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             {(role === "admin" || role === "dataentry") && (
               <button
-                onClick={() => router.push("/Admin")}
+                onClick={() => router.push("/Admin/dashboard")}
                 className="px-3 sm:px-4 py-2 bg-[#00448a] text-white rounded-xl hover:bg-[#003a76] transition text-sm sm:text-base"
               >
-                Admin Panel
+                {role === "dataentry" ? "Data Entry Panel" : "Admin Panel"}
               </button>
             )}
             {(role === "crtPoUser" || role === "po" || role === "crtPO") && (
@@ -2346,6 +2346,28 @@ export default function DashboardPage() {
               </div>
               <span className="text-indigo-600 font-medium text-sm">Open →</span>
             </button>
+          </div>
+        )}
+
+        {/* Data Entry Quick Panel */}
+        {role === "dataentry" && (
+          <div className="mb-8 sm:mb-10">
+            <div className="bg-white border border-gray-200 rounded-2xl shadow-md p-5 sm:p-6">
+              <h2 className="text-lg sm:text-xl font-semibold text-gray-900">
+                Data Entry Panel
+              </h2>
+              <p className="text-sm text-gray-600 mt-1">
+                Open your allowed pages and manage CRT courses.
+              </p>
+              <div className="mt-4">
+                <button
+                  onClick={() => router.push("/Admin/dashboard")}
+                  className="px-4 py-2 bg-[#00448a] text-white rounded-lg hover:bg-[#003a76] transition text-sm"
+                >
+                  Open Data Entry Pages
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
