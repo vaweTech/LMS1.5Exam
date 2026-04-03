@@ -1267,9 +1267,6 @@ export default function ActiveInchargePage() {
   const [editingIncharge, setEditingIncharge] = useState(null);
   const [updating, setUpdating] = useState(false);
 
-  // 🔥 Your CRT document id
-  const CRT_ID = "isTAhIs4Ku3LH2PZtWnS";
-
   const [createForm, setCreateForm] = useState({
     empId: "",
     name: "",
@@ -1303,7 +1300,12 @@ export default function ActiveInchargePage() {
   // 🔥 Batch label
   const batchLabel = (batch) => {
     const name =
-      batch?.name || batch?.batchName || batch?.className || batch?.title || "Unnamed Batch";
+      batch?.name ||
+      batch?.names ||
+      batch?.batchName ||
+      batch?.className ||
+      batch?.title ||
+      "Unnamed Batch";
     const section = batch?.section ? ` - ${batch.section}` : "";
     return `${name}${section}`;
   };
@@ -1311,22 +1313,80 @@ export default function ActiveInchargePage() {
   const getInchargeRoleValue = (isClassRoomMonitor) =>
     isClassRoomMonitor ? "class room monitor" : "assignment incharge";
 
-  // 🔥 Fetch batches from: crt/{CRT_ID}/batches
+  const buildAssignedBatchRefs = (batchIds = []) => {
+    const batchMap = new Map(batches.map((b) => [b.id, b]));
+    return Array.from(new Set((batchIds || []).filter(Boolean))).map((batchId) => {
+      const batch = batchMap.get(batchId) || {};
+      const crtId = batch.crtId || "";
+      const parentBathesId = batch.parentBathesId || "";
+      const bathesPath = parentBathesId
+        ? `crt/${crtId}/bathes/${parentBathesId}/baths/${batchId}`
+        : `crt/${crtId}/batches/${batchId}`;
+      return {
+        crtId,
+        batchId,
+        batchPath: bathesPath,
+        studentsPath: `${bathesPath}/students`,
+      };
+    });
+  };
+
+  // 🔥 Fetch from all CRT IDs:
+  // crt/{crtId}/batches
+  // crt/{crtId}/bathes/{bathesId}/baths
   const fetchBatches = useCallback(async () => {
     if (!db) return;
     setLoadingBatches(true);
     try {
-      const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "crt", CRT_ID, "batches")
-      );
+      const crtSnap = await firestoreHelpers.getDocs(firestoreHelpers.collection(db, "crt"));
+      const all = [];
 
-      const list = snap.docs
-        .map((d) => ({
-          id: d.id,
-          crtId: CRT_ID,
-          ...d.data(),
-        }))
-        .sort((a, b) => batchLabel(a).localeCompare(batchLabel(b)));
+      for (const crtDoc of crtSnap.docs) {
+        const crtId = crtDoc.id;
+
+        const directBatchesSnap = await firestoreHelpers.getDocs(
+          firestoreHelpers.collection(db, "crt", crtId, "batches")
+        );
+        directBatchesSnap.docs.forEach((d) => {
+          all.push({
+            id: d.id,
+            crtId,
+            source: "batches",
+            ...d.data(),
+          });
+        });
+
+        const bathesSnap = await firestoreHelpers.getDocs(
+          firestoreHelpers.collection(db, "crt", crtId, "bathes")
+        );
+        for (const bathesDoc of bathesSnap.docs) {
+          const bathesId = bathesDoc.id;
+          const bathsSnap = await firestoreHelpers.getDocs(
+            firestoreHelpers.collection(db, "crt", crtId, "bathes", bathesId, "baths")
+          );
+          bathsSnap.docs.forEach((d) => {
+            all.push({
+              id: d.id,
+              crtId,
+              parentBathesId: bathesId,
+              source: "bathes/baths",
+              ...d.data(),
+            });
+          });
+        }
+      }
+
+      const unique = [];
+      const seen = new Set();
+      for (const row of all) {
+        const key = `${row.crtId}::${row.id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push(row);
+        }
+      }
+
+      const list = unique.sort((a, b) => batchLabel(a).localeCompare(batchLabel(b)));
 
       setBatches(list);
     } catch (err) {
@@ -1335,7 +1395,7 @@ export default function ActiveInchargePage() {
     } finally {
       setLoadingBatches(false);
     }
-  }, [CRT_ID]);
+  }, []);
 
   // 🔥 Sync assigned batches into top-level assignedClasses collection
   const syncAssignedBatches = useCallback(
@@ -1417,7 +1477,7 @@ export default function ActiveInchargePage() {
           // 🔥 proper batch fields
           batchId,
           batchName: b.name || b.batchName || b.className || b.title || batchId,
-          crtId: b.crtId || CRT_ID,
+          crtId: b.crtId || "",
 
           section: b.section || "",
           departmentName: b.departmentName || b.department || "",
@@ -1448,7 +1508,135 @@ export default function ActiveInchargePage() {
         }
       }
     },
-    [batches, CRT_ID]
+    [batches]
+  );
+
+  const syncAssignedBatchesInInchargeDoc = useCallback(
+    async ({
+      subcollectionName,
+      inchargeDocId,
+      inchargeId,
+      inchargeEmail,
+      inchargeName,
+      isClassRoomMonitor,
+      selectedBatchIds,
+    }) => {
+      if (!db || !subcollectionName || !inchargeDocId) return;
+
+      const safeEmail = (inchargeEmail || "").toLowerCase().trim();
+      const batchMap = new Map(batches.map((b) => [b.id, b]));
+      const selectedIds = Array.isArray(selectedBatchIds)
+        ? Array.from(new Set(selectedBatchIds.filter(Boolean)))
+        : [];
+
+      const assignedCol = firestoreHelpers.collection(
+        db,
+        "users",
+        "crtActiveIncharge",
+        subcollectionName,
+        inchargeDocId,
+        "assignedClasses"
+      );
+      const existingSnap = await firestoreHelpers.getDocs(assignedCol);
+      const existingByBatchId = new Map(
+        existingSnap.docs
+          .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+          .filter((row) => row.batchId || row.classId)
+          .map((row) => [row.batchId || row.classId, row])
+      );
+
+      const role = getInchargeRoleValue(isClassRoomMonitor);
+      const now = new Date().toISOString();
+
+      for (const batchId of selectedIds) {
+        const b = batchMap.get(batchId) || {};
+        const payload = {
+          inchargeId: inchargeId || null,
+          inchargeEmail: safeEmail,
+          inchargeName: inchargeName || "",
+          role,
+          classId: batchId,
+          className: b.name || b.names || b.batchName || b.className || b.title || batchId,
+          batchId,
+          batchName: b.name || b.names || b.batchName || b.className || b.title || batchId,
+          crtId: b.crtId || "",
+          section: b.section || "",
+          departmentName: b.departmentName || b.department || "",
+          departmentId: b.departmentId || "",
+          updatedAt: now,
+        };
+
+        const existing = existingByBatchId.get(batchId);
+        if (existing?.id) {
+          await firestoreHelpers.updateDoc(
+            firestoreHelpers.doc(
+              db,
+              "users",
+              "crtActiveIncharge",
+              subcollectionName,
+              inchargeDocId,
+              "assignedClasses",
+              existing.id
+            ),
+            payload
+          );
+        } else {
+          await firestoreHelpers.addDoc(assignedCol, {
+            ...payload,
+            createdAt: now,
+          });
+        }
+      }
+
+      for (const existing of existingByBatchId.values()) {
+        const existingBatchId = existing.batchId || existing.classId;
+        if (!selectedIds.includes(existingBatchId)) {
+          await firestoreHelpers.deleteDoc(
+            firestoreHelpers.doc(
+              db,
+              "users",
+              "crtActiveIncharge",
+              subcollectionName,
+              inchargeDocId,
+              "assignedClasses",
+              existing.id
+            )
+          );
+        }
+      }
+    },
+    [batches]
+  );
+
+  const clearAssignedBatchesInInchargeDoc = useCallback(
+    async ({ subcollectionName, inchargeDocId }) => {
+      if (!db || !subcollectionName || !inchargeDocId) return;
+      const assignedCol = firestoreHelpers.collection(
+        db,
+        "users",
+        "crtActiveIncharge",
+        subcollectionName,
+        inchargeDocId,
+        "assignedClasses"
+      );
+      const snap = await firestoreHelpers.getDocs(assignedCol);
+      await Promise.all(
+        snap.docs.map((d) =>
+          firestoreHelpers.deleteDoc(
+            firestoreHelpers.doc(
+              db,
+              "users",
+              "crtActiveIncharge",
+              subcollectionName,
+              inchargeDocId,
+              "assignedClasses",
+              d.id
+            )
+          )
+        )
+      );
+    },
+    []
   );
 
   const clearAssignedBatches = useCallback(async ({ inchargeId, inchargeEmail }) => {
@@ -1622,6 +1810,13 @@ export default function ActiveInchargePage() {
 
   const openEditModal = (u) => {
     const role = normalizeInchargeRole(u.role, u.subcollection);
+    const assignedBatchIds = Array.isArray(u.assignedBatchIds)
+      ? u.assignedBatchIds.filter(Boolean)
+      : Array.isArray(u.assignedBatchRefs)
+      ? u.assignedBatchRefs.map((x) => x?.batchId).filter(Boolean)
+      : Array.isArray(u.assignedBatches)
+      ? u.assignedBatches.map((x) => x.batchId).filter(Boolean)
+      : [];
     setEditingIncharge(u);
     setEditForm({
       empId: u.empId || "",
@@ -1631,9 +1826,7 @@ export default function ActiveInchargePage() {
       departmentName: u.departmentName || "",
       departmentId: u.departmentId || "",
       isClassRoomMonitor: role === "classroomMonitor",
-      assignedBatchIds: Array.isArray(u.assignedBatches)
-        ? u.assignedBatches.map((x) => x.batchId).filter(Boolean)
-        : [],
+      assignedBatchIds,
     });
   };
 
@@ -1696,7 +1889,7 @@ export default function ActiveInchargePage() {
           subcollectionName
         );
 
-        await firestoreHelpers.addDoc(centralCol, {
+        const centralDocRef = await firestoreHelpers.addDoc(centralCol, {
           userId: data.uid || null,
           empId: createForm.empId || "",
           name,
@@ -1705,11 +1898,23 @@ export default function ActiveInchargePage() {
           departmentName: createForm.departmentName || "",
           departmentId: createForm.departmentId || "",
           role: createForm.isClassRoomMonitor ? "classroomMonitor" : "activeIncharge",
+          assignedBatchIds: createForm.assignedBatchIds || [],
+          assignedBatchRefs: buildAssignedBatchRefs(createForm.assignedBatchIds),
           isIncharge: true,
           createdAt: new Date().toISOString(),
         });
 
         await syncAssignedBatches({
+          inchargeId: data.uid || null,
+          inchargeEmail: email,
+          inchargeName: name,
+          isClassRoomMonitor: createForm.isClassRoomMonitor,
+          selectedBatchIds: createForm.assignedBatchIds,
+        });
+
+        await syncAssignedBatchesInInchargeDoc({
+          subcollectionName,
+          inchargeDocId: centralDocRef.id,
           inchargeId: data.uid || null,
           inchargeEmail: email,
           inchargeName: name,
@@ -1770,11 +1975,16 @@ export default function ActiveInchargePage() {
       departmentName: editForm.departmentName || "",
       departmentId: editForm.departmentId || "",
       role,
+      assignedBatchIds: editForm.assignedBatchIds || [],
+      assignedBatchRefs: buildAssignedBatchRefs(editForm.assignedBatchIds),
       isIncharge: true,
     };
 
     setUpdating(true);
     try {
+      let targetSubcollectionName = newSubcollection;
+      let targetInchargeDocId = editingIncharge.id;
+
       if (newSubcollection === oldSubcollection) {
         const docRef = firestoreHelpers.doc(
           db,
@@ -1785,6 +1995,11 @@ export default function ActiveInchargePage() {
         );
         await firestoreHelpers.updateDoc(docRef, payload);
       } else {
+        await clearAssignedBatchesInInchargeDoc({
+          subcollectionName: oldSubcollection,
+          inchargeDocId: editingIncharge.id,
+        });
+
         const oldRef = firestoreHelpers.doc(
           db,
           "users",
@@ -1801,10 +2016,12 @@ export default function ActiveInchargePage() {
           newSubcollection
         );
 
-        await firestoreHelpers.addDoc(newCol, {
+        const newDocRef = await firestoreHelpers.addDoc(newCol, {
           ...payload,
           createdAt: new Date().toISOString(),
         });
+        targetInchargeDocId = newDocRef.id;
+        targetSubcollectionName = newSubcollection;
       }
 
       if (editingIncharge.userId) {
@@ -1824,6 +2041,16 @@ export default function ActiveInchargePage() {
       }
 
       await syncAssignedBatches({
+        inchargeId: editingIncharge.userId || null,
+        inchargeEmail: email || editingIncharge.email || "",
+        inchargeName: name,
+        isClassRoomMonitor: editForm.isClassRoomMonitor,
+        selectedBatchIds: editForm.assignedBatchIds,
+      });
+
+      await syncAssignedBatchesInInchargeDoc({
+        subcollectionName: targetSubcollectionName,
+        inchargeDocId: targetInchargeDocId,
         inchargeId: editingIncharge.userId || null,
         inchargeEmail: email || editingIncharge.email || "",
         inchargeName: name,
@@ -1861,6 +2088,13 @@ export default function ActiveInchargePage() {
       );
 
       const ops = [firestoreHelpers.deleteDoc(centralDoc)];
+
+      ops.push(
+        clearAssignedBatchesInInchargeDoc({
+          subcollectionName: subcollection,
+          inchargeDocId: u.id,
+        })
+      );
 
       if (u.userId) {
         const userDoc = firestoreHelpers.doc(db, "users", u.userId);

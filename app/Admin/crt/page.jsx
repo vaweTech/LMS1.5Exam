@@ -6,7 +6,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, firestoreHelpers } from "../../../lib/firebase";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Cpu, Layers, FileCheck, ChartBar, ArrowLeft, Users, UserCog, UserCheck } from "lucide-react";
+import { Cpu, Layers, FileCheck, ChartBar, ArrowLeft, Users, UserCog, UserCheck, Briefcase } from "lucide-react";
 
 export default function CRTDashboardPage() {
   const router = useRouter();
@@ -57,6 +57,13 @@ export default function CRTDashboardPage() {
   }
 
   const modules = [
+    {
+      href: "/Admin/crt/PlacementsPage",
+      icon: Briefcase,
+      title: "Dashboard",
+      description: "View and manage placements for CRT programs.",
+      color: "from-sky-500 to-indigo-600",
+    },
     {
       href: "/Admin/crt/crt",
       icon: Layers,
