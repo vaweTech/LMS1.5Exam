@@ -2007,9 +2007,19 @@
 // }
 
 
+
+
 "use client";
 
 import React, { useMemo, useRef, useState } from "react";
+import {
+  AcademicCapIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  FlagIcon,
+  ChartBarIcon,
+  BriefcaseIcon,
+} from "@heroicons/react/24/outline";
 import {
   PieChart,
   Pie,
@@ -2074,6 +2084,8 @@ export default function SingleCollegePlacementERP() {
 
   const [showPlacementModal, setShowPlacementModal] = useState(false);
   const [showStudentModal, setShowStudentModal] = useState(false);
+  const [editingPlacementId, setEditingPlacementId] = useState(null);
+  const [expandedCompanyId, setExpandedCompanyId] = useState(null);
 
   const [placementSearch, setPlacementSearch] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
@@ -2095,6 +2107,7 @@ export default function SingleCollegePlacementERP() {
     department: "",
     openings: "",
     rounds: "",
+    backlogs: "",
     selectedStudents: "",
   });
 
@@ -2104,6 +2117,7 @@ export default function SingleCollegePlacementERP() {
     companyName: "",
     placed: "false",
     roundsCleared: "",
+    backlogs: "",
     finalRoundPlaced: "false",
   });
 
@@ -2128,6 +2142,7 @@ export default function SingleCollegePlacementERP() {
       department: "",
       openings: "",
       rounds: "",
+      backlogs: "",
       selectedStudents: "",
     });
 
@@ -2138,6 +2153,7 @@ export default function SingleCollegePlacementERP() {
       companyName: "",
       placed: "false",
       roundsCleared: "",
+      backlogs: "",
       finalRoundPlaced: "false",
     });
 
@@ -2175,6 +2191,106 @@ export default function SingleCollegePlacementERP() {
       `${p.companyName} ${p.role} ${p.department} ${p.package}`.toLowerCase().includes(q)
     );
   }, [placements, placementSearch]);
+
+  const companyProgressList = useMemo(() => {
+    return filteredPlacements.map((placement) => {
+      const companyStudents = students.filter(
+        (student) =>
+          (student.companyName || "").trim().toLowerCase() ===
+          (placement.companyName || "").trim().toLowerCase()
+      );
+
+      const status = getPlacementStatus(placement.driveDate);
+      const totalRounds = Math.max(Number(placement.rounds || 0), 0);
+      const maxRoundsCleared = companyStudents.reduce(
+        (max, student) => Math.max(max, Number(student.roundsCleared || 0)),
+        0
+      );
+      const inferredRound =
+        status === "Upcoming"
+          ? 1
+          : status === "Past"
+            ? totalRounds
+            : Math.min(Math.max(maxRoundsCleared + 1, 1), Math.max(totalRounds, 1));
+      const currentRound = Math.max(inferredRound, 1);
+
+      const currentRoundStudents =
+        status === "Past"
+          ? 0
+          : status === "Upcoming"
+            ? companyStudents.filter((student) => Number(student.roundsCleared || 0) === 0).length
+            : companyStudents.filter(
+                (student) =>
+                  Number(student.roundsCleared || 0) === currentRound - 1 &&
+                  !student.finalRoundPlaced
+              ).length;
+
+      const phaseLabel =
+        status === "Upcoming"
+          ? "Yet to Start"
+          : status === "Current"
+            ? `Round ${currentRound} In Progress`
+            : "Completed";
+
+      const branchNames = [
+        ...new Set(companyStudents.map((s) => (s.department || "Unknown").trim() || "Unknown")),
+      ].sort((a, b) => a.localeCompare(b));
+
+      const branchBreakdown = branchNames.map((branch) => {
+        const branchStudents = companyStudents.filter(
+          (s) => ((s.department || "Unknown").trim() || "Unknown") === branch
+        );
+        const brMax = branchStudents.reduce(
+          (max, student) => Math.max(max, Number(student.roundsCleared || 0)),
+          0
+        );
+        const brCurrentRound = Math.max(
+          status === "Upcoming"
+            ? 1
+            : status === "Past"
+              ? totalRounds
+              : Math.min(Math.max(brMax + 1, 1), Math.max(totalRounds, 1)),
+          1
+        );
+        const brPhaseLabel =
+          status === "Upcoming"
+            ? "Yet to Start"
+            : status === "Current"
+              ? `Round ${brCurrentRound} In Progress`
+              : "Completed";
+        const brCurrentRoundStudents =
+          status === "Past"
+            ? 0
+            : status === "Upcoming"
+              ? branchStudents.filter((student) => Number(student.roundsCleared || 0) === 0).length
+              : branchStudents.filter(
+                  (student) =>
+                    Number(student.roundsCleared || 0) === brCurrentRound - 1 &&
+                    !student.finalRoundPlaced
+                ).length;
+
+        return {
+          branch,
+          totalStudents: branchStudents.length,
+          currentRound: status === "Past" ? null : brCurrentRound,
+          phaseLabel: brPhaseLabel,
+          driveStatus: status,
+          currentRoundStudents: brCurrentRoundStudents,
+        };
+      });
+
+      return {
+        ...placement,
+        status,
+        phaseLabel,
+        totalRounds,
+        currentRound,
+        currentRoundStudents,
+        totalStudents: companyStudents.length,
+        branchBreakdown,
+      };
+    });
+  }, [filteredPlacements, students]);
 
   const filteredStudents = useMemo(() => {
     const q = studentSearch.toLowerCase();
@@ -2319,8 +2435,7 @@ export default function SingleCollegePlacementERP() {
       return;
     }
 
-    const newPlacement = {
-      id: Date.now(),
+    const placementPayload = {
       companyName: placementForm.companyName,
       role: placementForm.role,
       package: placementForm.package,
@@ -2328,12 +2443,47 @@ export default function SingleCollegePlacementERP() {
       department: placementForm.department,
       openings: Number(placementForm.openings || 0),
       rounds: Number(placementForm.rounds || 0),
+      backlogs: Number(placementForm.backlogs || 0),
       selectedStudents: Number(placementForm.selectedStudents || 0),
     };
 
-    setPlacements((prev) => [newPlacement, ...prev]);
+    if (editingPlacementId) {
+      setPlacements((prev) =>
+        prev.map((placement) =>
+          placement.id === editingPlacementId
+            ? { ...placementPayload, id: editingPlacementId }
+            : placement
+        )
+      );
+    } else {
+      setPlacements((prev) => [{ ...placementPayload, id: Date.now() }, ...prev]);
+    }
+
+    setEditingPlacementId(null);
     resetPlacementForm();
     setShowPlacementModal(false);
+  };
+
+  const handleEditPlacement = (placement) => {
+    setEditingPlacementId(placement.id);
+    setPlacementForm({
+      companyName: placement.companyName || "",
+      role: placement.role || "",
+      package: placement.package || "",
+      driveDate: placement.driveDate || "",
+      department: placement.department || "",
+      openings: String(placement.openings ?? ""),
+      rounds: String(placement.rounds ?? ""),
+      backlogs: String(placement.backlogs ?? ""),
+      selectedStudents: String(placement.selectedStudents ?? ""),
+    });
+    setShowPlacementModal(true);
+  };
+
+  const closePlacementModal = () => {
+    setShowPlacementModal(false);
+    setEditingPlacementId(null);
+    resetPlacementForm();
   };
 
   const handleAddStudent = (e) => {
@@ -2351,6 +2501,7 @@ export default function SingleCollegePlacementERP() {
       companyName: studentForm.companyName || "",
       placed: studentForm.placed === "true",
       roundsCleared: Number(studentForm.roundsCleared || 0),
+      backlogs: Number(studentForm.backlogs || 0),
       finalRoundPlaced: studentForm.finalRoundPlaced === "true",
     };
 
@@ -2369,15 +2520,17 @@ export default function SingleCollegePlacementERP() {
     setStudents((prev) => prev.filter((s) => s.id !== id));
   };
 
-  const StatCard = ({ title, value, color, icon }) => (
+  const StatCard = ({ title, value, color, Icon, iconBg }) => (
     <div className="rounded-3xl bg-white border border-slate-200 shadow-sm p-5 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-slate-500 font-medium">{title}</p>
           <h2 className={`text-3xl font-bold mt-2 ${color}`}>{value}</h2>
         </div>
-        <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center text-2xl shadow-inner">
-          {icon}
+        <div
+          className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner ring-1 ring-black/[0.04] ${iconBg}`}
+        >
+          <Icon className={`h-6 w-6 ${color}`} aria-hidden />
         </div>
       </div>
     </div>
@@ -2471,13 +2624,13 @@ export default function SingleCollegePlacementERP() {
               </div>
 
               <div className="grid grid-cols-2 gap-4 min-w-[280px]">
-                <div className="bg-white/15 backdrop-blur rounded-3xl p-5 border border-white/20">
-                  <p className="text-sm text-white/80 font-semibold">Placement Rate</p>
-                  <p className="text-3xl font-bold mt-2">{placementRate}%</p>
+                <div className="bg-white/15 backdrop-blur rounded-3xl p-5 border border-black/20">
+                  <p className="text-sm text-black/80 font-semibold">Placement Rate</p>
+                  <p className="text-3xl text-black/80 font-bold mt-2">{placementRate}%</p>
                 </div>
                 <div className="bg-white/15 backdrop-blur rounded-3xl p-5 border border-white/20">
-                  <p className="text-sm text-white/80 font-semibold">Total Drives</p>
-                  <p className="text-3xl font-bold mt-2">{stats.totalPlacements}</p>
+                  <p className="text-sm text-black/80 font-semibold">Total Drives</p>
+                  <p className="text-3xl text-black/80 font-bold mt-2">{stats.totalPlacements}</p>
                 </div>
               </div>
             </div>
@@ -2500,12 +2653,48 @@ export default function SingleCollegePlacementERP() {
           <SectionHeader title="Dashboard Overview" subtitle="Quick insights of placement performance" />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4">
-            <StatCard title="Total Students" value={stats.totalStudents} color="text-indigo-600" icon="🎓" />
-            <StatCard title="Placed" value={stats.placedStudents} color="text-emerald-600" icon="✅" />
-            <StatCard title="Unplaced" value={stats.unplacedStudents} color="text-rose-600" icon="❌" />
-            <StatCard title="Final Round" value={stats.finalRoundPlaced} color="text-blue-600" icon="🏁" />
-            <StatCard title="Rounds Cleared" value={stats.totalRoundsCleared} color="text-violet-600" icon="📈" />
-            <StatCard title="Drives" value={stats.totalPlacements} color="text-orange-600" icon="🏢" />
+            <StatCard
+              title="Total Students"
+              value={stats.totalStudents}
+              color="text-indigo-600"
+              iconBg="bg-indigo-50"
+              Icon={AcademicCapIcon}
+            />
+            <StatCard
+              title="Placed"
+              value={stats.placedStudents}
+              color="text-emerald-600"
+              iconBg="bg-emerald-50"
+              Icon={CheckCircleIcon}
+            />
+            <StatCard
+              title="Unplaced"
+              value={stats.unplacedStudents}
+              color="text-rose-600"
+              iconBg="bg-rose-50"
+              Icon={XCircleIcon}
+            />
+            <StatCard
+              title="Final Round"
+              value={stats.finalRoundPlaced}
+              color="text-blue-600"
+              iconBg="bg-blue-50"
+              Icon={FlagIcon}
+            />
+            <StatCard
+              title="Rounds Cleared"
+              value={stats.totalRoundsCleared}
+              color="text-violet-600"
+              iconBg="bg-violet-50"
+              Icon={ChartBarIcon}
+            />
+            <StatCard
+              title="Drives"
+              value={stats.totalPlacements}
+              color="text-orange-600"
+              iconBg="bg-orange-50"
+              Icon={BriefcaseIcon}
+            />
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-6">
@@ -2526,41 +2715,157 @@ export default function SingleCollegePlacementERP() {
               </div>
             </Card>
 
-            <Card className="p-6">
-              <h3 className="text-xl font-bold text-slate-800 mb-4">College Summary</h3>
-              <div className="space-y-4">
-                <div className="rounded-2xl bg-slate-50 p-4 border border-slate-100">
-                  <p className="text-sm text-slate-500">College Name</p>
-                  <p className="font-bold text-slate-800 mt-1">{COLLEGE_NAME}</p>
-                </div>
-                <div className="rounded-2xl bg-indigo-50 p-4 border border-indigo-100">
-                  <p className="text-sm text-indigo-600 font-medium">Placement Rate</p>
-                  <p className="font-bold text-indigo-800 mt-1">{placementRate}%</p>
-                </div>
-                <div className="rounded-2xl bg-slate-50 p-4 border border-slate-100">
-                  <p className="text-sm text-slate-500">Current Date</p>
-                  <p className="font-bold text-slate-800 mt-1">{today}</p>
-                </div>
-              </div>
-            </Card>
           </div>
         </section>
 
         {/* PLACEMENTS */}
         <section ref={placementsRef} className="scroll-mt-28">
+          <Card className="p-5 mb-5">
+            <h3 className="text-xl font-bold text-slate-800">Current Companies Tracker</h3>
+            <p className="text-sm text-slate-500 mt-1">
+              Click a company to view rounds, current phase, and current round student count.
+            </p>
+
+            <div className="mt-4 space-y-3">
+              {companyProgressList.map((company) => (
+                <div key={company.id} className="border border-slate-200 rounded-2xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedCompanyId((prev) => (prev === company.id ? null : company.id))
+                    }
+                    className="w-full px-4 py-3 bg-white hover:bg-slate-50 transition flex items-center justify-between gap-3 text-left"
+                  >
+                    <div>
+                      <p className="font-semibold text-slate-800">{company.companyName}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{company.role}</p>
+                      {company.department && (
+                        <p className="text-xs text-slate-400 mt-0.5">Drive department: {company.department}</p>
+                      )}
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(company.status)}`}>
+                      {company.status}
+                    </span>
+                  </button>
+
+                  {expandedCompanyId === company.id && (
+                    <div className="px-4 py-4 bg-slate-50 border-t border-slate-200">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
+                        <div className="rounded-xl bg-white border border-slate-200 p-3">
+                          <p className="text-slate-500">Total Rounds</p>
+                          <p className="font-bold text-slate-800">{company.totalRounds}</p>
+                        </div>
+                        <div className="rounded-xl bg-white border border-slate-200 p-3">
+                          <p className="text-slate-500">Current Phase</p>
+                          <p className="font-bold text-slate-800">{company.phaseLabel}</p>
+                        </div>
+                        <div className="rounded-xl bg-white border border-slate-200 p-3">
+                          <p className="text-slate-500">Current Round</p>
+                          <p className="font-bold text-slate-800">
+                            {company.status === "Past" ? "-" : `Round ${company.currentRound}`}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-white border border-slate-200 p-3">
+                          <p className="text-slate-500">Current Round Students</p>
+                          <p className="font-bold text-slate-800">{company.currentRoundStudents}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 text-xs text-slate-500">
+                        Total assigned students:{" "}
+                        <span className="font-semibold text-slate-700">{company.totalStudents}</span>
+                      </div>
+
+                      <div className="mt-5">
+                        <h4 className="text-sm font-semibold text-slate-800 mb-2">Branch-wise breakdown</h4>
+                        {company.branchBreakdown.length > 0 ? (
+                          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                            <table className="w-full min-w-[640px] text-sm text-left">
+                              <thead className="bg-slate-100 text-slate-600 text-xs uppercase tracking-wide">
+                                <tr>
+                                  <th className="p-3 font-semibold">Branch</th>
+                                  <th className="p-3 font-semibold">Students</th>
+                                  <th className="p-3 font-semibold">Drive status</th>
+                                  <th className="p-3 font-semibold">Phase</th>
+                                  <th className="p-3 font-semibold">Current round</th>
+                                  <th className="p-3 font-semibold">In current round</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {company.branchBreakdown.map((row) => (
+                                  <tr
+                                    key={`${company.id}-${row.branch}`}
+                                    className="border-t border-slate-100 hover:bg-slate-50/80"
+                                  >
+                                    <td className="p-3 font-medium text-slate-800">{row.branch}</td>
+                                    <td className="p-3 text-slate-700">{row.totalStudents}</td>
+                                    <td className="p-3">
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-xs font-semibold ${getStatusBadge(row.driveStatus)}`}
+                                      >
+                                        {row.driveStatus}
+                                      </span>
+                                    </td>
+                                    <td className="p-3 text-slate-700">{row.phaseLabel}</td>
+                                    <td className="p-3 text-slate-700">
+                                      {row.driveStatus === "Past" || row.currentRound == null
+                                        ? "—"
+                                        : `Round ${row.currentRound}`}
+                                    </td>
+                                    <td className="p-3 font-semibold text-slate-800">{row.currentRoundStudents}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-500 rounded-xl border border-dashed border-slate-200 bg-white px-3 py-2">
+                            No students linked to this company yet. Assign students with a matching company name to see branch-wise counts and phases.
+                          </p>
+                        )}
+                      </div>
+                      <div className="mt-4 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEditPlacement(company)}
+                          className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deletePlacement(company.id)}
+                          className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-medium"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {companyProgressList.length === 0 && (
+                <p className="text-sm text-slate-500">No companies found for the current search.</p>
+              )}
+            </div>
+          </Card>
           <SectionHeader
             title="Placements"
             subtitle="Manage company drives, roles, packages, and statuses"
             action={
               <button
-                onClick={() => setShowPlacementModal(true)}
+                onClick={() => {
+                  setEditingPlacementId(null);
+                  resetPlacementForm();
+                  setShowPlacementModal(true);
+                }}
                 className="px-5 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold shadow-md hover:shadow-xl transition"
               >
                 + Add Placement
               </button>
             }
           />
-
           <Card className="p-5 mb-5">
             <input
               type="text"
@@ -2570,7 +2875,6 @@ export default function SingleCollegePlacementERP() {
               className={inputClass}
             />
           </Card>
-
           <Card className="overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1100px]">
@@ -2601,6 +2905,12 @@ export default function SingleCollegePlacementERP() {
                         </td>
                         <td className="p-4">
                           <button
+                            onClick={() => handleEditPlacement(p)}
+                            className="px-3 py-2 mr-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium"
+                          >
+                            Edit
+                          </button>
+                          <button
                             onClick={() => deletePlacement(p.id)}
                             className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-medium"
                           >
@@ -2615,8 +2925,6 @@ export default function SingleCollegePlacementERP() {
             </div>
           </Card>
         </section>
-
-
         {/* ANALYTICS */}
         <section ref={analyticsRef} className="scroll-mt-28 space-y-10">
           <div>
@@ -2754,11 +3062,8 @@ export default function SingleCollegePlacementERP() {
       {/* MODALS */}
       {showPlacementModal && (
         <Modal
-          title="Add New Placement"
-          onClose={() => {
-            setShowPlacementModal(false);
-            resetPlacementForm();
-          }}
+          title={editingPlacementId ? "Edit Placement" : "Add New Placement"}
+          onClose={closePlacementModal}
         >
           <form onSubmit={handleAddPlacement} className="space-y-4">
             <div className="grid md:grid-cols-2 gap-4">
@@ -2769,14 +3074,23 @@ export default function SingleCollegePlacementERP() {
               <input name="department" placeholder="Department" value={placementForm.department} onChange={handlePlacementChange} className={inputClass} />
               <input name="openings" placeholder="Openings" value={placementForm.openings} onChange={handlePlacementChange} className={inputClass} />
               <input name="rounds" placeholder="Number of Rounds" value={placementForm.rounds} onChange={handlePlacementChange} className={inputClass} />
+              <input
+                type="number"
+                min="0"
+                name="backlogs"
+                placeholder="Number of Backlogs"
+                value={placementForm.backlogs}
+                onChange={handlePlacementChange}
+                className={inputClass}
+              />
               <input name="selectedStudents" placeholder="Selected Students" value={placementForm.selectedStudents} onChange={handlePlacementChange} className={inputClass} />
             </div>
 
             <div className="flex gap-3 pt-2">
               <button type="submit" className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-3 rounded-2xl font-semibold">
-                Save Placement
+                {editingPlacementId ? "Update Placement" : "Save Placement"}
               </button>
-              <button type="button" onClick={() => { setShowPlacementModal(false); resetPlacementForm(); }} className="bg-slate-200 hover:bg-slate-300 px-5 py-3 rounded-2xl font-semibold text-slate-700">
+              <button type="button" onClick={closePlacementModal} className="bg-slate-200 hover:bg-slate-300 px-5 py-3 rounded-2xl font-semibold text-slate-700">
                 Cancel
               </button>
             </div>
@@ -2805,6 +3119,15 @@ export default function SingleCollegePlacementERP() {
               </select>
 
               <input name="roundsCleared" placeholder="Rounds Cleared" value={studentForm.roundsCleared} onChange={handleStudentChange} className={inputClass} />
+              <input
+                type="number"
+                min="0"
+                name="backlogs"
+                placeholder="Number of Backlogs"
+                value={studentForm.backlogs}
+                onChange={handleStudentChange}
+                className={inputClass}
+              />
 
               <select name="placed" value={studentForm.placed} onChange={handleStudentChange} className={inputClass}>
                 <option value="false">Unplaced</option>
