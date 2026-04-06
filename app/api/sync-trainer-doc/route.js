@@ -31,7 +31,8 @@ async function withRetry(fn, maxAttempts = 6) {
 
 export async function POST(req) {
   try {
-    const { uid, name, email, empId, role, phone } = await req.json();
+    const { uid, name, email, empId, role, phone, trainerPassword: pwdFromBody } =
+      await req.json();
     if (!uid || !name || !email) {
       return NextResponse.json(
         { error: "uid, name and email required" },
@@ -40,11 +41,15 @@ export async function POST(req) {
     }
     const allowedRole = role === "crtTrainer" ? "crtTrainer" : "trainer";
     const defaultPassword = "VaweTrainer@2025";
+    const trainerPassword =
+      pwdFromBody != null && String(pwdFromBody).trim() !== ""
+        ? String(pwdFromBody).trim()
+        : defaultPassword;
     const userData = {
       name,
       email,
       role: allowedRole,
-      trainerPassword: defaultPassword,
+      trainerPassword,
       status: "active",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
@@ -65,7 +70,7 @@ export async function POST(req) {
         name,
         email,
         role: allowedRole,
-        trainerPassword: defaultPassword,
+        trainerPassword,
         createdAt: new Date(),
       };
       if (empId != null && String(empId).trim() !== "") restData.empId = String(empId).trim();

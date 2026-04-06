@@ -8,6 +8,9 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, UserCog, UserPlus, X, RefreshCw, Pencil, Trash2 } from "lucide-react";
 
+/** Must match default in /api/create-trainer (Auth + Firestore `trainerPassword`). */
+const DEFAULT_TRAINER_PASSWORD = "VaweTrainer@2025";
+
 export default function CRTTrainerManagementPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
@@ -156,6 +159,7 @@ export default function CRTTrainerManagementPage() {
         phone: trainerData.phone || "",
         empId: trainerData.empId || "",
         role: trainerData.role || "crtTrainer",
+        trainerPassword: trainerData.trainerPassword || DEFAULT_TRAINER_PASSWORD,
       }),
     });
     const data = await res.json();
@@ -205,6 +209,7 @@ export default function CRTTrainerManagementPage() {
           phone: createForm.phone?.trim() || "",
           empId: createForm.empId?.trim() || "",
           role: "crtTrainer",
+          trainerPassword: DEFAULT_TRAINER_PASSWORD,
           createdAt: new Date().toISOString(),
         });
       }
@@ -234,6 +239,8 @@ export default function CRTTrainerManagementPage() {
           phone: pendingSync.trainerData.phone || "",
           empId: pendingSync.trainerData.empId || "",
           role: "crtTrainer",
+          trainerPassword:
+            pendingSync.trainerData.trainerPassword || DEFAULT_TRAINER_PASSWORD,
           createdAt: new Date().toISOString(),
         });
       }
@@ -456,6 +463,7 @@ export default function CRTTrainerManagementPage() {
                         <th className="p-4 font-semibold text-slate-700">EMP Id</th>
                         <th className="p-4 font-semibold text-slate-700">Name</th>
                         <th className="p-4 font-semibold text-slate-700">Email</th>
+                        <th className="p-4 font-semibold text-slate-700">Password</th>
                         <th className="p-4 font-semibold text-slate-700">Actions</th>
                       </tr>
                     </thead>
@@ -472,6 +480,9 @@ export default function CRTTrainerManagementPage() {
                               {t.name || "—"}
                             </td>
                             <td className="p-4 text-slate-600">{t.email || "—"}</td>
+                            <td className="p-4 text-slate-800 font-mono text-xs max-w-[200px] break-all">
+                              {t.trainerPassword || DEFAULT_TRAINER_PASSWORD}
+                            </td>
                             <td className="p-4">
                               <div className="flex items-center gap-2">
                                 <button

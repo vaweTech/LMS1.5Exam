@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import CheckAuth from "../../../../../lib/CheckAuth";
@@ -17,6 +17,7 @@ import {
   query,
   where,
   serverTimestamp,
+  onSnapshot,
 } from "firebase/firestore";
 import {
   ArrowLeftIcon,
@@ -54,6 +55,115 @@ function programFromCrtDoc(id, data) {
     commonCourses: Array.isArray(data.commonCourses) ? data.commonCourses : [],
     technicalCourses: Array.isArray(data.technicalCourses) ? data.technicalCourses : [],
   };
+}
+
+/**
+ * Admin assigns batch members with `studentId` = document id from `students` (CRT list), not always Firebase Auth uid.
+ * Collect every id/email we can tie to this login so unlock listeners attach to the right batch(es).
+ */
+function addRegd(set, v) {
+  const s = String(v ?? "").trim();
+  if (s) set.add(s);
+}
+
+async function resolveCrtStudentBatchMatchKeys(db, authUser) {
+  const uid = authUser?.uid;
+  const keys = new Set();
+  const emails = new Set();
+  const regdNos = new Set();
+  if (uid) keys.add(uid);
+  const authEmail = (authUser?.email || "").trim().toLowerCase();
+  if (authEmail) emails.add(authEmail);
+
+  const absorbStudentSnap = (snap) => {
+    if (!snap || !snap.exists()) return;
+    const data = snap.data() || {};
+    keys.add(snap.id);
+    if (data.email) emails.add(String(data.email).trim().toLowerCase());
+    addRegd(regdNos, data.regdNo);
+  };
+
+  try {
+    absorbStudentSnap(await getDoc(doc(db, "students", uid)));
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    const q = query(collection(db, "students"), where("uid", "==", uid));
+    const snap = await getDocs(q);
+    snap.docs.forEach((d) => {
+      keys.add(d.id);
+      const data = d.data() || {};
+      if (data.email) emails.add(String(data.email).trim().toLowerCase());
+      addRegd(regdNos, data.regdNo);
+    });
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    const subQ = query(
+      collection(db, "users", "crtStudent", "students"),
+      where("uid", "==", uid)
+    );
+    const subSnap = await getDocs(subQ);
+    subSnap.docs.forEach((d) => {
+      keys.add(d.id);
+      const data = d.data() || {};
+      if (data.email) emails.add(String(data.email).trim().toLowerCase());
+      addRegd(regdNos, data.regdNo);
+    });
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    const alt = await getDoc(doc(db, "users", "crtStudent", "students", uid));
+    if (alt.exists()) {
+      keys.add(alt.id);
+      const data = alt.data() || {};
+      if (data.email) emails.add(String(data.email).trim().toLowerCase());
+      addRegd(regdNos, data.regdNo);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+
+  return { keys, emails, regdNos };
+}
+
+/** Batches where this student appears under crt/.../batches/{id}/students */
+async function findBatchIdsForStudentInCrt(db, crtId, identity) {
+  const keys = identity?.keys instanceof Set ? identity.keys : new Set();
+  const emails = identity?.emails instanceof Set ? identity.emails : new Set();
+  const regdNos = identity?.regdNos instanceof Set ? identity.regdNos : new Set();
+  const batchesSnap = await getDocs(collection(db, "crt", crtId, "batches"));
+  const ids = [];
+  for (const b of batchesSnap.docs) {
+    const stSnap = await getDocs(
+      collection(db, "crt", crtId, "batches", b.id, "students")
+    );
+    const member = stSnap.docs.some((d) => {
+      const x = d.data() || {};
+      const sid = String(x.studentId ?? x.uid ?? d.id ?? "").trim();
+      if (sid && keys.has(sid)) return true;
+      const uidField = String(x.uid ?? "").trim();
+      if (uidField && keys.has(uidField)) return true;
+      const em = String(x.email ?? "").trim().toLowerCase();
+      if (em && emails.has(em)) return true;
+      const regd = String(x.regdNo ?? "").trim();
+      if (regd && regdNos.has(regd)) return true;
+      return false;
+    });
+    if (member) ids.push(b.id);
+  }
+  return ids;
+}
+
+/** Batches where this user is the assigned trainer */
+async function findBatchIdsForTrainerInCrt(db, crtId, trainerUid) {
+  const batchesSnap = await getDocs(collection(db, "crt", crtId, "batches"));
+  return batchesSnap.docs
+    .filter((d) => (d.data() || {}).trainerId === trainerUid)
+    .map((d) => d.id);
 }
 
 function StarRating({ value, onChange, max = 5, showValue }) {
@@ -157,6 +267,12 @@ export default function CRTCoursePage() {
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [hasCourseAccess, setHasCourseAccess] = useState(false);
   const [roleCheckDone, setRoleCheckDone] = useState(false);
+  const [viewerRole, setViewerRole] = useState(null);
+  const [isCrtStudentViewer, setIsCrtStudentViewer] = useState(false);
+  const [unlockedChapterIds, setUnlockedChapterIds] = useState([]);
+  const [trainerPreviewEnabled, setTrainerPreviewEnabled] = useState(false);
+  const unlockMergeRef = useRef({});
+  const unlockUnsubsRef = useRef([]);
   const courseName = course?.title || commonMatch?.name || technicalMatch?.name || "";
   const isCommon = Boolean(commonMatch);
 
@@ -167,10 +283,12 @@ export default function CRTCoursePage() {
     return () => unsub();
   }, []);
 
-  // Resolve if user can access course content: admin, superadmin, or CRT student only
+  // Resolve if user can access course: admin, superadmin, CRT student, or CRT/regular trainer
   useEffect(() => {
     if (!user) {
       setHasCourseAccess(false);
+      setViewerRole(null);
+      setIsCrtStudentViewer(false);
       setRoleCheckDone(true);
       return;
     }
@@ -191,11 +309,14 @@ export default function CRTCoursePage() {
         }
         const studentRole = studentData?.role;
         const isAdmin = userRole === "admin" || userRole === "superadmin";
+        const isTrainerRole = userRole === "crtTrainer" || userRole === "trainer";
         const isCrtStudent =
           userRole === "crtStudent" ||
           studentRole === "crtStudent" ||
           studentData?.isCrt === true;
-        setHasCourseAccess(Boolean(isAdmin || isCrtStudent));
+        setViewerRole(userRole || null);
+        setIsCrtStudentViewer(Boolean(isCrtStudent));
+        setHasCourseAccess(Boolean(isAdmin || isCrtStudent || isTrainerRole));
       } catch (_) {
         if (!cancelled) setHasCourseAccess(false);
       } finally {
@@ -204,6 +325,136 @@ export default function CRTCoursePage() {
     })();
     return () => { cancelled = true; };
   }, [user]);
+
+  /**
+   * Per-batch unlocks only: crt/{crtId}/batches/{batchId}/courses/{courseId}/chapterUnlocks/{chapterId}
+   * Students see union of unlocks for batches they belong to; trainers see union for batches they teach.
+   */
+  useEffect(() => {
+    unlockUnsubsRef.current.forEach((u) => u());
+    unlockUnsubsRef.current = [];
+    unlockMergeRef.current = {};
+    setUnlockedChapterIds([]);
+
+    if (!db || !resolvedCrtId || !course?.id || !user?.uid || !roleCheckDone) {
+      return;
+    }
+
+    if (viewerRole === "admin" || viewerRole === "superadmin") {
+      return;
+    }
+
+    const isTrainer = viewerRole === "crtTrainer" || viewerRole === "trainer";
+    if (isTrainer && trainerPreviewEnabled) {
+      return;
+    }
+
+    const flush = () => {
+      const union = new Set();
+      Object.values(unlockMergeRef.current).forEach((set) => {
+        if (set && typeof set.forEach === "function") {
+          set.forEach((id) => union.add(id));
+        }
+      });
+      setUnlockedChapterIds(Array.from(union));
+    };
+
+    let cancelled = false;
+
+    (async () => {
+      let batchIds = [];
+      if (isCrtStudentViewer) {
+        const identity = await resolveCrtStudentBatchMatchKeys(db, user);
+        batchIds = await findBatchIdsForStudentInCrt(db, resolvedCrtId, identity);
+      } else if (isTrainer) {
+        batchIds = await findBatchIdsForTrainerInCrt(db, resolvedCrtId, user.uid);
+      } else {
+        return;
+      }
+
+      if (cancelled) return;
+
+      if (batchIds.length === 0) {
+        setUnlockedChapterIds([]);
+        return;
+      }
+
+      batchIds.forEach((batchId) => {
+        const col = collection(
+          db,
+          "crt",
+          resolvedCrtId,
+          "batches",
+          batchId,
+          "courses",
+          course.id,
+          "chapterUnlocks"
+        );
+        const unsub = onSnapshot(
+          col,
+          (snap) => {
+            if (cancelled) return;
+            const ids = snap.docs
+              .filter((d) => d.data()?.unlocked === true)
+              .map((d) => d.id);
+            unlockMergeRef.current[batchId] = new Set(ids);
+            flush();
+          },
+          () => {
+            if (cancelled) return;
+            unlockMergeRef.current[batchId] = new Set();
+            flush();
+          }
+        );
+        unlockUnsubsRef.current.push(unsub);
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      unlockUnsubsRef.current.forEach((u) => u());
+      unlockUnsubsRef.current = [];
+    };
+  }, [
+    db,
+    resolvedCrtId,
+    course?.id,
+    user?.uid,
+    roleCheckDone,
+    viewerRole,
+    isCrtStudentViewer,
+    trainerPreviewEnabled,
+  ]);
+
+  // Trainer full-course preview flag (set from CRT Trainer dashboard checkbox)
+  useEffect(() => {
+    if (!db || !resolvedCrtId || !course?.id) {
+      setTrainerPreviewEnabled(false);
+      return;
+    }
+    const previewDoc = doc(
+      db,
+      "crt",
+      resolvedCrtId,
+      "courses",
+      course.id,
+      "trainerPreview",
+      "default"
+    );
+    const unsub = onSnapshot(
+      previewDoc,
+      (snap) => {
+        setTrainerPreviewEnabled(snap.exists() && snap.data()?.enabled === true);
+      },
+      () => setTrainerPreviewEnabled(false)
+    );
+    return () => unsub();
+  }, [resolvedCrtId, course?.id]);
+
+  useEffect(() => {
+    setInitialExpandDone(false);
+    setExpandedDay(null);
+  }, [resolvedCrtId, course?.id]);
 
   // Fetch attendance for this course (when course + user available)
   useEffect(() => {
@@ -363,12 +614,83 @@ export default function CRTCoursePage() {
     resolveAndFetch();
   }, [programSlug, courseSlug, program?.id, program?.title, program, user?.uid, user]);
 
-  // Expand first day by default only when user has access (once content is ready)
+  // Expand first visible day (locked viewers: first unlocked chapter; full preview: first chapter)
   useEffect(() => {
     if (loading || !hasCourseAccess || initialExpandDone || chapters.length === 0) return;
-    setExpandedDay(chapters[0].id);
+    const isTrainer = viewerRole === "crtTrainer" || viewerRole === "trainer";
+    const needsChapterUnlock =
+      (isCrtStudentViewer && viewerRole !== "superadmin") ||
+      (isTrainer && !trainerPreviewEnabled);
+    const first = chapters.find((ch) => {
+      if (!needsChapterUnlock) return true;
+      return unlockedChapterIds.includes(ch.id);
+    });
+    if (first) setExpandedDay(first.id);
     setInitialExpandDone(true);
-  }, [loading, hasCourseAccess, chapters, initialExpandDone]);
+  }, [
+    loading,
+    hasCourseAccess,
+    chapters,
+    initialExpandDone,
+    unlockedChapterIds,
+    isCrtStudentViewer,
+    viewerRole,
+    trainerPreviewEnabled,
+  ]);
+
+  useEffect(() => {
+    const isTrainer = viewerRole === "crtTrainer" || viewerRole === "trainer";
+    const needsChapterUnlock =
+      (isCrtStudentViewer && viewerRole !== "superadmin") ||
+      (isTrainer && !trainerPreviewEnabled);
+    if (!needsChapterUnlock || viewerRole === "superadmin") return;
+    if (!chapters.length || !unlockedChapterIds.length) return;
+    if (expandedDay !== null) return;
+    const first = chapters.find((ch) => unlockedChapterIds.includes(ch.id));
+    if (first) setExpandedDay(first.id);
+  }, [
+    unlockedChapterIds,
+    chapters,
+    isCrtStudentViewer,
+    viewerRole,
+    expandedDay,
+    trainerPreviewEnabled,
+  ]);
+
+  const isChapterUnlockedForViewer = (ch) => {
+    if (viewerRole === "superadmin") return true;
+    if (viewerRole === "admin") return true;
+    const isTrainer = viewerRole === "crtTrainer" || viewerRole === "trainer";
+    if (isTrainer && trainerPreviewEnabled) return true;
+    if (isTrainer && !trainerPreviewEnabled) return unlockedChapterIds.includes(ch.id);
+    if (!isCrtStudentViewer) return true;
+    return unlockedChapterIds.includes(ch.id);
+  };
+
+  const pendingAssignments = useMemo(() => {
+    const pending = progressTests.filter((t) => !progressTestSubmissions[t.id]);
+    const isTrainer = viewerRole === "crtTrainer" || viewerRole === "trainer";
+    const filterByUnlock =
+      (isCrtStudentViewer && viewerRole !== "superadmin") ||
+      (isTrainer && !trainerPreviewEnabled);
+    if (!filterByUnlock || viewerRole === "superadmin") return pending;
+    return pending.filter((t) => {
+      const dayNum = typeof t.day === "number" ? t.day : 1;
+      const ch = chapters.find((c, idx) => {
+        const ord = typeof c.order === "number" ? c.order : idx + 1;
+        return ord === dayNum;
+      });
+      return ch && unlockedChapterIds.includes(ch.id);
+    });
+  }, [
+    progressTests,
+    progressTestSubmissions,
+    chapters,
+    unlockedChapterIds,
+    isCrtStudentViewer,
+    viewerRole,
+    trainerPreviewEnabled,
+  ]);
 
   if (!program) {
     return (
@@ -462,8 +784,6 @@ export default function CRTCoursePage() {
 
   const displayChapters = chapters;
 
-  const pendingAssignments = progressTests.filter((t) => !progressTestSubmissions[t.id]);
-
   return (
     <CheckAuth>
       <div className="min-h-screen bg-slate-100 pt-16 pb-20">
@@ -515,7 +835,11 @@ export default function CRTCoursePage() {
                     const dayTests = progressTests.filter(
                       (t) => (typeof t.day === "number" ? t.day : 1) === dayNumber
                     );
-                    const isExpanded = hasCourseAccess && (expandedDay === ch.id || expandedDay === dayNumber);
+                    const dayUnlocked = isChapterUnlockedForViewer(ch);
+                    const isExpanded =
+                      hasCourseAccess &&
+                      dayUnlocked &&
+                      (expandedDay === ch.id || expandedDay === dayNumber);
 
                     if (!hasCourseAccess) {
                       return (
@@ -532,6 +856,28 @@ export default function CRTCoursePage() {
                               Locked
                             </span>
                           </div>
+                        </div>
+                      );
+                    }
+
+                    if (!dayUnlocked) {
+                      return (
+                        <div
+                          key={ch.id}
+                          className="border border-amber-200/80 rounded-xl overflow-hidden bg-amber-50/50 shadow-sm"
+                        >
+                          <div className="w-full px-4 sm:px-5 py-3.5 sm:py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <span className="font-semibold text-slate-700 text-base sm:text-lg">
+                              Day {dayNumber}: {ch.title || `Day ${dayNumber}`}
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900">
+                              <LockClosedIcon className="w-4 h-4" />
+                              Locked until trainer unlocks
+                            </span>
+                          </div>
+                          <p className="px-4 sm:px-5 pb-3 text-xs text-amber-900/80">
+                            Your trainer unlocks days per batch from the CRT Trainer dashboard — only students in that batch get access.
+                          </p>
                         </div>
                       );
                     }

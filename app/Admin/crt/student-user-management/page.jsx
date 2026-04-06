@@ -8,9 +8,41 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, GraduationCap, Search, RefreshCw, UserPlus, X, Phone, CheckCircle2 } from "lucide-react";
 import { makeAuthenticatedRequest, handleAuthError } from "@/lib/authUtils";
+import { requestWhatsAppOtp, verifyWhatsAppOtp } from "@/lib/whatsappOtpClient";
 
-function isCrtStudent(s) {
-  return s.role === "crtStudent" || s.isCrt === true;
+/** HTML date inputs require YYYY-MM-DD. Accepts Firestore Timestamp, ISO, or dd-mm-yyyy / dd/mm/yyyy. */
+function toDateInputString(value) {
+  if (value == null || value === "") return "";
+  if (typeof value === "object" && typeof value.toDate === "function") {
+    try {
+      const d = value.toDate();
+      if (Number.isNaN(d.getTime())) return "";
+      return d.toISOString().slice(0, 10);
+    } catch {
+      return "";
+    }
+  }
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (m) {
+    const dd = m[1].padStart(2, "0");
+    const mm = m[2].padStart(2, "0");
+    const yyyy = m[3];
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return "";
+}
+
+/** Normalize role for display/edit — subcollection is CRT-only, but legacy docs may omit or vary role. */
+function getCrtStudentRole(s) {
+  const r = (s?.role || "").trim();
+  if (!r) return "crtStudent";
+  const lower = r.toLowerCase();
+  if (lower === "crtstudent" || lower === "crt student" || lower === "crt-student") {
+    return "crtStudent";
+  }
+  return r;
 }
 
 const INITIAL_ADMISSION_FORM = {
@@ -52,7 +84,9 @@ export default function CRTStudentUserManagementPage() {
   const [phoneOtpSent, setPhoneOtpSent] = useState(false);
   const [phoneOtpValue, setPhoneOtpValue] = useState("");
   const [phoneVerified, setPhoneVerified] = useState(false);
+  const [otpSending, setOtpSending] = useState(false);
   const [otpVerifying, setOtpVerifying] = useState(false);
+  const [otpSendError, setOtpSendError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(null); // { email, defaultPassword }
   const [editingId, setEditingId] = useState(null);
@@ -69,26 +103,71 @@ export default function CRTStudentUserManagementPage() {
     setAdmissionForm((f) => ({ ...f, [key]: value }));
   };
 
-  const handleSendOtp = () => {
-    if (!admissionForm.phone1 || admissionForm.phone1.length < 10) {
+  const handleSendOtp = async () => {
+    const digits = String(admissionForm.phone1 || "").replace(/\D/g, "");
+    if (digits.length < 10) {
       alert("Enter a valid 10-digit mobile number.");
       return;
     }
-    setPhoneOtpSent(true);
-    setPhoneOtpValue("");
+    setOtpSending(true);
+    setOtpSendError(null);
     setPhoneVerified(false);
+    setPhoneOtpValue("");
+    try {
+      const res = await requestWhatsAppOtp(admissionForm.phone1);
+      if (!res.ok) {
+        const msg =
+          res.error ||
+          (typeof res.details === "string" ? res.details : null) ||
+          "Failed to send OTP. Try again.";
+        setOtpSendError(msg);
+        alert(msg);
+        return;
+      }
+      setPhoneOtpSent(true);
+      if (process.env.NODE_ENV !== "production" && res.debugOtp) {
+        console.info("[dev] WhatsApp OTP (also sent via template):", res.debugOtp);
+      }
+    } catch (e) {
+      console.error(e);
+      const msg = e?.message || "Failed to send OTP.";
+      setOtpSendError(msg);
+      alert(msg);
+    } finally {
+      setOtpSending(false);
+    }
   };
 
-  const handleVerifyOtp = () => {
+  const handleVerifyOtp = async () => {
+    const code = String(phoneOtpValue || "").trim().replace(/\D/g, "");
+    if (code.length < 4) {
+      alert("Enter the OTP you received on WhatsApp.");
+      return;
+    }
     setOtpVerifying(true);
-    setTimeout(() => {
-      if (phoneOtpValue === "1234") {
+    try {
+      const res = await verifyWhatsAppOtp(admissionForm.phone1, code);
+      if (res.ok) {
         setPhoneVerified(true);
-      } else {
-        alert("Invalid OTP. Use 1234 for demo.");
+        setOtpSendError(null);
+        return;
       }
+      const reason = res.reason;
+      let msg = "Invalid OTP.";
+      if (reason === "expired") msg = "OTP expired. Request a new code.";
+      else if (reason === "locked_out" || reason === "too_many_attempts") {
+        msg =
+          res.remainingMinutes != null
+            ? `Too many attempts. Try again in about ${res.remainingMinutes} minute(s).`
+            : "Too many attempts. Try again later.";
+      } else if (res.error) msg = res.error;
+      alert(msg);
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || "Verification failed.");
+    } finally {
       setOtpVerifying(false);
-    }, 400);
+    }
   };
 
   useEffect(() => {
@@ -130,12 +209,8 @@ export default function CRTStudentUserManagementPage() {
     }
   }, [user, isAdmin, fetchStudents]);
 
-  const crtStudents = useMemo(() => {
-    return students.filter(isCrtStudent);
-  }, [students]);
-
   const filteredStudents = useMemo(() => {
-    let list = [...crtStudents];
+    let list = [...students];
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(
@@ -146,13 +221,14 @@ export default function CRTStudentUserManagementPage() {
       );
     }
     return list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  }, [crtStudents, search]);
+  }, [students, search]);
 
   const openAdmissionModal = () => {
     setAdmissionForm({ ...INITIAL_ADMISSION_FORM });
     setPhoneOtpSent(false);
     setPhoneOtpValue("");
     setPhoneVerified(false);
+    setOtpSendError(null);
     setSubmitSuccess(null);
     setShowAdmissionModal(true);
   };
@@ -172,6 +248,10 @@ export default function CRTStudentUserManagementPage() {
       alert("Please fill Regd. No., Student Name, and Email (required).");
       return;
     }
+    if (!toDateInputString(dateOfBirth)) {
+      alert("Please select Date of Birth using the date picker.");
+      return;
+    }
     setSubmitting(true);
     setSubmitSuccess(null);
     try {
@@ -185,7 +265,7 @@ export default function CRTStudentUserManagementPage() {
         phone2: phone2?.trim() || undefined,
         phone: phone1?.trim() || undefined,
         gender: gender || undefined,
-        dob: dateOfBirth || undefined,
+        dob: toDateInputString(dateOfBirth) || undefined,
         aadharNo: aadharNo?.trim() || undefined,
         qualification: qualification?.trim() || undefined,
         college: collegeUniversity?.trim() || undefined,
@@ -254,6 +334,7 @@ export default function CRTStudentUserManagementPage() {
     setAdmissionForm({ ...INITIAL_ADMISSION_FORM });
     setPhoneVerified(false);
     setPhoneOtpSent(false);
+    setOtpSendError(null);
     setSubmitSuccess(null);
   };
 
@@ -262,7 +343,7 @@ export default function CRTStudentUserManagementPage() {
     setEditForm({
       name: student.name || "",
       email: student.email || "",
-      role: student.role || (student.isCrt ? "crtStudent" : ""),
+      role: getCrtStudentRole(student),
       password: student.password || "",
       phone: student.phone1 || student.phone || "",
     });
@@ -290,7 +371,7 @@ export default function CRTStudentUserManagementPage() {
         name: editForm.name.trim(),
         email: editForm.email.trim().toLowerCase(),
         emailNormalized: editForm.email.trim().toLowerCase(),
-        role: editForm.role || (student.isCrt ? "crtStudent" : "student"),
+        role: (editForm.role || "").trim() || "crtStudent",
         password: editForm.password,
         phone1: editForm.phone,
         phone: editForm.phone,
@@ -461,7 +542,14 @@ export default function CRTStudentUserManagementPage() {
                 </div>
               ) : (
               <form onSubmit={handleAdmissionSubmit} className="p-6 bg-slate-50/50">
-                <p className="text-xs text-slate-500 mb-5">Demo OTP: <strong>1234</strong></p>
+                <p className="text-xs text-slate-500 mb-5">
+                  We&apos;ll send a 6-digit code to this number on WhatsApp (template: verification).
+                </p>
+                {otpSendError && (
+                  <p className="text-xs text-red-600 mb-3 rounded-lg bg-red-50 border border-red-100 px-3 py-2">
+                    {otpSendError}
+                  </p>
+                )}
 
                 {/* Personal Information */}
                 <section className="mb-5 rounded-xl bg-white p-5 shadow-sm border border-slate-200">
@@ -491,7 +579,14 @@ export default function CRTStudentUserManagementPage() {
                       </div>
                       <div>
                         <label className="mb-1.5 block text-sm font-medium text-slate-700">Date of Birth *</label>
-                        <input type="text" value={admissionForm.dateOfBirth} onChange={(e) => updateForm("dateOfBirth", e.target.value)} placeholder="dd-mm-yyyy" className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00448a]/30 focus:border-[#00448a]" />
+                        <input
+                          type="date"
+                          value={toDateInputString(admissionForm.dateOfBirth)}
+                          onChange={(e) => updateForm("dateOfBirth", e.target.value)}
+                          min="1900-01-01"
+                          max={new Date().toISOString().slice(0, 10)}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#00448a]/30 focus:border-[#00448a]"
+                        />                    
                       </div>
                     </div>
                     <div>
@@ -515,8 +610,13 @@ export default function CRTStudentUserManagementPage() {
                       <label className="mb-1.5 block text-sm font-medium text-slate-700">Mobile (Primary) *</label>
                       <div className="flex gap-2">
                         <input type="tel" value={admissionForm.phone1} onChange={(e) => updateForm("phone1", e.target.value)} placeholder="10-digit number" maxLength={10} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00448a]/30 focus:border-[#00448a] flex-1" />
-                        <button type="button" onClick={handleSendOtp} disabled={phoneVerified} className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium whitespace-nowrap disabled:opacity-50">
-                          Send OTP
+                        <button
+                          type="button"
+                          onClick={handleSendOtp}
+                          disabled={phoneVerified || otpSending}
+                          className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium whitespace-nowrap disabled:opacity-50"
+                        >
+                          {otpSending ? "Sending…" : "Send OTP"}
                         </button>
                       </div>
                     </div>
@@ -524,7 +624,7 @@ export default function CRTStudentUserManagementPage() {
                       <div className="flex flex-wrap items-end gap-2 rounded-lg bg-amber-50 border border-amber-200 p-3">
                         <div className="flex-1 min-w-[120px]">
                           <label className="mb-1 block text-xs font-medium text-amber-800">Enter OTP</label>
-                          <input type="text" value={phoneOtpValue} onChange={(e) => setPhoneOtpValue(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="1234" maxLength={6} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00448a]/30 focus:border-[#00448a] text-center tracking-widest" />
+                          <input type="text" value={phoneOtpValue} onChange={(e) => setPhoneOtpValue(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6-digit code" maxLength={6} className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00448a]/30 focus:border-[#00448a] text-center tracking-widest" />
                         </div>
                         <button type="button" onClick={handleVerifyOtp} disabled={otpVerifying} className="px-4 py-2 rounded-lg bg-[#00448a] text-white text-sm font-medium hover:bg-[#003a76] disabled:opacity-60">
                           {otpVerifying ? "Verifying…" : "Verify OTP"}
@@ -604,7 +704,7 @@ export default function CRTStudentUserManagementPage() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="mb-1.5 block text-sm font-medium text-slate-700">Date of Joining *</label>
-                        <input type="text" value={admissionForm.dateOfJoining} onChange={(e) => updateForm("dateOfJoining", e.target.value)} placeholder="dd-mm-yyyy" className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00448a]/30 focus:border-[#00448a]" />
+                        <input type="date" value={admissionForm.dateOfJoining} onChange={(e) => updateForm("dateOfJoining", e.target.value)} placeholder="dd-mm-yyyy" className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00448a]/30 focus:border-[#00448a]" />
                       </div>
                       <div>
                         <label className="mb-1.5 block text-sm font-medium text-slate-700">Timings</label>
@@ -709,7 +809,7 @@ export default function CRTStudentUserManagementPage() {
                         const isEditing = editingId === s.id;
                         const role = isEditing
                           ? editForm.role
-                          : s.role || (s.isCrt ? "crtStudent" : "—");
+                          : getCrtStudentRole(s);
                         const password = isEditing ? editForm.password : s.password || "—";
                         const phone = isEditing ? editForm.phone : s.phone1 || s.phone || "—";
                         return (
@@ -833,7 +933,7 @@ export default function CRTStudentUserManagementPage() {
 
             <p className="mt-4 text-sm text-slate-500">
               Showing {filteredStudents.length}
-              {search.trim() ? ` of ${crtStudents.length}` : ""} CRT students
+              {search.trim() ? ` of ${students.length}` : ""} CRT students
             </p>
           </>
         )}

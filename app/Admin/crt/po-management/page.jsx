@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { auth, db, firestoreHelpers } from "../../../../lib/firebase";
+import { makeAuthenticatedRequest, handleAuthError } from "@/lib/authUtils";
 import Link from "next/link";
 import { Layers, ArrowLeft } from "lucide-react";
 
@@ -201,18 +202,33 @@ export default function POManagementPage() {
 
   async function handleDeletePo(po) {
     const confirmed = window.confirm(
-      "This PO record will be deleted permanently. Are you sure?"
+      "Delete this PO and remove their login (Firebase Auth)? Batches that still reference this PO may need reassignment."
     );
     if (!confirmed) return;
     try {
       setDeletingId(po.id);
-      const centralPoRef = firestoreHelpers.doc(db, "users", "crtPO", "po", po.id);
-      await firestoreHelpers.deleteDoc(centralPoRef);
+      const res = await makeAuthenticatedRequest("/api/delete-po-user", {
+        method: "POST",
+        body: JSON.stringify({ poId: po.id, uid: po.userId || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || `Failed to delete PO (${res.status})`);
+      }
       await fetchPos();
-      alert("PO deleted.");
+      if (selectedProgramId) {
+        await fetchCrtBatches(selectedProgramId);
+      }
+      alert("PO and login account removed.");
     } catch (err) {
       console.error(err);
-      alert(err?.message || "Failed to delete PO");
+      const msg = err?.message || "Failed to delete PO";
+      handleAuthError(err, () =>
+        alert("Your session expired. Please log in again.")
+      );
+      if (!String(msg).toLowerCase().includes("expired")) {
+        alert(msg);
+      }
     } finally {
       setDeletingId(null);
     }
@@ -296,6 +312,7 @@ export default function POManagementPage() {
       });
 
       alert("PO assigned to batch successfully.");
+      await fetchCrtBatches(selectedProgramId);
     } catch (err) {
       console.error("Failed to assign PO to batch", err);
       alert(err?.message || "Failed to assign PO to batch");
@@ -303,6 +320,17 @@ export default function POManagementPage() {
       setAssigningPo(false);
     }
   }
+
+  function formatBatchOptionLabel(batch) {
+    const name = batch.name || "Unnamed batch";
+    const parts = [batch.poName, batch.poEmpId].filter(Boolean);
+    if (parts.length === 0 && batch.poEmail) parts.push(String(batch.poEmail));
+    const poLabel = parts.length ? parts.join(" ") : null;
+    return poLabel ? `${name} — PO: ${poLabel}` : `${name} — no PO assigned`;
+  }
+
+  const selectedProgramName =
+    crtPrograms.find((p) => p.id === selectedProgramId)?.name || "";
 
   if (loading) {
     return (
@@ -472,10 +500,10 @@ export default function POManagementPage() {
 
         <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
           <h2 className="text-base sm:text-lg font-semibold text-slate-900 mb-2">
-            Assign PO to CRT batch
+            Assign PO to CRT batches
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mb-4">
-            Select a CRT program, choose a batch, then assign a PO.
+            Pick a CRT program, select a <strong className="font-medium text-slate-700">batch</strong> below, then choose a PO to assign. All batches for the program are listed under the form.
           </p>
           <form
             onSubmit={handleAssignPoToBatch}
@@ -504,7 +532,7 @@ export default function POManagementPage() {
 
             <div>
               <label className="mb-1.5 block text-xs sm:text-sm font-medium text-slate-700">
-                Batch / section
+                Batch
               </label>
               <select
                 value={selectedBatchId}
@@ -516,7 +544,7 @@ export default function POManagementPage() {
                 ) : (
                   crtBatches.map((batch) => (
                     <option key={batch.id} value={batch.id}>
-                      {batch.name || "Unnamed batch"}
+                      {formatBatchOptionLabel(batch)}
                     </option>
                   ))
                 )}
@@ -561,6 +589,58 @@ export default function POManagementPage() {
               </div>
             </div>
           </form>
+
+          {selectedProgramId && crtBatches.length > 0 && (
+            <div className="mt-6 border-t border-slate-200 pt-5">
+              <h3 className="text-sm font-semibold text-slate-900 mb-1">
+                Batches{selectedProgramName ? ` — ${selectedProgramName}` : ""}
+              </h3>
+              <p className="text-xs text-slate-500 mb-3">
+                Each row is one batch in this program. The assigned PO is stored on the batch document.
+              </p>
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/90">
+                      <th className="p-3 font-semibold text-slate-700">Batch</th>
+                      <th className="p-3 font-semibold text-slate-700">Assigned PO</th>
+                      <th className="p-3 font-semibold text-slate-700">EMP Id</th>
+                      <th className="p-3 font-semibold text-slate-700">Email</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {crtBatches.map((batch) => (
+                      <tr
+                        key={batch.id}
+                        className={`border-b border-slate-100 last:border-0 hover:bg-slate-50/60 ${
+                          batch.id === selectedBatchId ? "bg-[#00448a]/5" : ""
+                        }`}
+                      >
+                        <td className="p-3 text-slate-900 font-medium">
+                          {batch.name || "Unnamed batch"}
+                        </td>
+                        <td className="p-3 text-slate-600">
+                          {batch.poName || "—"}
+                        </td>
+                        <td className="p-3 text-slate-600">
+                          {batch.poEmpId || "—"}
+                        </td>
+                        <td className="p-3 text-slate-600">
+                          {batch.poEmail || "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {selectedProgramId && crtBatches.length === 0 && (
+            <p className="mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+              This CRT program has no batches yet. Create batches in CRT Manager, then assign a PO here.
+            </p>
+          )}
         </div>
       </div>
 

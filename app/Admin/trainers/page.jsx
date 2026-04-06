@@ -266,7 +266,7 @@ export default function ManageTrainersPage() {
                     <tr key={t.id} className="border-t">
                       <td className="p-2 border">{t.name || '-'}</td>
                       <td className="p-2 border">{t.email || '-'}</td>
-                      <td className="p-2 border">{t.trainerPassword || '—'}</td>
+                      <td className="p-2 border font-mono text-xs">{t.trainerPassword || "VaweTrainer@2025"}</td>
                       <td className="p-2 border">{classNames || '-'}</td>
                       <td className="p-2 border">{courseNames || '-'}</td>
                       <td className="p-2 border">{internshipNames || '-'}</td>

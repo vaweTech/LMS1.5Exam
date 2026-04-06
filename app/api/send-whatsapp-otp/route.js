@@ -1,148 +1,70 @@
 import { NextResponse } from "next/server";
-import { saveOtp, toE164 } from "@/lib/otpStore";
-
-// Expect env vars for WhatsApp Cloud API
-const WABA_TOKEN = process.env.WHATSAPP_CLOUD_API_TOKEN; // Permanent/long-lived token
-const WABA_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID; // e.g. 726985100509267
-
-function generateOtp() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
+import { sendWhatsAppVerificationOtp } from "@/lib/whatsappVerificationOtp";
 
 export async function POST(req) {
   try {
-    // Check environment variables
-    if (!WABA_TOKEN || !WABA_PHONE_NUMBER_ID) {
-      console.error("❌ WhatsApp API not configured");
-      console.error("Missing:", {
-        hasToken: !!WABA_TOKEN,
-        hasPhoneNumberId: !!WABA_PHONE_NUMBER_ID
-      });
-      return NextResponse.json({ 
-        error: "Server not configured for WhatsApp API",
-        details: "Please set WHATSAPP_CLOUD_API_TOKEN and WHATSAPP_PHONE_NUMBER_ID in environment variables"
-      }, { status: 500 });
-    }
-
     const { phone } = await req.json();
-    if (!phone) return NextResponse.json({ error: "phone is required" }, { status: 400 });
+    if (!phone) {
+      return NextResponse.json({ error: "phone is required" }, { status: 400 });
+    }
 
-    const phoneE164 = toE164(phone);
-    const otp = generateOtp();
-
-    console.log(`📤 Sending OTP to phone: ${phoneE164}`);
     if (process.env.NODE_ENV !== "production") {
-      console.log(`🔐 Generated OTP: ${otp}`);
+      console.log(`📤 Sending WhatsApp OTP for phone input: ${String(phone).slice(0, 4)}…`);
     }
 
-    // Save OTP for 10 minutes
-    const tenMinutesMs = 10 * 60 * 1000;
-    await saveOtp(phoneE164, otp, tenMinutesMs);
-    
-    console.log(`✅ OTP saved successfully for ${phoneE164}`);
+    const result = await sendWhatsAppVerificationOtp(phone);
 
-    // Prepare payload per provided template
-    const payload = {
-      messaging_product: "whatsapp",
-      to: phoneE164.replace("+", ""), // WhatsApp expects country code without +
-      type: "template",
-      template: {
-        name: "verifiaction_code", // template name as provided
-        language: { code: "en" },
-        components: [
+    if (!result.ok) {
+      if (result.error === "Server not configured for WhatsApp API") {
+        console.error("❌ WhatsApp API not configured");
+        return NextResponse.json(
           {
-            type: "body",
-            parameters: [
-              { type: "text", text: otp },
-            ],
+            error: result.error,
+            details:
+              "Please set WHATSAPP_CLOUD_API_TOKEN and WHATSAPP_PHONE_NUMBER_ID in environment variables",
+            hasToken: result.details?.hasToken,
+            hasPhoneNumberId: result.details?.hasPhoneNumberId,
           },
-          {
-            type: "button",
-            sub_type: "url",
-            index: "0",
-            parameters: [
-              { type: "text", text: otp },
-            ],
-          },
-        ],
-      },
-    };
+          { status: 500 }
+        );
+      }
 
-    const url = `https://graph.facebook.com/v23.0/${WABA_PHONE_NUMBER_ID}/messages`;
-    
-    console.log(`📞 Calling WhatsApp API: ${url}`);
-    
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${WABA_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json();
-    
-    if (!res.ok) {
       console.error("❌ WhatsApp API Error:", {
-        status: res.status,
-        statusText: res.statusText,
-        error: data
+        error: result.error,
+        details: result.details,
       });
-      
-      // Provide more specific error messages
-      let errorMessage = "Failed to send WhatsApp message";
-      if (data.error?.message) {
-        errorMessage = data.error.message;
-      }
-      
-      // Common errors
-      if (data.error?.code === 100) {
-        errorMessage = "Invalid template or template not approved. Please check your WhatsApp Business template.";
-      } else if (data.error?.code === 131031) {
-        errorMessage = "Template does not exist or has not been approved yet.";
-      } else if (data.error?.code === 131047) {
-        errorMessage = "Invalid template parameters. Check OTP placeholder in template.";
-      } else if (data.error?.code === 200 || data.error?.type === 'OAuthException') {
-        // API access blocked - usually token/permission issues
-        if (data.error?.message?.includes('blocked') || data.error?.message?.includes('block')) {
-          errorMessage = "WhatsApp API access is blocked. This usually means:\n" +
-            "1. Access token expired or invalid\n" +
-            "2. App permissions not granted\n" +
-            "3. WhatsApp Business Account suspended\n" +
-            "4. Token doesn't have access to this phone number ID\n\n" +
-            "Please check your WhatsApp Business Manager and regenerate tokens.";
-        } else {
-          errorMessage = data.error.message || "OAuth authentication failed. Check your access token.";
-        }
-      }
-      
-      return NextResponse.json({ 
-        error: errorMessage, 
-        details: data,
-        errorCode: data.error?.code,
-        errorType: data.error?.type,
-        hint: data.error?.code === 200 
-          ? "Regenerate your WhatsApp Cloud API token in Facebook Business Manager"
-          : "Check WhatsApp Business Manager for template approval status"
-      }, { status: 500 });
+
+      return NextResponse.json(
+        {
+          error: result.error,
+          details: result.details,
+          errorCode: result.errorCode,
+          errorType: result.errorType,
+          hint: result.hint,
+        },
+        { status: 500 }
+      );
     }
 
-    console.log(`✅ WhatsApp message sent successfully:`, data);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`🔐 Generated OTP (dev only): ${result.otp}`);
+    }
+    console.log(`✅ WhatsApp message sent successfully`);
 
     const isProd = process.env.NODE_ENV === "production";
-    return NextResponse.json({ 
-      ok: true, 
-      debugOtp: isProd ? undefined : otp,
-      messageId: data.messages?.[0]?.id
+    return NextResponse.json({
+      ok: true,
+      debugOtp: isProd ? undefined : result.otp,
+      messageId: result.messageId,
     });
   } catch (err) {
     console.error("❌ Unexpected error in send-whatsapp-otp:", err);
-    return NextResponse.json({ 
-      error: err.message || "Unexpected error",
-      stack: process.env.NODE_ENV !== "production" ? err.stack : undefined
-    }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: err.message || "Unexpected error",
+        stack: process.env.NODE_ENV !== "production" ? err.stack : undefined,
+      },
+      { status: 500 }
+    );
   }
 }
-
-

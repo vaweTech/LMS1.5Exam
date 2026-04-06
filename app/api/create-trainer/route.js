@@ -2,12 +2,15 @@ import { NextResponse } from "next/server";
 import admin, { adminDb, writeDocumentViaRest } from "@/lib/firebaseAdmin";
 
 const isRetryableError = (e) => {
-  const msg = e?.message || "";
+  const msg = `${e?.message || ""} ${e?.cause?.message || ""}`;
   return (
-    /socket hang up|ECONNRESET|ETIMEDOUT|EPIPE|ECONNREFUSED/i.test(msg) ||
+    /socket hang up|ECONNRESET|ETIMEDOUT|EPIPE|ECONNREFUSED|fetch failed|network|UND_ERR|UNAVAILABLE|DEADLINE_EXCEEDED/i.test(
+      msg
+    ) ||
     e?.code === "ECONNRESET" ||
     e?.code === "ETIMEDOUT" ||
-    e?.code === "UNAVAILABLE"
+    e?.code === "UNAVAILABLE" ||
+    e?.code === 14
   );
 };
 
@@ -94,6 +97,7 @@ export async function POST(req) {
             empId: empId != null ? String(empId).trim() : "",
             phone: phone != null ? String(phone).trim() : "",
             role,
+            trainerPassword: defaultPassword,
           },
         });
       }
