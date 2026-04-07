@@ -11,12 +11,14 @@ import {
   doc,
   getDoc,
   getDocs,
+  addDoc,
   setDoc,
   deleteDoc,
   query,
   orderBy,
   serverTimestamp,
   onSnapshot,
+  writeBatch,
 } from "firebase/firestore";
 import { resolveCrtAndCourse } from "../../lib/crtCourseResolve";
 import {
@@ -144,6 +146,30 @@ function formatDate(str) {
   });
 }
 
+/** Accept pasted URLs; add https if missing; validate */
+function normalizeSharedUrl(raw) {
+  const t = String(raw ?? "").trim();
+  if (!t) return null;
+  const withProto = /^https?:\/\//i.test(t) ? t : `https://${t}`;
+  try {
+    return new URL(withProto).href;
+  } catch {
+    return null;
+  }
+}
+
+function formatSharedLinkDate(value) {
+  if (value == null) return "—";
+  if (typeof value?.toDate === "function") {
+    try {
+      return formatDate(value.toDate().toISOString().slice(0, 10));
+    } catch {
+      return "—";
+    }
+  }
+  return formatDate(value);
+}
+
 function progressPercent(completed, total) {
   if (!total) return 0;
   return Math.round((completed / total) * 100);
@@ -166,6 +192,60 @@ function getTodayStr() {
   return d.toISOString().slice(0, 10);
 }
 
+/** Stable id for top-level `attendance` docs (trainer, per batch/course/chapter/day) */
+function trainerAttendanceDocId(programId, batchId, courseId, chapterId, dateStr) {
+  const s = (x) => String(x ?? "").replace(/\//g, "-");
+  return `TR_${s(programId)}_${s(batchId)}_${s(courseId)}_${s(chapterId)}_${dateStr}`;
+}
+
+/** Firestore batch limit is 500 ops; stay under for safety */
+const CRT_STUDENT_ATTENDANCE_BATCH_SIZE = 450;
+
+/**
+ * Mirror day attendance into each CRT student profile using ONE attendance doc:
+ * `users/crtStudent/students/{uid}/attendance/courseWise`
+ * with `courses[courseId].days[chapterId][YYYY-MM-DD] === true|false`.
+ */
+async function mirrorTrainerAttendanceToCrtStudentProfiles(db, cls, ch, dateStr, students, attendanceByDay, dayKey) {
+  if (!db || !cls?.courseId || !ch?.id || !students?.length) return;
+  const rows = [];
+  for (const s of students) {
+    const uid = String(s.studentId || s.id || "").trim();
+    if (!uid) continue;
+    const present = attendanceByDay[dayKey]?.[s.id] === true;
+    rows.push({ uid, present });
+  }
+  if (!rows.length) return;
+  for (let i = 0; i < rows.length; i += CRT_STUDENT_ATTENDANCE_BATCH_SIZE) {
+    const chunk = rows.slice(i, i + CRT_STUDENT_ATTENDANCE_BATCH_SIZE);
+    const batch = writeBatch(db);
+    for (const { uid, present } of chunk) {
+      const ref = doc(db, "users", "crtStudent", "students", uid, "attendance", "courseWise");
+      batch.set(
+        ref,
+        {
+          courses: {
+            [cls.courseId]: {
+              courseId: cls.courseId,
+              courseName: cls.courseName || "",
+              programId: cls.programId,
+              batchId: cls.batchId,
+              days: {
+                [ch.id]: {
+                  [dateStr]: present,
+                },
+              },
+            },
+          },
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+    await batch.commit();
+  }
+}
+
 const TRAINER_ROLES = ["crtTrainer", "trainer", "admin", "superadmin"];
 
 export default function CRTTrainerPage() {
@@ -176,39 +256,63 @@ export default function CRTTrainerPage() {
   const [loadingAssignments, setLoadingAssignments] = useState(true);
   const [assignmentsError, setAssignmentsError] = useState(null);
   const [authUid, setAuthUid] = useState(null);
+  /** Shown under page title — from Firebase Auth (displayName or email) */
+  const [trainerDisplayName, setTrainerDisplayName] = useState(null);
   const [viewerRole, setViewerRole] = useState(null);
   const [accessDenied, setAccessDenied] = useState(false);
   const [authReady, setAuthReady] = useState(false);
-  const [studentsByAssignment, setStudentsByAssignment] = useState({});
+  /** `programId__batchId` → students in batch (shared across courses in Mark Attendance) */
+  const [studentsByBatch, setStudentsByBatch] = useState({});
   const [loadingStudents, setLoadingStudents] = useState(false);
-  const [referenceNotes, setReferenceNotes] = useState([]);
-  const [loadingReferenceNotes, setLoadingReferenceNotes] = useState(false);
-  // attendance: assignment id -> student row id -> present (true/false)
-  const [attendance, setAttendance] = useState({});
+  /** Notes modal: reference materials loaded per course when accordion expands */
+  const [referenceNotesByCourseId, setReferenceNotesByCourseId] = useState({});
+  const [loadingRefNotesCourseId, setLoadingRefNotesCourseId] = useState(null);
+  /** `courseId::chapterId::YYYY-MM-DD` → { [studentRowId]: true | false } */
+  const [attendanceByDay, setAttendanceByDay] = useState({});
   /** Firestore-backed unlock list for the open "Unlock class" modal (chapter doc ids). */
   const [unlockSnapshotIds, setUnlockSnapshotIds] = useState([]);
   const [unlockMeta, setUnlockMeta] = useState(null); // { crtId, courseId, chapters }
   const [unlockLoading, setUnlockLoading] = useState(false);
   const [unlockError, setUnlockError] = useState(null);
-  // Dummy state: shared note ids per class key -> Set of noteIds
-  const [sharedNotes, setSharedNotes] = useState({});
-  const [attendanceSaving, setAttendanceSaving] = useState(false);
-  const [attendanceSaved, setAttendanceSaved] = useState(false);
+  const [dayAttendanceSavingKey, setDayAttendanceSavingKey] = useState(null);
+  const [attendanceDaySavedKey, setAttendanceDaySavedKey] = useState(null);
   const [unlockSaving, setUnlockSaving] = useState(false);
   const [notesSharing, setNotesSharing] = useState(false);
   // Share reference notes: link input and shared links per class
-  const [referenceLinkUrl, setReferenceLinkUrl] = useState("");
-  const [referenceLinkTitle, setReferenceLinkTitle] = useState("");
-  const [sharedLinksByClass, setSharedLinksByClass] = useState({}); // classKey -> [{ id, url, title, sharedAt }]
-  const [linkShareSuccess, setLinkShareSuccess] = useState(false);
+  /** Per-course general link form in notes modal (courseId → url/title) */
+  const [generalLinkFormByCourse, setGeneralLinkFormByCourse] = useState({});
+  /** Firestore trainerSharedLinks per courseId while notes modal open */
+  const [trainerSharedLinksByCourse, setTrainerSharedLinksByCourse] = useState({});
+  const [trainerSharedLinksLoading, setTrainerSharedLinksLoading] = useState(false);
+  /** dayReferenceLinks snapshot: courseId → { chapterId → doc data } */
+  const [dayLinksByCourse, setDayLinksByCourse] = useState({});
+  const [linkShareSuccessCourseId, setLinkShareSuccessCourseId] = useState(null);
+  /** Expanded course rows in notes modal; click to show day-wise links */
+  const [notesExpandedCourseIds, setNotesExpandedCourseIds] = useState(() => new Set());
+  const [chaptersByCourseForNotes, setChaptersByCourseForNotes] = useState({});
+  const [chaptersLoadingCourseId, setChaptersLoadingCourseId] = useState(null);
+  const [dayLinkInputDraft, setDayLinkInputDraft] = useState({});
+  const [dayLinkSavingKey, setDayLinkSavingKey] = useState(null);
+  /** Course tools modal (single course): chapters + day links */
+  const [courseToolsChapters, setCourseToolsChapters] = useState([]);
+  const [courseToolsChaptersLoading, setCourseToolsChaptersLoading] = useState(false);
+  /** chapterId → doc data (dayReferenceLinks for the selected course) */
+  const [courseToolsDayLinks, setCourseToolsDayLinks] = useState({});
+  /** Show one selected day at a time in CourseTools modal */
+  const [courseToolsSelectedChapterId, setCourseToolsSelectedChapterId] = useState(null);
   // When user clicks Share on a reference material, show text field + upload
-  const [expandedShareNoteId, setExpandedShareNoteId] = useState(null);
+  /** `${courseId}__${noteId}` when expanding Share under reference materials */
+  const [expandedShareNoteKey, setExpandedShareNoteKey] = useState(null);
   const [shareLinkInput, setShareLinkInput] = useState("");
   /** `${programId}__${courseId}` → trainer full-course preview enabled (Firestore trainerPreview/default). */
   const [trainerPreviewMap, setTrainerPreviewMap] = useState({});
   const [previewSavingKey, setPreviewSavingKey] = useState(null);
   /** `${programId}__${batchId}` → expanded; click row (e.g. MCA - 1) to show courses for that batch */
   const [expandedBatchGroups, setExpandedBatchGroups] = useState({});
+  /** Mark Attendance: expanded courses + chapters per course */
+  const [attendanceExpandedCourseIds, setAttendanceExpandedCourseIds] = useState(() => new Set());
+  const [chaptersByCourseForAttendance, setChaptersByCourseForAttendance] = useState({});
+  const [chaptersAttendanceLoadingCourseId, setChaptersAttendanceLoadingCourseId] = useState(null);
 
   const loadAssignments = async () => {
     if (!db || !authUid) {
@@ -274,6 +378,7 @@ export default function CRTTrainerPage() {
   useEffect(() => {
     if (!auth || !db) {
       setAuthUid(null);
+      setTrainerDisplayName(null);
       setViewerRole(null);
       setAccessDenied(false);
       setLoadingAssignments(false);
@@ -282,12 +387,18 @@ export default function CRTTrainerPage() {
     const unsub = auth.onAuthStateChanged(async (u) => {
       if (!u) {
         setAuthUid(null);
+        setTrainerDisplayName(null);
         setViewerRole(null);
         setAccessDenied(false);
         setAuthReady(true);
         return;
       }
       setAuthUid(u.uid);
+      const label =
+        (typeof u.displayName === "string" && u.displayName.trim()) ||
+        (typeof u.email === "string" && u.email.trim()) ||
+        null;
+      setTrainerDisplayName(label);
       try {
         const snap = await getDoc(doc(db, "users", u.uid));
         const role = snap.exists() ? snap.data()?.role : null;
@@ -312,9 +423,9 @@ export default function CRTTrainerPage() {
   }, [authUid, accessDenied]);
 
   useEffect(() => {
-    if (activeModal !== "attendance" || !selectedClass || !db) return;
-    const aid = selectedClass.id;
-    if (studentsByAssignment[aid]) return;
+    if (!["attendance", "courseTools"].includes(activeModal) || !selectedClass?.batchId || !db) return;
+    const bk = `${selectedClass.programId}__${selectedClass.batchId}`;
+    if (Object.prototype.hasOwnProperty.call(studentsByBatch, bk)) return;
     let cancelled = false;
     (async () => {
       setLoadingStudents(true);
@@ -333,10 +444,10 @@ export default function CRTTrainerPage() {
             studentId: x.studentId || x.uid || "",
           };
         });
-        setStudentsByAssignment((prev) => ({ ...prev, [aid]: list }));
+        setStudentsByBatch((prev) => ({ ...prev, [bk]: list }));
       } catch (e) {
         console.error(e);
-        setStudentsByAssignment((prev) => ({ ...prev, [aid]: [] }));
+        setStudentsByBatch((prev) => ({ ...prev, [bk]: [] }));
       } finally {
         if (!cancelled) setLoadingStudents(false);
       }
@@ -344,74 +455,186 @@ export default function CRTTrainerPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeModal, selectedClass?.id, selectedClass?.programId, selectedClass?.batchId]);
-
-  useEffect(() => {
-    if (activeModal !== "notes" || !selectedClass || !db) {
-      setReferenceNotes([]);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      setLoadingReferenceNotes(true);
-      try {
-        const snap = await getDocs(
-          collection(
-            db,
-            "crt",
-            selectedClass.programId,
-            "courses",
-            selectedClass.courseId,
-            "referenceMaterials"
-          )
-        );
-        if (cancelled) return;
-        setReferenceNotes(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch {
-        if (!cancelled) setReferenceNotes([]);
-      } finally {
-        if (!cancelled) setLoadingReferenceNotes(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeModal, selectedClass?.id, selectedClass?.programId, selectedClass?.courseId]);
+  }, [activeModal, selectedClass?.programId, selectedClass?.batchId]);
 
   const openModal = (modal, cls) => {
     setSelectedClass(cls);
     setActiveModal(modal);
-    setAttendanceSaved(false);
     if (modal === "notes") {
-      setReferenceLinkUrl("");
-      setReferenceLinkTitle("");
-      setLinkShareSuccess(false);
-      setExpandedShareNoteId(null);
+      setGeneralLinkFormByCourse({});
+      setLinkShareSuccessCourseId(null);
+      setExpandedShareNoteKey(null);
       setShareLinkInput("");
+      setNotesExpandedCourseIds(new Set());
+      setChaptersByCourseForNotes({});
+      setReferenceNotesByCourseId({});
+      setDayLinkInputDraft({});
+    }
+    if (modal === "attendance") {
+      setAttendanceExpandedCourseIds(new Set());
+      setChaptersByCourseForAttendance({});
+      setAttendanceByDay({});
+      setAttendanceDaySavedKey(null);
+    }
+    if (modal === "courseTools") {
+      setAttendanceByDay({});
+      setAttendanceDaySavedKey(null);
+      setDayLinkInputDraft({});
+      setCourseToolsChapters([]);
+      setCourseToolsDayLinks({});
+      setCourseToolsSelectedChapterId(null);
     }
   };
   const closeModal = () => {
     setActiveModal(null);
     setSelectedClass(null);
+    setNotesExpandedCourseIds(new Set());
+    setChaptersByCourseForNotes({});
+    setReferenceNotesByCourseId({});
+    setDayLinkInputDraft({});
+    setExpandedShareNoteKey(null);
+    setShareLinkInput("");
+    setAttendanceExpandedCourseIds(new Set());
+    setChaptersByCourseForAttendance({});
+    setAttendanceByDay({});
+    setCourseToolsChapters([]);
+    setCourseToolsDayLinks({});
+    setCourseToolsSelectedChapterId(null);
   };
 
-  const classKey = (cls) => (cls ? `${cls.id}-${cls.courseId}` : "");
-  const studentsForClass = (cls) =>
-    (cls?.id && studentsByAssignment[cls.id]) || [];
-
-  const getAttendanceForClass = (cls) => {
-    const key = cls?.id;
-    if (!key) return {};
-    return attendance[key] ?? {};
+  const getBatchStudents = (cls) => {
+    if (!cls?.programId || !cls?.batchId) return [];
+    const bk = `${cls.programId}__${cls.batchId}`;
+    return studentsByBatch[bk] || [];
   };
-  const setAttendanceForClass = (cls, studentId, present) => {
-    const key = cls?.id;
-    if (!key) return;
-    setAttendance((prev) => ({
+
+  const attendanceDayKey = (cls, ch, dateStr = getTodayStr()) =>
+    `${cls.courseId}::${ch.id}::${dateStr}`;
+
+  const setStudentDayAttendance = (dayKey, studentRowId, present) => {
+    setAttendanceByDay((prev) => ({
       ...prev,
-      [key]: { ...(prev[key] ?? {}), [studentId]: present },
+      [dayKey]: { ...(prev[dayKey] || {}), [studentRowId]: present },
     }));
   };
+
+  const loadTrainerAttendanceForChapters = async (cls, chapters, students) => {
+    if (!db || !students.length) return;
+    const dateStr = getTodayStr();
+    await Promise.all(
+      chapters.map(async (ch) => {
+        const dayKey = attendanceDayKey(cls, ch, dateStr);
+        try {
+          const ref = doc(
+            db,
+            "attendance",
+            trainerAttendanceDocId(
+              cls.programId,
+              cls.batchId,
+              cls.courseId,
+              ch.id,
+              dateStr
+            )
+          );
+          const snap = await getDoc(ref);
+          const presentArr = snap.exists() ? snap.data()?.present : [];
+          const presentSet = new Set(Array.isArray(presentArr) ? presentArr : []);
+          const row = {};
+          for (const s of students) {
+            const pid = s.studentId || s.id;
+            row[s.id] = presentSet.has(pid);
+          }
+          setAttendanceByDay((prev) => ({ ...prev, [dayKey]: row }));
+        } catch (e) {
+          console.warn("attendance load", dayKey, e);
+        }
+      })
+    );
+  };
+
+  const toggleAttendanceCourseExpand = async (cls) => {
+    const id = cls.courseId;
+    const willExpand = !attendanceExpandedCourseIds.has(id);
+    setAttendanceExpandedCourseIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    if (!willExpand) return;
+    const students = getBatchStudents(cls);
+    if (!chaptersByCourseForAttendance[id]) {
+      setChaptersAttendanceLoadingCourseId(id);
+      try {
+        const chRef = collection(db, "crt", cls.programId, "courses", cls.courseId, "chapters");
+        const chSnap = await getDocs(query(chRef, orderBy("order", "asc")));
+        const list = chSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setChaptersByCourseForAttendance((p) => ({ ...p, [id]: list }));
+        await loadTrainerAttendanceForChapters(cls, list, students);
+      } catch (e) {
+        console.error(e);
+        setChaptersByCourseForAttendance((p) => ({ ...p, [id]: [] }));
+      } finally {
+        setChaptersAttendanceLoadingCourseId(null);
+      }
+    } else {
+      const chapters = chaptersByCourseForAttendance[id] || [];
+      await loadTrainerAttendanceForChapters(cls, chapters, students);
+    }
+  };
+
+  const handleSaveDayAttendance = async (cls, ch) => {
+    if (!db || !cls?.batchId) return;
+    const dateStr = getTodayStr();
+    const dayKey = attendanceDayKey(cls, ch, dateStr);
+    const students = getBatchStudents(cls);
+    const presentList = students
+      .filter((s) => attendanceByDay[dayKey]?.[s.id] === true)
+      .map((s) => s.studentId || s.id);
+    setDayAttendanceSavingKey(dayKey);
+    setAttendanceDaySavedKey(null);
+    try {
+      await setDoc(
+        doc(
+          db,
+          "attendance",
+          trainerAttendanceDocId(cls.programId, cls.batchId, cls.courseId, ch.id, dateStr)
+        ),
+        {
+          type: "trainer",
+          courseId: cls.courseId,
+          chapterId: ch.id,
+          crtProgramId: cls.programId,
+          batchId: cls.batchId,
+          date: dateStr,
+          present: presentList,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+      try {
+        await mirrorTrainerAttendanceToCrtStudentProfiles(
+          db,
+          cls,
+          ch,
+          dateStr,
+          students,
+          attendanceByDay,
+          dayKey
+        );
+      } catch (mirrorErr) {
+        console.warn("[crtTrainar] CRT student profile attendance mirror failed:", mirrorErr);
+      }
+      setAttendanceDaySavedKey(dayKey);
+      setTimeout(() => setAttendanceDaySavedKey(null), 2500);
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || "Failed to save attendance.");
+    } finally {
+      setDayAttendanceSavingKey(null);
+    }
+  };
+
   useEffect(() => {
     if (activeModal !== "unlock" || !selectedClass || !db) {
       setUnlockMeta(null);
@@ -523,96 +746,214 @@ export default function CRTTrainerPage() {
       setUnlockSaving(false);
     }
   };
-  const isNoteShared = (cls, noteId) => {
-    const key = classKey(cls);
-    const set = sharedNotes[key];
-    return set ? set.has(noteId) : false;
-  };
-  const getNoteSharedFromDummy = (cls, note) => {
-    return note.shared || isNoteShared(cls, note.id);
-  };
-  const shareNote = (cls, noteId) => {
-    const key = classKey(cls);
-    setSharedNotes((prev) => {
-      const next = new Set(prev[key] || []);
-      next.add(noteId);
-      return { ...prev, [key]: next };
-    });
+  const getNoteSharedFromDummy = (courseId, note) => {
+    if (note.shared) return true;
+    const list = trainerSharedLinksByCourse[courseId] || [];
+    return list.some((l) => l.referenceMaterialId === note.id);
   };
 
-  const handleSaveAttendance = async () => {
-    if (!selectedClass) return;
-    setAttendanceSaving(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setAttendanceSaving(false);
-    setAttendanceSaved(true);
+  const setGeneralLinkField = (courseId, field, value) => {
+    setGeneralLinkFormByCourse((p) => ({
+      ...p,
+      [courseId]: { ...(p[courseId] || { url: "", title: "" }), [field]: value },
+    }));
   };
+
+  const toggleNotesCourseExpand = async (cls) => {
+    const id = cls.courseId;
+    const willExpand = !notesExpandedCourseIds.has(id);
+    setNotesExpandedCourseIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    if (!willExpand) return;
+    if (!chaptersByCourseForNotes[id]) {
+      setChaptersLoadingCourseId(id);
+      try {
+        const chRef = collection(db, "crt", cls.programId, "courses", cls.courseId, "chapters");
+        const chSnap = await getDocs(query(chRef, orderBy("order", "asc")));
+        setChaptersByCourseForNotes((p) => ({
+          ...p,
+          [id]: chSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+        }));
+      } catch (e) {
+        console.error(e);
+        setChaptersByCourseForNotes((p) => ({ ...p, [id]: [] }));
+      } finally {
+        setChaptersLoadingCourseId(null);
+      }
+    }
+    if (referenceNotesByCourseId[id] === undefined) {
+      setLoadingRefNotesCourseId(id);
+      try {
+        const snap = await getDocs(
+          collection(db, "crt", cls.programId, "courses", cls.courseId, "referenceMaterials")
+        );
+        setReferenceNotesByCourseId((p) => ({
+          ...p,
+          [id]: snap.docs.map((d) => ({ id: d.id, ...d.data() })),
+        }));
+      } catch {
+        setReferenceNotesByCourseId((p) => ({ ...p, [id]: [] }));
+      } finally {
+        setLoadingRefNotesCourseId(null);
+      }
+    }
+  };
+
+  const saveDayReferenceLink = async (cls, chapter) => {
+    if (!db || !cls?.batchId) return;
+    const dk = `${cls.courseId}__${chapter.id}`;
+    const existingUrl =
+      dayLinksByCourse[cls.courseId]?.[chapter.id]?.url ??
+      courseToolsDayLinks?.[chapter.id]?.url ??
+      "";
+    const raw = dayLinkInputDraft[dk] ?? existingUrl;
+    const url = normalizeSharedUrl(raw);
+    if (!url) {
+      alert("Enter a valid https link for this day.");
+      return;
+    }
+    setDayLinkSavingKey(dk);
+    try {
+      await setDoc(
+        doc(
+          db,
+          "crt",
+          cls.programId,
+          "batches",
+          cls.batchId,
+          "courses",
+          cls.courseId,
+          "dayReferenceLinks",
+          chapter.id
+        ),
+        {
+          url,
+          dayOrder: typeof chapter.order === "number" ? chapter.order : null,
+          chapterTitle: chapter.title || null,
+          courseId: cls.courseId,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+      setDayLinkInputDraft((p) => {
+        const next = { ...p };
+        delete next[dk];
+        return next;
+      });
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || "Failed to save day link.");
+    } finally {
+      setDayLinkSavingKey(null);
+    }
+  };
+
   const handleSaveUnlock = () => {
     closeModal();
   };
-  const handleShareNote = async (cls, noteId) => {
-    setNotesSharing(true);
-    await new Promise((r) => setTimeout(r, 500));
-    shareNote(cls, noteId);
-    setNotesSharing(false);
-  };
-
-  const openShareForNote = (noteId) => {
-    setExpandedShareNoteId((prev) => (prev === noteId ? null : noteId));
-    if (expandedShareNoteId !== noteId) setShareLinkInput("");
+  const openShareForNote = (courseId, noteId) => {
+    const key = `${courseId}__${noteId}`;
+    setExpandedShareNoteKey((prev) => {
+      const next = prev === key ? null : key;
+      setShareLinkInput("");
+      return next;
+    });
   };
 
   const handleUploadShareNote = async (cls, note) => {
-    const url = shareLinkInput?.trim();
-    if (url) {
-      const key = classKey(cls);
-      const newEntry = {
-        id: `link-${note.id}-${Date.now()}`,
-        url: url.startsWith("http") ? url : `https://${url}`,
-        title: note.title,
-        sharedAt: getTodayStr(),
-      };
-      setSharedLinksByClass((prev) => ({
-        ...prev,
-        [key]: [...(prev[key] || []), newEntry],
-      }));
+    if (!db || !cls?.batchId) {
+      alert("This class has no batch. Cannot save link.");
+      return;
+    }
+    const url = normalizeSharedUrl(shareLinkInput);
+    if (!url) {
+      alert("Enter a valid link (e.g. https://drive.google.com/...).");
+      return;
     }
     setNotesSharing(true);
-    await new Promise((r) => setTimeout(r, 400));
-    shareNote(cls, note.id);
-    setNotesSharing(false);
-    setExpandedShareNoteId(null);
-    setShareLinkInput("");
+    try {
+      await addDoc(
+        collection(
+          db,
+          "crt",
+          cls.programId,
+          "batches",
+          cls.batchId,
+          "courses",
+          cls.courseId,
+          "trainerSharedLinks"
+        ),
+        {
+          url,
+          title: (note.title || "Reference").trim(),
+          referenceMaterialId: note.id,
+          courseId: cls.courseId,
+          source: "referenceMaterial",
+          sharedAt: getTodayStr(),
+          createdAt: serverTimestamp(),
+        }
+      );
+      setExpandedShareNoteKey(null);
+      setShareLinkInput("");
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || "Failed to save link. Check Firestore rules.");
+    } finally {
+      setNotesSharing(false);
+    }
   };
 
-  const sharedLinksForClass = (cls) => {
-    const key = classKey(cls);
-    return sharedLinksByClass[key] || [];
-  };
-
-  const handleShareReferenceLink = async (e) => {
+  const handleShareGeneralLinkForCourse = async (e, cls) => {
     e?.preventDefault();
-    if (!selectedClass) return;
-    const url = referenceLinkUrl?.trim();
-    if (!url) return;
+    if (!cls || !db || !cls.batchId) {
+      alert("This class has no batch. Cannot save link.");
+      return;
+    }
+    const form = generalLinkFormByCourse[cls.courseId] || { url: "", title: "" };
+    const url = normalizeSharedUrl(form.url);
+    if (!url) {
+      alert("Enter a valid link (e.g. https://...).");
+      return;
+    }
     setNotesSharing(true);
-    setLinkShareSuccess(false);
-    await new Promise((r) => setTimeout(r, 400));
-    const key = classKey(selectedClass);
-    const newEntry = {
-      id: `link-${Date.now()}`,
-      url: url.startsWith("http") ? url : `https://${url}`,
-      title: referenceLinkTitle?.trim() || "Reference link",
-      sharedAt: getTodayStr(),
-    };
-    setSharedLinksByClass((prev) => ({
-      ...prev,
-      [key]: [...(prev[key] || []), newEntry],
-    }));
-    setReferenceLinkUrl("");
-    setReferenceLinkTitle("");
-    setNotesSharing(false);
-    setLinkShareSuccess(true);
+    setLinkShareSuccessCourseId(null);
+    try {
+      await addDoc(
+        collection(
+          db,
+          "crt",
+          cls.programId,
+          "batches",
+          cls.batchId,
+          "courses",
+          cls.courseId,
+          "trainerSharedLinks"
+        ),
+        {
+          url,
+          title: (form.title || "").trim() || "Reference link",
+          courseId: cls.courseId,
+          source: "manual",
+          sharedAt: getTodayStr(),
+          createdAt: serverTimestamp(),
+        }
+      );
+      setGeneralLinkFormByCourse((p) => ({
+        ...p,
+        [cls.courseId]: { url: "", title: "" },
+      }));
+      setLinkShareSuccessCourseId(cls.courseId);
+      setTimeout(() => setLinkShareSuccessCourseId(null), 3500);
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || "Failed to save link. Check Firestore rules.");
+    } finally {
+      setNotesSharing(false);
+    }
   };
 
   const filteredClasses = useMemo(
@@ -622,6 +963,202 @@ export default function CRTTrainerPage() {
         : assignments.filter((c) => c.status === filter),
     [assignments, filter]
   );
+
+  /** All courses (assignments) for the same programme + batch as the opened notes modal */
+  const coursesInSelectedBatch = useMemo(() => {
+    if (!selectedClass) return [];
+    const seen = new Set();
+    const rows = [];
+    for (const a of assignments) {
+      if (a.programId !== selectedClass.programId || a.batchId !== selectedClass.batchId) continue;
+      if (seen.has(a.courseId)) continue;
+      seen.add(a.courseId);
+      rows.push(a);
+    }
+    return rows.sort((x, y) =>
+      String(x.courseName || "").localeCompare(String(y.courseName || ""), undefined, {
+        sensitivity: "base",
+      })
+    );
+  }, [assignments, selectedClass?.programId, selectedClass?.batchId]);
+
+  /** CourseTools modal: load chapters for selected course */
+  useEffect(() => {
+    if (activeModal !== "courseTools" || !selectedClass?.programId || !selectedClass?.courseId || !db) {
+      setCourseToolsChapters([]);
+      setCourseToolsChaptersLoading(false);
+      setCourseToolsSelectedChapterId(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setCourseToolsChaptersLoading(true);
+      try {
+        const chRef = collection(db, "crt", selectedClass.programId, "courses", selectedClass.courseId, "chapters");
+        const chSnap = await getDocs(query(chRef, orderBy("order", "asc")));
+        if (cancelled) return;
+        const list = chSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setCourseToolsChapters(list);
+        setCourseToolsSelectedChapterId((prev) => {
+          if (prev && list.some((ch) => ch.id === prev)) return prev;
+          return list[0]?.id || null;
+        });
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setCourseToolsChapters([]);
+      } finally {
+        if (!cancelled) setCourseToolsChaptersLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeModal, selectedClass?.programId, selectedClass?.courseId, db]);
+
+  /** CourseTools modal: live dayReferenceLinks for selected course */
+  useEffect(() => {
+    if (
+      activeModal !== "courseTools" ||
+      !selectedClass?.programId ||
+      !selectedClass?.batchId ||
+      !selectedClass?.courseId ||
+      !db
+    ) {
+      setCourseToolsDayLinks({});
+      return;
+    }
+    const col = collection(
+      db,
+      "crt",
+      selectedClass.programId,
+      "batches",
+      selectedClass.batchId,
+      "courses",
+      selectedClass.courseId,
+      "dayReferenceLinks"
+    );
+    return onSnapshot(col, (snap) => {
+      const map = {};
+      snap.docs.forEach((d) => {
+        map[d.id] = { id: d.id, ...d.data() };
+      });
+      setCourseToolsDayLinks(map);
+    });
+  }, [activeModal, selectedClass?.programId, selectedClass?.batchId, selectedClass?.courseId, db]);
+
+  /** CourseTools modal: once students + chapters exist, hydrate attendance (today) */
+  useEffect(() => {
+    if (activeModal !== "courseTools" || !selectedClass?.programId || !selectedClass?.batchId || !db) return;
+    const students = getBatchStudents(selectedClass);
+    if (!students.length || !courseToolsChapters.length) return;
+    loadTrainerAttendanceForChapters(selectedClass, courseToolsChapters, students);
+  }, [activeModal, selectedClass?.programId, selectedClass?.batchId, selectedClass?.courseId, db, studentsByBatch, courseToolsChapters]);
+
+  /** If chapters were expanded before students finished loading, hydrate attendance once students exist */
+  useEffect(() => {
+    if (activeModal !== "attendance" || !selectedClass?.programId || !selectedClass?.batchId || !db) return;
+    const bk = `${selectedClass.programId}__${selectedClass.batchId}`;
+    const students = studentsByBatch[bk] || [];
+    if (!students.length) return;
+    for (const courseId of attendanceExpandedCourseIds) {
+      const cls = coursesInSelectedBatch.find((c) => c.courseId === courseId);
+      const chapters = chaptersByCourseForAttendance[courseId];
+      if (!cls || !chapters?.length) continue;
+      loadTrainerAttendanceForChapters(cls, chapters, students);
+    }
+  }, [
+    activeModal,
+    selectedClass?.programId,
+    selectedClass?.batchId,
+    db,
+    studentsByBatch,
+    attendanceExpandedCourseIds,
+    chaptersByCourseForAttendance,
+    coursesInSelectedBatch,
+  ]);
+
+  /** trainerSharedLinks per course in this batch (notes modal) */
+  useEffect(() => {
+    if (activeModal !== "notes" || !selectedClass?.batchId || !db) {
+      setTrainerSharedLinksByCourse({});
+      setTrainerSharedLinksLoading(false);
+      return;
+    }
+    const courses = coursesInSelectedBatch;
+    if (courses.length === 0) {
+      setTrainerSharedLinksByCourse({});
+      setTrainerSharedLinksLoading(false);
+      return;
+    }
+    setTrainerSharedLinksLoading(true);
+    const unsubs = courses.map((cls) => {
+      const col = collection(
+        db,
+        "crt",
+        cls.programId,
+        "batches",
+        cls.batchId,
+        "courses",
+        cls.courseId,
+        "trainerSharedLinks"
+      );
+      return onSnapshot(
+        col,
+        (snap) => {
+          const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          items.sort((a, b) => {
+            const ta =
+              a.createdAt?.toMillis?.() ??
+              (a.sharedAt ? new Date(a.sharedAt).getTime() : 0);
+            const tb =
+              b.createdAt?.toMillis?.() ??
+              (b.sharedAt ? new Date(b.sharedAt).getTime() : 0);
+            return tb - ta;
+          });
+          setTrainerSharedLinksByCourse((prev) => ({ ...prev, [cls.courseId]: items }));
+          setTrainerSharedLinksLoading(false);
+        },
+        () => {
+          setTrainerSharedLinksByCourse((prev) => ({ ...prev, [cls.courseId]: [] }));
+          setTrainerSharedLinksLoading(false);
+        }
+      );
+    });
+    return () => unsubs.forEach((u) => u());
+  }, [activeModal, selectedClass?.batchId, selectedClass?.programId, db, coursesInSelectedBatch]);
+
+  /** Day-wise reference link docs per course */
+  useEffect(() => {
+    if (activeModal !== "notes" || !selectedClass?.batchId || !db) {
+      setDayLinksByCourse({});
+      return;
+    }
+    const courses = coursesInSelectedBatch;
+    if (courses.length === 0) {
+      setDayLinksByCourse({});
+      return;
+    }
+    const unsubs = courses.map((cls) => {
+      const col = collection(
+        db,
+        "crt",
+        cls.programId,
+        "batches",
+        cls.batchId,
+        "courses",
+        cls.courseId,
+        "dayReferenceLinks"
+      );
+      return onSnapshot(col, (snap) => {
+        const map = {};
+        snap.docs.forEach((d) => {
+          map[d.id] = { id: d.id, ...d.data() };
+        });
+        setDayLinksByCourse((prev) => ({ ...prev, [cls.courseId]: map }));
+      });
+    });
+    return () => unsubs.forEach((u) => u());
+  }, [activeModal, selectedClass?.batchId, selectedClass?.programId, db, coursesInSelectedBatch]);
 
   /** Stable list of assignment ids so unlock listeners are not torn down when only progress counts change */
   const unlockWatchKey = useMemo(
@@ -705,11 +1242,27 @@ export default function CRTTrainerPage() {
     }));
   };
 
+  /** Same batch may appear once per course; count students per batch only, not per course row */
+  const totalStudentsUniqueByBatch = useMemo(() => {
+    const byBatch = new Map();
+    for (const c of assignments) {
+      const key = `${c.programId}__${c.batchId}`;
+      if (!byBatch.has(key)) {
+        byBatch.set(key, Number(c.studentsCount) || 0);
+      }
+    }
+    let sum = 0;
+    byBatch.forEach((n) => {
+      sum += n;
+    });
+    return sum;
+  }, [assignments]);
+
   const stats = {
     total: assignments.length,
     active: assignments.filter((c) => c.status === "active").length,
     completed: assignments.filter((c) => c.status === "completed").length,
-    totalStudents: assignments.reduce((s, c) => s + (c.studentsCount || 0), 0),
+    totalStudents: totalStudentsUniqueByBatch,
   };
 
   if (!authReady) {
@@ -771,7 +1324,8 @@ export default function CRTTrainerPage() {
                     CRT Trainer
                   </h1>
                   <p className="text-slate-600 text-sm mt-0.5">
-                    Classes from batches where you are assigned as trainer
+                    {trainerDisplayName ||
+                      "Classes from batches where you are assigned as trainer"}
                   </p>
                 </div>
               </div>
@@ -887,21 +1441,6 @@ export default function CRTTrainerPage() {
               </button>
             ))}
           </div>
-
-          <p className="text-sm text-slate-600 mb-6 max-w-3xl leading-relaxed">
-            Only batches with show class enabled appear here (set{" "}
-            <code className="text-xs bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80">
-              showClass: false
-            </code>{" "}
-            on a batch document in Firestore to hide it until ready). Use Unlock Class to open course days for your
-            batch; optional{" "}
-            <code className="text-xs bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80">
-              assignedCourseIds
-            </code>{" "}
-            on the batch limits which courses show. Rows are grouped by batch (e.g. MCA - 1); click a row to expand and
-            see all courses for that batch.
-          </p>
-
           {/* Batches (program - batch name) → expand for course cards */}
           <div className="space-y-6">
             {loadingAssignments ? (
@@ -1100,12 +1639,7 @@ export default function CRTTrainerPage() {
                                 className="text-sm text-slate-700 cursor-pointer select-none min-w-0"
                               >
                                 <span className="font-semibold text-slate-900">
-                                  Unlock full course for trainer
-                                </span>
-                                <span className="block text-slate-600 mt-1 leading-relaxed">
-                                  When checked, you can open every day on the course page without using day-by-day
-                                  unlocks. Uncheck to see the same locked days as students (use Unlock Class to open
-                                  days for both).
+                                  Unlock full course only for trainer
                                 </span>
                               </label>
                             </div>
@@ -1123,19 +1657,11 @@ export default function CRTTrainerPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => openModal("attendance", cls)}
+                              onClick={() => openModal("courseTools", cls)}
                               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-semibold text-sm transition-colors border border-emerald-200/80"
                             >
                               <ClipboardDocumentCheckIcon className="w-4 h-4" />
-                              Mark Attendance
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openModal("notes", cls)}
-                              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100 font-semibold text-sm transition-colors border border-amber-200/80"
-                            >
-                              <DocumentArrowUpIcon className="w-4 h-4" />
-                              Share Reference Notes
+                              Days: Attendance & Links
                             </button>
                           </div>
                         </div>
@@ -1179,11 +1705,16 @@ export default function CRTTrainerPage() {
                     <div>
                       <h3 className="text-lg font-bold text-slate-900">
                         {activeModal === "attendance" && "Mark Attendance"}
+                        {activeModal === "courseTools" && "Course Days: Attendance & Reference Links"}
                         {activeModal === "unlock" && "Unlock Class"}
                         {activeModal === "notes" && "Share Reference Notes"}
                       </h3>
                       <p className="text-sm text-slate-600 mt-0.5">
-                        {selectedClass.courseName} · {selectedClass.batchName}
+                        {activeModal === "attendance"
+                          ? `${selectedClass.programName} · ${selectedClass.batchName}`
+                          : activeModal === "courseTools"
+                            ? `${selectedClass.courseName} · ${selectedClass.batchName}`
+                          : `${selectedClass.courseName} · ${selectedClass.batchName}`}
                       </p>
                     </div>
                     <button
@@ -1196,93 +1727,364 @@ export default function CRTTrainerPage() {
                     </button>
                   </div>
                   <div className="flex-1 overflow-y-auto p-6">
-                    {/* Attendance modal */}
-                    {activeModal === "attendance" && (
-                      <div className="space-y-4">
+                    {/* Mark Attendance — all courses in batch, day (chapter) wise + save per day */}
+                    {activeModal === "attendance" && selectedClass && (
+                      <div className="space-y-6">
                         <p className="text-sm text-slate-600">
-                          Date: <strong>{getTodayStr()}</strong>. Mark students present or absent.
+                          Expand each <strong>course</strong>, then mark <strong>per day</strong> for{" "}
+                          <strong>all students in this batch</strong>. Attendance date:{" "}
+                          <strong>{getTodayStr()}</strong> (saved in Firestore under that date).
                         </p>
-                        {attendanceSaved && (
-                          <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-50 text-emerald-700 text-sm font-medium">
-                            <CheckCircleIcon className="w-5 h-5 shrink-0" />
-                            Attendance saved successfully.
-                          </div>
+                        {!isFirebaseConfigured && (
+                          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                            Firebase is not configured. Add env keys to load and save attendance.
+                          </p>
                         )}
-                        {loadingStudents && studentsForClass(selectedClass).length === 0 ? (
-                          <p className="text-sm text-slate-500 py-6 text-center">Loading students…</p>
-                        ) : (
-                        <ul className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
-                          {studentsForClass(selectedClass).map((student) => {
-                            const present = getAttendanceForClass(selectedClass)[student.id];
+                        {loadingStudents && getBatchStudents(selectedClass).length === 0 && (
+                          <p className="text-sm text-slate-500 py-2 text-center">Loading students…</p>
+                        )}
+                        <div className="space-y-3">
+                          <h4 className="text-sm font-semibold text-slate-800">Courses in this batch</h4>
+                          {coursesInSelectedBatch.length === 0 && (
+                            <p className="text-sm text-slate-500 border border-dashed border-slate-200 rounded-xl px-4 py-6 text-center">
+                              No courses listed for this batch.
+                            </p>
+                          )}
+                          {coursesInSelectedBatch.map((cls) => {
+                            const expanded = attendanceExpandedCourseIds.has(cls.courseId);
+                            const chapters = chaptersByCourseForAttendance[cls.courseId] || [];
+                            const batchStudents = getBatchStudents(cls);
+                            const dateStr = getTodayStr();
                             return (
-                              <li
-                                key={student.id}
-                                className="flex items-center justify-between gap-4 px-4 py-3 bg-white hover:bg-slate-50/50 transition-colors"
+                              <div
+                                key={cls.courseId}
+                                className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm"
                               >
-                                <div>
-                                  <p className="font-medium text-slate-900">
-                                    {student.name}
-                                  </p>
-                                  <p className="text-xs text-slate-500">
-                                    {student.rollNo} · {student.email}
-                                  </p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setAttendanceForClass(
-                                        selectedClass,
-                                        student.id,
-                                        true
-                                      )
-                                    }
-                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                                      present === true
-                                        ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                                        : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent"
+                                <button
+                                  type="button"
+                                  onClick={() => toggleAttendanceCourseExpand(cls)}
+                                  className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-slate-50/90 transition-colors"
+                                >
+                                  <span className="font-semibold text-slate-900">{cls.courseName}</span>
+                                  <ChevronDownIcon
+                                    className={`w-5 h-5 text-slate-500 shrink-0 transition-transform duration-200 ${
+                                      expanded ? "rotate-180" : ""
                                     }`}
-                                  >
-                                    <CheckCircleIcon className="w-4 h-4" />
-                                    Present
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setAttendanceForClass(
-                                        selectedClass,
-                                        student.id,
-                                        false
-                                      )
-                                    }
-                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                                      present === false
-                                        ? "bg-red-100 text-red-800 border border-red-200"
-                                        : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent"
-                                    }`}
-                                  >
-                                    <XCircleIcon className="w-4 h-4" />
-                                    Absent
-                                  </button>
-                                </div>
-                              </li>
+                                    aria-hidden
+                                  />
+                                </button>
+                                {expanded && (
+                                  <div className="border-t border-slate-100 px-4 pb-4 pt-3 space-y-4 bg-slate-50/60">
+                                    {chaptersAttendanceLoadingCourseId === cls.courseId ? (
+                                      <p className="text-sm text-slate-500 py-2">Loading days…</p>
+                                    ) : chapters.length === 0 ? (
+                                      <p className="text-sm text-slate-500 py-2 border border-dashed border-slate-200 rounded-lg px-3">
+                                        No chapters (days) found. Add days under CRT admin for this course.
+                                      </p>
+                                    ) : (
+                                      <ul className="space-y-4">
+                                        {chapters.map((ch, idx) => {
+                                          const dayNum = typeof ch.order === "number" ? ch.order : idx + 1;
+                                          const dayKey = attendanceDayKey(cls, ch, dateStr);
+                                          const saving = dayAttendanceSavingKey === dayKey;
+                                          const justSaved = attendanceDaySavedKey === dayKey;
+                                          return (
+                                            <li
+                                              key={ch.id}
+                                              className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm space-y-3"
+                                            >
+                                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <p className="text-sm font-medium text-slate-800">
+                                                  Day {dayNum}: {ch.title || `Day ${dayNum}`}
+                                                </p>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleSaveDayAttendance(cls, ch)}
+                                                  disabled={saving || !isFirebaseConfigured || batchStudents.length === 0}
+                                                  className="px-4 py-2 rounded-lg bg-[#00448a] text-white text-sm font-semibold hover:bg-[#003a75] disabled:opacity-60 shrink-0"
+                                                >
+                                                  {saving ? "Saving…" : "Save this day"}
+                                                </button>
+                                              </div>
+                                              {justSaved && (
+                                                <div className="flex items-center gap-2 text-sm text-emerald-700 font-medium">
+                                                  <CheckCircleIcon className="w-4 h-4 shrink-0" />
+                                                  Saved for this day.
+                                                </div>
+                                              )}
+                                              {batchStudents.length === 0 ? (
+                                                <p className="text-sm text-slate-500">
+                                                  {loadingStudents
+                                                    ? "Loading students…"
+                                                    : "No students in this batch yet."}
+                                                </p>
+                                              ) : (
+                                                <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+                                                  {batchStudents.map((student) => {
+                                                    const present = attendanceByDay[dayKey]?.[student.id];
+                                                    return (
+                                                      <li
+                                                        key={student.id}
+                                                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-3 py-2.5 bg-white hover:bg-slate-50/50"
+                                                      >
+                                                        <div className="min-w-0">
+                                                          <p className="font-medium text-slate-900 text-sm">
+                                                            {student.name}
+                                                          </p>
+                                                          <p className="text-xs text-slate-500 truncate">
+                                                            {student.rollNo}
+                                                            {student.rollNo && student.email ? " · " : ""}
+                                                            {student.email}
+                                                          </p>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 shrink-0">
+                                                          <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                              setStudentDayAttendance(dayKey, student.id, true)
+                                                            }
+                                                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                                                              present === true
+                                                                ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                                                : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent"
+                                                            }`}
+                                                          >
+                                                            <CheckCircleIcon className="w-4 h-4" />
+                                                            Present
+                                                          </button>
+                                                          <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                              setStudentDayAttendance(dayKey, student.id, false)
+                                                            }
+                                                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                                                              present === false
+                                                                ? "bg-red-100 text-red-800 border border-red-200"
+                                                                : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent"
+                                                            }`}
+                                                          >
+                                                            <XCircleIcon className="w-4 h-4" />
+                                                            Absent
+                                                          </button>
+                                                        </div>
+                                                      </li>
+                                                    );
+                                                  })}
+                                                </ul>
+                                              )}
+                                            </li>
+                                          );
+                                        })}
+                                      </ul>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             );
                           })}
-                        </ul>
-                        )}
-                        {studentsForClass(selectedClass).length === 0 && !loadingStudents && (
-                          <p className="text-sm text-slate-500 py-4">No students in this batch yet.</p>
-                        )}
-                        <div className="flex justify-end pt-2">
-                          <button
-                            type="button"
-                            onClick={handleSaveAttendance}
-                            disabled={attendanceSaving}
-                            className="px-5 py-2.5 rounded-xl bg-[#00448a] text-white font-semibold text-sm hover:bg-[#003a76] disabled:opacity-60 transition-colors"
-                          >
-                            {attendanceSaving ? "Saving…" : "Save Attendance"}
-                          </button>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Course tools — single course: day-wise attendance + day-wise reference link */}
+                    {activeModal === "courseTools" && selectedClass && (
+                      <div className="space-y-5">
+                        <p className="text-sm text-slate-600">
+                          Mark <strong>day-wise attendance</strong> and add a <strong>day-wise reference link</strong>{" "}
+                          for this course. Date: <strong>{getTodayStr()}</strong>.
+                        </p>
+
+                        {!isFirebaseConfigured && (
+                          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                            Firebase is not configured. Add env keys to load and save attendance/links.
+                          </p>
+                        )}
+
+                        {courseToolsChaptersLoading ? (
+                          <p className="text-sm text-slate-500 py-4 text-center">Loading days…</p>
+                        ) : courseToolsChapters.length === 0 ? (
+                          <p className="text-sm text-slate-500 py-4 text-center border border-dashed border-slate-200 rounded-xl">
+                            No chapters (days) found for this course.
+                          </p>
+                        ) : (
+                          (() => {
+                            const selectedIdx = Math.max(
+                              0,
+                              courseToolsChapters.findIndex((ch) => ch.id === courseToolsSelectedChapterId)
+                            );
+                            const activeChapter = courseToolsChapters[selectedIdx] || courseToolsChapters[0];
+                            if (!activeChapter) return null;
+                            const dayNum =
+                              typeof activeChapter.order === "number" ? activeChapter.order : selectedIdx + 1;
+                            const dateStr = getTodayStr();
+                            const dayKey = attendanceDayKey(selectedClass, activeChapter, dateStr);
+                            const savingAttendance = dayAttendanceSavingKey === dayKey;
+                            const justSavedAttendance = attendanceDaySavedKey === dayKey;
+
+                            const dk = `${selectedClass.courseId}__${activeChapter.id}`;
+                            const savedLink = courseToolsDayLinks?.[activeChapter.id]?.url;
+                            const linkVal = dayLinkInputDraft[dk] ?? (savedLink != null ? String(savedLink) : "");
+                            const savingLink = dayLinkSavingKey === dk;
+
+                            const batchStudents = getBatchStudents(selectedClass);
+                            return (
+                              <div className="space-y-4">
+                                <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+                                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">
+                                    Select Day
+                                  </p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {courseToolsChapters.map((chapterBtn, btnIdx) => {
+                                      const btnDayNum =
+                                        typeof chapterBtn.order === "number" ? chapterBtn.order : btnIdx + 1;
+                                      const active = chapterBtn.id === activeChapter.id;
+                                      return (
+                                        <button
+                                          key={chapterBtn.id}
+                                          type="button"
+                                          onClick={() => setCourseToolsSelectedChapterId(chapterBtn.id)}
+                                          className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+                                            active
+                                              ? "bg-[#00448a] text-white border-[#00448a]"
+                                              : "bg-white text-slate-700 border-slate-200 hover:border-[#00448a]/40 hover:bg-[#00448a]/5"
+                                          }`}
+                                          title={chapterBtn.title || `Day ${btnDayNum}`}
+                                        >
+                                          Day {btnDayNum}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                                  <div className="px-4 py-3.5 bg-slate-50/70 border-b border-slate-100">
+                                    <p className="font-semibold text-slate-900">
+                                      Day {dayNum}: {activeChapter.title || `Day ${dayNum}`}
+                                    </p>
+                                  </div>
+
+                                  <div className="p-4 space-y-4">
+                                    <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                      <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">
+                                        Reference link (this day)
+                                      </p>
+                                      <div className="flex flex-col sm:flex-row gap-2">
+                                        <input
+                                          type="text"
+                                          placeholder="Paste https link for this day"
+                                          value={linkVal}
+                                          onChange={(e) =>
+                                            setDayLinkInputDraft((p) => ({
+                                              ...p,
+                                              [dk]: e.target.value,
+                                            }))
+                                          }
+                                          className="flex-1 min-w-0 px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00448a]/25"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => saveDayReferenceLink(selectedClass, activeChapter)}
+                                          disabled={savingLink || !isFirebaseConfigured}
+                                          className="px-4 py-2.5 rounded-lg bg-[#00448a] text-white text-sm font-semibold hover:bg-[#003a75] disabled:opacity-60 shrink-0"
+                                        >
+                                          {savingLink ? "Saving…" : "Save link"}
+                                        </button>
+                                      </div>
+                                      {courseToolsDayLinks?.[activeChapter.id]?.url && (
+                                        <p className="text-xs text-slate-500 mt-2 break-all">
+                                          Saved:{" "}
+                                          <a
+                                            href={courseToolsDayLinks[activeChapter.id].url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-[#00448a] hover:underline"
+                                          >
+                                            {courseToolsDayLinks[activeChapter.id].url}
+                                          </a>
+                                        </p>
+                                      )}
+                                    </div>
+
+                                    <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                                        <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                                          Attendance (this day)
+                                        </p>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSaveDayAttendance(selectedClass, activeChapter)}
+                                          disabled={savingAttendance || !isFirebaseConfigured || batchStudents.length === 0}
+                                          className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60"
+                                        >
+                                          {savingAttendance ? "Saving…" : "Save attendance"}
+                                        </button>
+                                      </div>
+                                      {justSavedAttendance && (
+                                        <div className="flex items-center gap-2 text-sm text-emerald-700 font-medium mb-2">
+                                          <CheckCircleIcon className="w-4 h-4 shrink-0" />
+                                          Attendance saved for this day.
+                                        </div>
+                                      )}
+                                      {batchStudents.length === 0 ? (
+                                        <p className="text-sm text-slate-500">
+                                          {loadingStudents ? "Loading students…" : "No students in this batch yet."}
+                                        </p>
+                                      ) : (
+                                        <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+                                          {batchStudents.map((student) => {
+                                            const present = attendanceByDay[dayKey]?.[student.id];
+                                            return (
+                                              <li
+                                                key={student.id}
+                                                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-3 py-2.5 bg-white hover:bg-slate-50/50"
+                                              >
+                                                <div className="min-w-0">
+                                                  <p className="font-medium text-slate-900 text-sm">{student.name}</p>
+                                                  <p className="text-xs text-slate-500 truncate">
+                                                    {student.rollNo}
+                                                    {student.rollNo && student.email ? " · " : ""}
+                                                    {student.email}
+                                                  </p>
+                                                </div>
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setStudentDayAttendance(dayKey, student.id, true)}
+                                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                                                      present === true
+                                                        ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                                        : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent"
+                                                    }`}
+                                                  >
+                                                    <CheckCircleIcon className="w-4 h-4" />
+                                                    Present
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setStudentDayAttendance(dayKey, student.id, false)}
+                                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                                                      present === false
+                                                        ? "bg-red-100 text-red-800 border border-red-200"
+                                                        : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-transparent"
+                                                    }`}
+                                                  >
+                                                    <XCircleIcon className="w-4 h-4" />
+                                                    Absent
+                                                  </button>
+                                                </div>
+                                              </li>
+                                            );
+                                          })}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()
+                        )}
                       </div>
                     )}
 
@@ -1357,146 +2159,289 @@ export default function CRTTrainerPage() {
                           </button>
                         </div>
                       </div>
-                    )}
+                    )} 
 
-                    {/* Share reference notes modal */}
-                    {activeModal === "notes" && (
+                    {/* Share reference notes — all courses in batch, day-wise + per-course links */}
+                    {activeModal === "notes" && selectedClass && (
                       <div className="space-y-6">
                         <p className="text-sm text-slate-600">
-                          Share reference notes with this class. Paste a link below or share from the list. Course documents can be stored under{" "}
-                          <code className="text-xs bg-slate-100 px-1 rounded">referenceMaterials</code> in Firestore.
+                          <span className="font-semibold text-slate-800">
+                            {selectedClass.programName} · {selectedClass.batchName}
+                          </span>
+                          . Expand each course to add <strong>day-wise</strong> links (stored in{" "}
+                          <code className="text-xs bg-slate-100 px-1 rounded">dayReferenceLinks</code>) and optional
+                          course-level links (
+                          <code className="text-xs bg-slate-100 px-1 rounded">trainerSharedLinks</code>). PDFs stay in{" "}
+                          <code className="text-xs bg-slate-100 px-1 rounded">referenceMaterials</code>.
                         </p>
-                        {/* Shared links list */}
-                        {sharedLinksForClass(selectedClass).length > 0 && (
-                          <div>
-                            <h4 className="text-sm font-semibold text-slate-800 mb-2">Shared links</h4>
-                            <ul className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
-                              {sharedLinksForClass(selectedClass).map((item) => (
-                                <li
-                                  key={item.id}
-                                  className="flex items-center justify-between gap-4 px-4 py-3 bg-white hover:bg-slate-50/50"
-                                >
-                                  <div className="flex items-center gap-3 min-w-0">
-                                    <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
-                                      <LinkIcon className="w-5 h-5 text-amber-600" />
-                                    </div>
-                                    <div className="min-w-0">
-                                      <p className="font-medium text-slate-900 truncate">{item.title}</p>
-                                      <a
-                                        href={item.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-xs text-[#00448a] hover:underline truncate block"
-                                      >
-                                        {item.url}
-                                      </a>
-                                    </div>
-                                  </div>
-                                  <span className="text-xs text-slate-500 shrink-0">
-                                    Shared {formatDate(item.sharedAt)}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
+
+                        {trainerSharedLinksLoading && coursesInSelectedBatch.length > 0 && (
+                          <p className="text-sm text-slate-500">Syncing shared links…</p>
                         )}
 
-                        <div>
-                          <h4 className="text-sm font-semibold text-slate-800 mb-2">Reference materials</h4>
-                          {loadingReferenceNotes ? (
-                            <p className="text-sm text-slate-500 py-4">Loading…</p>
-                          ) : referenceNotes.length === 0 ? (
-                            <p className="text-sm text-slate-500 py-4 border border-dashed border-slate-200 rounded-xl px-4">
-                              No documents in{" "}
-                              <code className="text-xs">crt/{selectedClass.programId}/courses/{selectedClass.courseId}/referenceMaterials</code>.
-                              Add them in Firebase or use shared links above.
+                        <div className="space-y-3">
+                          <h4 className="text-sm font-semibold text-slate-800">Courses in this batch</h4>
+                          {coursesInSelectedBatch.length === 0 && (
+                            <p className="text-sm text-slate-500 border border-dashed border-slate-200 rounded-xl px-4 py-6 text-center">
+                              No courses listed for this batch.
                             </p>
-                          ) : (
-                          <ul className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
-                            {referenceNotes.map((note) => {
-                              const shared =
-                                getNoteSharedFromDummy(selectedClass, note);
-                              const isExpanded = expandedShareNoteId === note.id;
-                              return (
-                                <li
-                                  key={note.id}
-                                  className="bg-white hover:bg-slate-50/50 transition-colors"
-                                >
-                                  <div className="flex items-center justify-between gap-4 px-4 py-3">
-                                    <div className="flex items-center gap-3">
-                                      <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
-                                        <DocumentArrowUpIcon className="w-5 h-5 text-amber-600" />
-                                      </div>
-                                      <div>
-                                        <p className="font-medium text-slate-900">
-                                          {note.title}
-                                        </p>
-                                        <p className="text-xs text-slate-500">
-                                          {note.type}
-                                          {shared && (
-                                            <> · Shared{note.sharedAt ? ` ${formatDate(note.sharedAt)}` : ""}</>
-                                          )}
-                                        </p>
-                                      </div>
-                                    </div>
-                                    {shared ? (
-                                      <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                        <CheckCircleIcon className="w-4 h-4" />
-                                        Shared
-                                      </span>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={() => openShareForNote(note.id)}
-                                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                                          isExpanded
-                                            ? "bg-[#00448a] text-white ring-2 ring-[#00448a] ring-offset-2"
-                                            : "bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-200"
-                                        }`}
-                                      >
-                                        <DocumentArrowUpIcon className="w-4 h-4" />
-                                        Share
-                                      </button>
-                                    )}
-                                  </div>
-                                  {/* Expanded: text field + upload button */}
-                                  {isExpanded && !shared && (
-                                    <div className="px-4 pb-4 pt-0 border-t border-slate-100 bg-amber-50/30">
-                                      <div className="flex flex-col sm:flex-row gap-3 mt-3">
-                                        <input
-                                          type="url"
-                                          inputMode="url"
-                                          placeholder="Paste link (e.g. https://drive.google.com/... or notes URL)"
-                                          value={shareLinkInput}
-                                          onChange={(e) => setShareLinkInput(e.target.value)}
-                                          className="flex-1 min-w-0 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 text-sm"
-                                        />
-                                        <div className="flex gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() => handleUploadShareNote(selectedClass, note)}
-                                            disabled={notesSharing}
-                                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 text-white font-semibold text-sm hover:bg-amber-600 disabled:opacity-60 transition-colors"
-                                          >
-                                            <DocumentArrowUpIcon className="w-4 h-4" />
-                                            {notesSharing ? "Uploading…" : "Upload"}
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => { setExpandedShareNoteId(null); setShareLinkInput(""); }}
-                                            className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 font-medium text-sm hover:bg-slate-50 transition-colors"
-                                          >
-                                            Cancel
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  )}
-                                </li>
-                              );
-                            })}
-                          </ul>
                           )}
+                          {coursesInSelectedBatch.map((cls) => {
+                            const expanded = notesExpandedCourseIds.has(cls.courseId);
+                            const sharedForCourse = trainerSharedLinksByCourse[cls.courseId] || [];
+                            const chapters = chaptersByCourseForNotes[cls.courseId] || [];
+                            const refNotes = referenceNotesByCourseId[cls.courseId];
+                            const form = generalLinkFormByCourse[cls.courseId] || { url: "", title: "" };
+                            return (
+                              <div
+                                key={cls.courseId}
+                                className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => toggleNotesCourseExpand(cls)}
+                                  className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-slate-50/90 transition-colors"
+                                >
+                                  <span className="font-semibold text-slate-900">{cls.courseName}</span>
+                                  <ChevronDownIcon
+                                    className={`w-5 h-5 text-slate-500 shrink-0 transition-transform duration-200 ${
+                                      expanded ? "rotate-180" : ""
+                                    }`}
+                                    aria-hidden
+                                  />
+                                </button>
+
+                                {expanded && (
+                                  <div className="border-t border-slate-100 px-4 pb-4 pt-3 space-y-6 bg-slate-50/60">
+                                    {/* Day-wise links */}
+                                    <div>
+                                      <h5 className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">
+                                        Day-wise reference links
+                                      </h5>
+                                      {chaptersLoadingCourseId === cls.courseId ? (
+                                        <p className="text-sm text-slate-500 py-2">Loading days…</p>
+                                      ) : chapters.length === 0 ? (
+                                        <p className="text-sm text-slate-500 py-2 border border-dashed border-slate-200 rounded-lg px-3">
+                                          No chapters (days) found. Add days under CRT admin for this course.
+                                        </p>
+                                      ) : (
+                                        <ul className="space-y-3">
+                                          {chapters.map((ch, idx) => {
+                                            const dayNum = typeof ch.order === "number" ? ch.order : idx + 1;
+                                            const dk = `${cls.courseId}__${ch.id}`;
+                                            const saved = dayLinksByCourse[cls.courseId]?.[ch.id];
+                                            const val =
+                                              dayLinkInputDraft[dk] ?? (saved?.url != null ? String(saved.url) : "");
+                                            return (
+                                              <li
+                                                key={ch.id}
+                                                className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+                                              >
+                                                <p className="text-sm font-medium text-slate-800 mb-2">
+                                                  Day {dayNum}: {ch.title || `Day ${dayNum}`}
+                                                </p>
+                                                <div className="flex flex-col sm:flex-row gap-2">
+                                                  <input
+                                                    type="text"
+                                                    placeholder="Paste https link for this day"
+                                                    value={val}
+                                                    onChange={(e) =>
+                                                      setDayLinkInputDraft((p) => ({
+                                                        ...p,
+                                                        [dk]: e.target.value,
+                                                      }))
+                                                    }
+                                                    className="flex-1 min-w-0 px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00448a]/25"
+                                                  />
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => saveDayReferenceLink(cls, ch)}
+                                                    disabled={dayLinkSavingKey === dk}
+                                                    className="px-4 py-2.5 rounded-lg bg-[#00448a] text-white text-sm font-semibold hover:bg-[#003a75] disabled:opacity-60 shrink-0"
+                                                  >
+                                                    {dayLinkSavingKey === dk ? "Saving…" : "Save"}
+                                                  </button>
+                                                </div>
+                                              </li>
+                                            );
+                                          })}
+                                        </ul>
+                                      )}
+                                    </div>
+
+                                    {/* General link for this course */}
+                                    <form
+                                      onSubmit={(e) => handleShareGeneralLinkForCourse(e, cls)}
+                                      className="rounded-lg border border-dashed border-slate-300 bg-white p-3 space-y-2"
+                                    >
+                                      <h5 className="text-xs font-semibold text-slate-600 uppercase">
+                                        General link (whole course)
+                                      </h5>
+                                      <input
+                                        type="url"
+                                        placeholder="https://..."
+                                        value={form.url}
+                                        onChange={(e) => setGeneralLinkField(cls.courseId, "url", e.target.value)}
+                                        className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                                      />
+                                      <input
+                                        type="text"
+                                        placeholder="Title (optional)"
+                                        value={form.title}
+                                        onChange={(e) => setGeneralLinkField(cls.courseId, "title", e.target.value)}
+                                        className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                                      />
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                          type="submit"
+                                          disabled={notesSharing || !String(form.url || "").trim()}
+                                          className="px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold disabled:opacity-50"
+                                        >
+                                          {notesSharing ? "Saving…" : "Save link"}
+                                        </button>
+                                        {linkShareSuccessCourseId === cls.courseId && (
+                                          <span className="text-sm text-emerald-700 flex items-center gap-1">
+                                            <CheckCircleIcon className="w-4 h-4" />
+                                            Saved
+                                          </span>
+                                        )}
+                                      </div>
+                                    </form>
+
+                                    {/* Course-level shared links */}
+                                    {sharedForCourse.length > 0 && (
+                                      <div>
+                                        <h5 className="text-xs font-semibold text-slate-600 uppercase mb-2">
+                                          Saved links (this course)
+                                        </h5>
+                                        <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden bg-white">
+                                          {sharedForCourse.map((item) => (
+                                            <li
+                                              key={item.id}
+                                              className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-slate-50/80"
+                                            >
+                                              <div className="min-w-0">
+                                                <p className="text-sm font-medium text-slate-900 truncate">
+                                                  {item.title}
+                                                </p>
+                                                <a
+                                                  href={item.url}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="text-xs text-[#00448a] hover:underline truncate block"
+                                                >
+                                                  {item.url}
+                                                </a>
+                                              </div>
+                                              <span className="text-[10px] text-slate-500 shrink-0">
+                                                {formatSharedLinkDate(item.createdAt || item.sharedAt)}
+                                              </span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+
+                                    {/* Reference materials for this course */}
+                                    <div>
+                                      <h5 className="text-xs font-semibold text-slate-600 uppercase mb-2">
+                                        Reference materials
+                                      </h5>
+                                      {loadingRefNotesCourseId === cls.courseId ? (
+                                        <p className="text-sm text-slate-500 py-2">Loading…</p>
+                                      ) : !refNotes || refNotes.length === 0 ? (
+                                        <p className="text-sm text-slate-500 py-3 px-3 border border-dashed border-slate-200 rounded-lg bg-white">
+                                          No documents in{" "}
+                                          <code className="text-[10px]">
+                                            crt/{cls.programId}/courses/{cls.courseId}/referenceMaterials
+                                          </code>
+                                          .
+                                        </p>
+                                      ) : (
+                                        <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden bg-white">
+                                          {refNotes.map((note) => {
+                                            const shared = getNoteSharedFromDummy(cls.courseId, note);
+                                            const noteKey = `${cls.courseId}__${note.id}`;
+                                            const isExpanded = expandedShareNoteKey === noteKey;
+                                            return (
+                                              <li key={note.id} className="hover:bg-slate-50/50">
+                                                <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+                                                  <div className="min-w-0">
+                                                    <p className="text-sm font-medium text-slate-900">{note.title}</p>
+                                                    <p className="text-xs text-slate-500">
+                                                      {note.type}
+                                                      {shared && (
+                                                        <>
+                                                          {" "}
+                                                          · Shared
+                                                          {note.sharedAt ? ` ${formatDate(note.sharedAt)}` : ""}
+                                                        </>
+                                                      )}
+                                                    </p>
+                                                  </div>
+                                                  {shared ? (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                                      <CheckCircleIcon className="w-3.5 h-3.5" />
+                                                      Shared
+                                                    </span>
+                                                  ) : (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => openShareForNote(cls.courseId, note.id)}
+                                                      className={`text-xs font-semibold px-2 py-1 rounded-lg ${
+                                                        isExpanded
+                                                          ? "bg-[#00448a] text-white"
+                                                          : "bg-amber-100 text-amber-900"
+                                                      }`}
+                                                    >
+                                                      Share
+                                                    </button>
+                                                  )}
+                                                </div>
+                                                {isExpanded && !shared && (
+                                                  <div className="px-3 pb-3 border-t border-slate-100 bg-amber-50/40">
+                                                    <div className="flex flex-col sm:flex-row gap-2 mt-2">
+                                                      <input
+                                                        type="url"
+                                                        placeholder="Paste link…"
+                                                        value={shareLinkInput}
+                                                        onChange={(e) => setShareLinkInput(e.target.value)}
+                                                        className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                                                      />
+                                                      <div className="flex gap-2">
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => handleUploadShareNote(cls, note)}
+                                                          disabled={notesSharing}
+                                                          className="px-3 py-2 rounded-lg bg-amber-500 text-white text-sm font-semibold disabled:opacity-60"
+                                                        >
+                                                          {notesSharing ? "…" : "Save"}
+                                                        </button>
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => {
+                                                            setExpandedShareNoteKey(null);
+                                                            setShareLinkInput("");
+                                                          }}
+                                                          className="px-3 py-2 rounded-lg border border-slate-200 text-sm"
+                                                        >
+                                                          Cancel
+                                                        </button>
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                )}
+                                              </li>
+                                            );
+                                          })}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}

@@ -1174,73 +1174,73 @@ export default function CRTPOAnalyticsDashboardPage() {
         {/* Main Analytics Section */}
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">
-                Placement Trend Overview
-              </h2>
-              <p className="text-sm text-slate-500 mt-1">
+  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div>
+      <h2 className="text-lg font-semibold text-slate-900">
+        Placement Trend Overview
+      </h2>
+      <p className="text-sm text-slate-500 mt-1">
                 Last 6 months: Placed Students (bars) vs Offers Made (line). Month is based on
                 offer date when set. Offers sum{" "}
                 <code className="text-[11px] bg-slate-100 px-1 rounded">
                   offersCount
                 </code>{" "}
                 / similar fields on each student; defaults to 1 offer per placed student.
-              </p>
-            </div>
-          </div>
+      </p>
+    </div>
+  </div>
 
-          <div className="mt-6 h-[340px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart
+  <div className="mt-6 h-[340px] w-full">
+    <ResponsiveContainer width="100%" height="100%">
+      <ComposedChart
                 data={monthlyTrend}
-                margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fontSize: 12, fill: "#64748b" }}
-                  axisLine={{ stroke: "#cbd5e1" }}
-                  tickLine={false}
-                />
-                <YAxis
+        margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+      >
+        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+        <XAxis
+          dataKey="month"
+          tick={{ fontSize: 12, fill: "#64748b" }}
+          axisLine={{ stroke: "#cbd5e1" }}
+          tickLine={false}
+        />
+        <YAxis
                   allowDecimals={false}
-                  tick={{ fontSize: 12, fill: "#64748b" }}
-                  axisLine={{ stroke: "#cbd5e1" }}
-                  tickLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    borderRadius: "16px",
-                    border: "1px solid #e2e8f0",
-                    backgroundColor: "#ffffff",
-                    boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-                  }}
-                />
+          tick={{ fontSize: 12, fill: "#64748b" }}
+          axisLine={{ stroke: "#cbd5e1" }}
+          tickLine={false}
+        />
+        <Tooltip
+          contentStyle={{
+            borderRadius: "16px",
+            border: "1px solid #e2e8f0",
+            backgroundColor: "#ffffff",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
+          }}
+        />
                 <Legend
                   wrapperStyle={{ fontSize: "13px" }}
                   verticalAlign="bottom"
                 />
-                <Bar
-                  dataKey="placed"
-                  name="Placed Students"
-                  fill="#00448a"
-                  radius={[8, 8, 0, 0]}
-                  barSize={34}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="offers"
-                  name="Offers Made"
-                  stroke="#06b6d4"
-                  strokeWidth={3}
+        <Bar
+          dataKey="placed"
+          name="Placed Students"
+          fill="#00448a"
+          radius={[8, 8, 0, 0]}
+          barSize={34}
+        />
+        <Line
+          type="monotone"
+          dataKey="offers"
+          name="Offers Made"
+          stroke="#06b6d4"
+          strokeWidth={3}
                   dot={{ r: 4, fill: "#06b6d4" }}
-                  activeDot={{ r: 6 }}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+          activeDot={{ r: 6 }}
+        />
+      </ComposedChart>
+    </ResponsiveContainer>
+  </div>
+</Card>
 
           <Card>
             <h2 className="text-lg font-semibold text-slate-900">
