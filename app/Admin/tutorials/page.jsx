@@ -822,7 +822,7 @@ export default function AdminPage() {
       >
         ⬅ Back
       </button>
-      <h1 className="text-3xl font-bold mb-6">Admin Dashboard</h1>
+      <h1 className="text-3xl font-bold mb-6">Course Dashboard</h1>
 
       {/* Add / Edit Course */}
       <div className="bg-white p-6 rounded shadow mb-8">

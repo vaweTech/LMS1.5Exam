@@ -12,6 +12,7 @@ import {
   doc as mcqDoc,
 } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth";
+import CrtProgrammeExamBuilder from "../../../crtcomponents/CrtProgrammeExamBuilder";
 
 export default function CRTManager() {
   const router = useRouter();
@@ -95,16 +96,6 @@ export default function CRTManager() {
   const [batchTestSections, setBatchTestSections] = useState([]);
   const [savingBatchTestQuestions, setSavingBatchTestQuestions] = useState(false);
   const [activeBatchSectionIndex, setActiveBatchSectionIndex] = useState(0);
-
-  // College CRT Placement Offers modal
-  const [showPlacementModal, setShowPlacementModal] = useState(false);
-  const [savingPlacement, setSavingPlacement] = useState(false);
-  const [placementForm, setPlacementForm] = useState({
-    collegeName: "",
-    email: "",
-    role: "",
-    location: "",
-  });
 
   const selectedCrt = useMemo(
     () => crts.find((i) => i.id === selectedCrtId) || null,
@@ -1257,13 +1248,6 @@ export default function CRTManager() {
           </p>
         </div>
         <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={() => setShowPlacementModal(true)}
-            className="px-3 py-2 rounded-md bg-emerald-600 text-white text-sm hover:bg-emerald-700"
-          >
-            College CRT Placement Offers
-          </button>
           <Link
             href="/Admin/crt/crtTestSubmission"
             className="px-3 py-2 rounded-md bg-cyan-600 text-white hover:bg-cyan-700"
@@ -1512,6 +1496,7 @@ export default function CRTManager() {
             </div>
           </div>
 
+          <CrtProgrammeExamBuilder crts={crts} user={user} />
 
         </div>
 
@@ -2778,116 +2763,6 @@ export default function CRTManager() {
         </div>
       </div>
     </div>
-      {showPlacementModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
-            <div className="flex items-center justify-between px-4 py-3 border-b">
-              <h3 className="text-sm font-semibold">
-                College CRT Placement Offers
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowPlacementModal(false)}
-                className="text-slate-500 hover:text-slate-700 text-sm"
-              >
-                ✕
-              </button>
-            </div>
-            <form
-              onSubmit={createPlacementOffer}
-              className="px-4 py-3 space-y-3 max-h-[70vh] overflow-y-auto"
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-600">
-                    College name *
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
-                    value={placementForm.collegeName}
-                    onChange={(e) =>
-                      setPlacementForm((s) => ({
-                        ...s,
-                        collegeName: e.target.value,
-                      }))
-                    }
-                    placeholder="e.g. ABC Engineering College"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-600">
-                    Login email *
-                  </label>
-                  <input
-                    type="email"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
-                    value={placementForm.email}
-                    onChange={(e) =>
-                      setPlacementForm((s) => ({
-                        ...s,
-                        email: e.target.value,
-                      }))
-                    }
-                    placeholder="e.g. tpo@college.ac.in"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-600">
-                    Role / Position *
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
-                    value={placementForm.role}
-                    onChange={(e) =>
-                      setPlacementForm((s) => ({
-                        ...s,
-                        role: e.target.value,
-                      }))
-                    }
-                    placeholder="e.g. CRT Training & Placement"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-600">Location</label>
-                  <input
-                    type="text"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
-                    value={placementForm.location}
-                    onChange={(e) =>
-                      setPlacementForm((s) => ({
-                        ...s,
-                        location: e.target.value,
-                      }))
-                    }
-                    placeholder="e.g. City / State"
-                  />
-                </div>
-              </div>
-              <div className="flex items-center justify-end gap-2 pt-2 border-t">
-                <button
-                  type="button"
-                  onClick={() => setShowPlacementModal(false)}
-                  className="px-3 py-1.5 rounded-md bg-slate-100 text-sm hover:bg-slate-200"
-                  disabled={savingPlacement}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingPlacement}
-                  className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm disabled:opacity-50"
-                >
-                  {savingPlacement ? "Saving..." : "Save offer"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
       {editingCrtId && (
         <div className="fixed inset-0 bg-black/60 bg-opacity-40 flex items-center justify-center z-50 px-4 py-4 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-lg my-auto">
@@ -3096,6 +2971,7 @@ export default function CRTManager() {
           </div>
         </div>
       )}
+
   </div>
   );
 }
