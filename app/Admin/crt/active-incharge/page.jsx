@@ -1218,6 +1218,8 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, UserCheck, Search, RefreshCw, Mail, Phone, X } from "lucide-react";
 
+const DEFAULT_INCHARGE_PASSWORD = "VaweIncharge@2025";
+
 function isIncharge(u) {
   const role = (u.role || "").toLowerCase();
   return (
@@ -1246,7 +1248,7 @@ function normalizeInchargeRole(role, subcollection) {
 function inchargeRoleLabel(role) {
   return normalizeInchargeRole(role) === "classroomMonitor"
     ? "Class Room Monitor"
-    : "Active Incharge";
+    : "Activity Incharge";
 }
 
 export default function ActiveInchargePage() {
@@ -1777,7 +1779,7 @@ export default function ActiveInchargePage() {
       setIncharges(enriched);
     } catch (err) {
       console.error(err);
-      alert("Failed to load active incharges.");
+      alert("Failed to load activity incharges.");
     } finally {
       setLoadingIncharges(false);
     }
@@ -1936,7 +1938,7 @@ export default function ActiveInchargePage() {
       });
 
       await fetchIncharges();
-      alert("Incharge saved successfully. Default password: VaweIncharge@2025");
+      alert(`Incharge saved successfully. Default password: ${DEFAULT_INCHARGE_PASSWORD}`);
     } catch (err) {
       console.error(err);
       alert(err?.message || "Failed to save incharge. Please try again.");
@@ -2200,10 +2202,10 @@ export default function ActiveInchargePage() {
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center">
                 <UserCheck className="w-6 h-6 text-white" />
               </div>
-              Active Incharge
+              Activity Incharge
             </h1>
             <p className="text-slate-600 mt-1">
-              View and manage active incharge users for CRT programs.
+              View and manage activity incharge users for CRT programs.
             </p>
           </div>
         </div>
@@ -2253,7 +2255,7 @@ export default function ActiveInchargePage() {
                   : "No matching incharges for your search."}
               </p>
               <p className="text-sm mt-1">
-                Active incharges are stored in{" "}
+                Activity incharges are stored in{" "}
                 <code className="bg-slate-100 px-1 rounded">activeIncharge</code>; class room
                 monitors in <code className="bg-slate-100 px-1 rounded">classroomMonitor</code>.
               </p>
@@ -2277,6 +2279,9 @@ export default function ActiveInchargePage() {
                     </th>
                     <th className="px-3 py-2 text-left font-semibold text-slate-600 text-xs uppercase tracking-wide whitespace-nowrap">
                       Mobile Number
+                    </th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-600 text-xs uppercase tracking-wide whitespace-nowrap">
+                      Password
                     </th>
                     <th className="px-3 py-2 text-left font-semibold text-slate-600 text-xs uppercase tracking-wide">
                       Department
@@ -2326,6 +2331,11 @@ export default function ActiveInchargePage() {
                         ) : (
                           "\u2014"
                         )}
+                      </td>
+                      <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
+                        <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs">
+                          {u.inchargePassword || DEFAULT_INCHARGE_PASSWORD}
+                        </span>
                       </td>
                       <td className="px-3 py-2 text-slate-700">
                         {u.departmentName || "\u2014"}
@@ -2392,7 +2402,7 @@ export default function ActiveInchargePage() {
           <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
             <div className="w-full max-w-lg mx-4 rounded-2xl bg-white shadow-xl">
               <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-                <h2 className="text-lg font-semibold text-slate-900">Create Active Incharge</h2>
+                <h2 className="text-lg font-semibold text-slate-900">Create Activity Incharge</h2>
                 <button
                   type="button"
                   onClick={closeCreateModal}
@@ -2506,7 +2516,7 @@ export default function ActiveInchargePage() {
 
                 <div>
                   <p className="text-sm font-medium text-slate-700 mb-2">
-                    Assign Batches ({createForm.isClassRoomMonitor ? "Class Room Monitor" : "Active Incharge"})
+                    Assign Batches ({createForm.isClassRoomMonitor ? "Class Room Monitor" : "Activity Incharge"})
                   </p>
 
                   {loadingBatches ? (
@@ -2674,7 +2684,7 @@ export default function ActiveInchargePage() {
 
                 <div>
                   <p className="text-sm font-medium text-slate-700 mb-2">
-                    Assign Batches ({editForm.isClassRoomMonitor ? "Class Room Monitor" : "Active Incharge"})
+                    Assign Batches ({editForm.isClassRoomMonitor ? "Class Room Monitor" : "Activity Incharge"})
                   </p>
 
                   {loadingBatches ? (

@@ -624,7 +624,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
+import {
+  onAuthStateChanged,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+} from "firebase/auth";
 import { auth, db, firestoreHelpers, isFirebaseConfigured } from "../../lib/firebase";
 import {
   ArrowLeft,
@@ -681,6 +685,12 @@ export default function ActiveInchargeDashboardPage() {
   });
 
   const [studentResults, setStudentResults] = useState({});
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   const fetchAssignedClasses = useCallback(async (authUser) => {
     if (!db || !authUser) return;
@@ -941,6 +951,63 @@ export default function ActiveInchargeDashboardPage() {
     }));
   };
 
+  const changeMyPassword = async () => {
+    if (!user?.email) {
+      alert("Unable to verify your account.");
+      return;
+    }
+
+    const currentPassword = passwordForm.currentPassword.trim();
+    const newPassword = passwordForm.newPassword.trim();
+    const confirmPassword = passwordForm.confirmPassword.trim();
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      alert("Please fill all password fields.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      alert("New password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      alert("New password and confirm password do not match.");
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      // Re-auth is required before sensitive actions
+      const cred = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, cred);
+
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/change-incharge-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ newPassword }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || "Failed to update password.");
+      }
+
+      alert("Password updated successfully.");
+      setPasswordForm({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+    } catch (err) {
+      alert(err?.message || "Failed to update password.");
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   const totalStudents = students.length;
   const totalActivities = activities.length;
 
@@ -990,6 +1057,51 @@ export default function ActiveInchargeDashboardPage() {
           <div className="text-sm text-slate-500">Students</div>
           <div className="text-3xl font-bold mt-2">{totalStudents}</div>
         </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border p-5 mb-6">
+        <h2 className="text-xl font-semibold mb-4">Change My Password</h2>
+        <p className="text-sm text-slate-600 mb-4">
+          Password changes here are saved in Firebase Auth and reflected in admin table.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input
+            type="password"
+            placeholder="Current Password"
+            value={passwordForm.currentPassword}
+            onChange={(e) =>
+              setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))
+            }
+            className="px-4 py-3 border rounded-xl"
+          />
+          <input
+            type="password"
+            placeholder="New Password"
+            value={passwordForm.newPassword}
+            onChange={(e) =>
+              setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))
+            }
+            className="px-4 py-3 border rounded-xl"
+          />
+          <input
+            type="password"
+            placeholder="Confirm New Password"
+            value={passwordForm.confirmPassword}
+            onChange={(e) =>
+              setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))
+            }
+            className="px-4 py-3 border rounded-xl"
+          />
+        </div>
+        <button
+          onClick={changeMyPassword}
+          disabled={passwordSaving}
+          className={`mt-4 px-5 py-3 rounded-xl text-white ${
+            passwordSaving ? "bg-slate-400 cursor-not-allowed" : "bg-[#00448a] hover:bg-[#003a76]"
+          }`}
+        >
+          {passwordSaving ? "Updating..." : "Update Password"}
+        </button>
       </div>
 
       {/* Assigned Classes */}
