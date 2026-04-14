@@ -1313,6 +1313,19 @@ export default function CourseDetailsPage() {
                           </button>
                         )}
 
+                        {chapter.referenceDocument && (
+                          <button
+                            onClick={() =>
+                              router.push(
+                                `/view-pdf-secure?url=${encodeURIComponent(chapter.referenceDocument)}&title=${encodeURIComponent(chapter.title + " - Reference Document")}`
+                              )
+                            }
+                            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg shadow-md transition text-xs sm:text-sm lg:text-base"
+                          >
+                            <FileDown className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Reference PDF
+                          </button>
+                        )}
+
                         {chapter.classDocs && (
                           <button
                             onClick={() => router.push(`/view-ppt?url=${encodeURIComponent(chapter.classDocs)}&title=${encodeURIComponent(chapter.title + ' - PPTs')}`)}

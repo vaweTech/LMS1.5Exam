@@ -43,6 +43,10 @@ export default function TrainerHome() {
   const [attendanceChapterId, setAttendanceChapterId] = useState("");
   const [attendanceSelectedIds, setAttendanceSelectedIds] = useState([]);
   const [attendanceSaving, setAttendanceSaving] = useState(false);
+  const [showClassDocumentsModal, setShowClassDocumentsModal] = useState(false);
+  const [classDocumentsCourse, setClassDocumentsCourse] = useState(null);
+  const [classChapterDocuments, setClassChapterDocuments] = useState({}); // chapterId -> document URL
+  const [classDocumentsSaving, setClassDocumentsSaving] = useState(false);
   const [showInternshipDocumentsModal, setShowInternshipDocumentsModal] = useState(false);
   const [internshipDocumentsCourse, setInternshipDocumentsCourse] = useState(null);
   const [chapterDocuments, setChapterDocuments] = useState({}); // chapterId -> document URL
@@ -501,6 +505,61 @@ export default function TrainerHome() {
     }
   };
 
+  // Open documents management modal for class course
+  const openClassDocumentsForCourse = async (course) => {
+    if (!selectedClassId) {
+      setUnlockStatus("Please select a class first.");
+      return;
+    }
+    setClassDocumentsCourse(course);
+    await loadChapters(course.id);
+
+    // Load current documents for all chapters
+    const docsMap = {};
+    try {
+      const chaptersSnap = await getDocs(collection(db, "courses", course.id, "chapters"));
+      chaptersSnap.docs.forEach((d) => {
+        const data = d.data();
+        if (data.referenceDocument) {
+          docsMap[d.id] = data.referenceDocument;
+        }
+      });
+    } catch (e) {
+      console.error("Error loading class chapter documents:", e);
+    }
+    setClassChapterDocuments(docsMap);
+    setShowClassDocumentsModal(true);
+  };
+
+  // Save documents for all class course chapters
+  const saveClassDocuments = async () => {
+    if (!classDocumentsCourse) {
+      alert("Select class and course first.");
+      return;
+    }
+    setClassDocumentsSaving(true);
+    try {
+      const updates = [];
+      for (const [chapterId, docUrl] of Object.entries(classChapterDocuments)) {
+        const chapterRef = doc(db, "courses", classDocumentsCourse.id, "chapters", chapterId);
+        if (docUrl && docUrl.trim()) {
+          updates.push(updateDoc(chapterRef, { referenceDocument: docUrl.trim() }));
+        } else {
+          updates.push(updateDoc(chapterRef, { referenceDocument: null }));
+        }
+      }
+      await Promise.all(updates);
+      alert("Documents saved successfully.");
+      setShowClassDocumentsModal(false);
+      setClassDocumentsCourse(null);
+      setClassChapterDocuments({});
+    } catch (e) {
+      alert(e?.message || "Failed to save documents");
+    } finally {
+      setClassDocumentsSaving(false);
+    }
+  };
+
   // Internship: open chapter unlock modal for a course
   const handleInternshipCourseUnlock = async (course) => {
     if (!selectedInternshipId) {
@@ -855,42 +914,78 @@ export default function TrainerHome() {
             )}
           </div>
 
-          <div className="bg-white border rounded p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="font-semibold">Assigned Courses</h2>
-              <label className="flex items-center gap-2 text-sm">
+          <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
+              <div>
+                <h2 className="font-semibold text-gray-900">Assigned Courses</h2>
+                {selectedClassId && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    {classCourses.length} course{classCourses.length !== 1 ? "s" : ""} available
+                  </p>
+                )}
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
                 <input
                   type="checkbox"
                   checked={unlockStudents}
                   onChange={(e) => setUnlockStudents(e.target.checked)}
-                  className="rounded"
+                  className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
                 />
                 Also unlock for students
               </label>
             </div>
             {!selectedClassId ? (
-              <p className="text-sm text-gray-500">Select a class to view its courses.</p>
+              <div className="border border-dashed border-gray-300 rounded-lg p-4 text-sm text-gray-500 bg-gray-50">
+                Select a class to view its courses.
+              </div>
             ) : classCourses.length === 0 ? (
-              <p className="text-sm text-gray-500">No assigned courses.</p>
+              <div className="border border-dashed border-gray-300 rounded-lg p-4 text-sm text-gray-500 bg-gray-50">
+                No assigned courses.
+              </div>
             ) : (
-              <ul className="space-y-2">
+              <ul className="space-y-3">
                 {classCourses.map((cr) => (
-                  <li key={cr.id} className="flex items-center justify-between border rounded p-2">
-                    <span>{cr.title || cr.id}</span>
-                    <div className="flex items-center gap-2">
+                  <li
+                    key={cr.id}
+                    className="group rounded-2xl border border-gray-200 bg-gradient-to-br from-white to-gray-50 p-4 shadow-sm hover:shadow-md hover:border-gray-300 transition-all"
+                  >
+                    <div className="flex flex-col gap-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-lg font-semibold text-gray-900 leading-tight tracking-tight whitespace-normal break-words">
+                            {cr.title || cr.id}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Daily controls for unlock, attendance, and documents
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          Active
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <button 
-                        className="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded"
+                        className="h-10 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white px-4 rounded-lg disabled:bg-emerald-300 disabled:cursor-not-allowed shadow-sm"
                         onClick={() => handleCourseUnlock(cr)}
                         disabled={unlockLoading}
                       >
                         {unlockLoading ? 'Unlocking...' : 'Click to Unlock'}
                       </button>
                       <button
-                        className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded"
+                        className="h-10 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white px-4 rounded-lg shadow-sm"
                         onClick={() => openAttendanceForCourse(cr)}
                       >
                         Take Attendance
                       </button>
+                      <button
+                        className="h-10 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white px-4 rounded-lg shadow-sm"
+                        onClick={() => openClassDocumentsForCourse(cr)}
+                        title="Manage reference documents for each day"
+                      >
+                        Manage Documents
+                      </button>
+                      </div>
                     </div>
                   </li>
                 ))}
@@ -1208,6 +1303,96 @@ export default function TrainerHome() {
                   }`}
                 >
                   {attendanceSaving ? 'Saving...' : `Save Attendance (${attendanceSelectedIds.length})`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Class Documents Management Modal */}
+        {showClassDocumentsModal && classDocumentsCourse && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg max-w-3xl w-full mx-4 max-h-[80vh] flex flex-col">
+              <div className="p-6 pb-4 flex-shrink-0">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold">
+                    Manage Reference Documents — {classDocumentsCourse.title || classDocumentsCourse.id}
+                  </h2>
+                  <button
+                    onClick={() => {
+                      setShowClassDocumentsModal(false);
+                      setClassDocumentsCourse(null);
+                      setClassChapterDocuments({});
+                    }}
+                    className="text-gray-600 hover:text-gray-800"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <p className="text-sm text-gray-600">
+                  Add reference documents (Google Drive links) for each day. These documents will be visible to students.
+                </p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 pb-4">
+                {chapters.length > 0 ? (
+                  <div className="space-y-4">
+                    {chapters.map((ch, idx) => (
+                      <div key={ch.id} className="border rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="block text-sm font-medium text-gray-700">
+                            Day {typeof ch.order === "number" ? ch.order : idx + 1}: {ch.title || ch.id}
+                          </label>
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Google Drive URL or document link"
+                          value={classChapterDocuments[ch.id] || ""}
+                          onChange={(e) =>
+                            setClassChapterDocuments({
+                              ...classChapterDocuments,
+                              [ch.id]: e.target.value,
+                            })
+                          }
+                          className="w-full border rounded px-3 py-2 text-sm"
+                        />
+                        {classChapterDocuments[ch.id] && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Current: {classChapterDocuments[ch.id].length > 50
+                              ? `${classChapterDocuments[ch.id].substring(0, 50)}...`
+                              : classChapterDocuments[ch.id]}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500">No chapters found for this course.</p>
+                )}
+              </div>
+
+              <div className="p-6 pt-4 border-t border-gray-200 bg-white rounded-b-lg flex-shrink-0 flex gap-3 justify-end">
+                <button
+                  onClick={() => {
+                    setShowClassDocumentsModal(false);
+                    setClassDocumentsCourse(null);
+                    setClassChapterDocuments({});
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveClassDocuments}
+                  disabled={classDocumentsSaving}
+                  className={`px-4 py-2 rounded text-white ${
+                    classDocumentsSaving
+                      ? "bg-gray-400 cursor-not-allowed"
+                      : "bg-blue-600 hover:bg-blue-700"
+                  }`}
+                >
+                  {classDocumentsSaving ? "Saving..." : "Save Documents"}
                 </button>
               </div>
             </div>
