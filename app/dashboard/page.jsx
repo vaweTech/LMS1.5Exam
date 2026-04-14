@@ -2293,6 +2293,19 @@ export default function DashboardPage() {
                 Go to PO Dashboard
               </button>
             )}
+            {[
+              "activeincharge",
+              "assignment incharge",
+              "classroommonitor",
+              "class room monitor",
+            ].includes(String(role || "").toLowerCase()) && (
+              <button
+                onClick={() => router.push("/active-incharge-dashboard")}
+                className="px-3 sm:px-4 py-2 bg-[#00448a] text-white rounded-xl hover:bg-[#003a76] transition text-sm sm:text-base"
+              >
+                Activity Incharge Dashboard
+              </button>
+            )}
 
           </div>
         </div>
