@@ -1059,51 +1059,6 @@ export default function ActiveInchargeDashboardPage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border p-5 mb-6">
-        <h2 className="text-xl font-semibold mb-4">Change My Password</h2>
-        <p className="text-sm text-slate-600 mb-4">
-          Password changes here are saved in Firebase Auth and reflected in admin table.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <input
-            type="password"
-            placeholder="Current Password"
-            value={passwordForm.currentPassword}
-            onChange={(e) =>
-              setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))
-            }
-            className="px-4 py-3 border rounded-xl"
-          />
-          <input
-            type="password"
-            placeholder="New Password"
-            value={passwordForm.newPassword}
-            onChange={(e) =>
-              setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))
-            }
-            className="px-4 py-3 border rounded-xl"
-          />
-          <input
-            type="password"
-            placeholder="Confirm New Password"
-            value={passwordForm.confirmPassword}
-            onChange={(e) =>
-              setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))
-            }
-            className="px-4 py-3 border rounded-xl"
-          />
-        </div>
-        <button
-          onClick={changeMyPassword}
-          disabled={passwordSaving}
-          className={`mt-4 px-5 py-3 rounded-xl text-white ${
-            passwordSaving ? "bg-slate-400 cursor-not-allowed" : "bg-[#00448a] hover:bg-[#003a76]"
-          }`}
-        >
-          {passwordSaving ? "Updating..." : "Update Password"}
-        </button>
-      </div>
-
       {/* Assigned Classes */}
       <div className="bg-white rounded-2xl border p-5 mb-6">
         <h2 className="text-xl font-semibold mb-4">My Assigned Classes</h2>
