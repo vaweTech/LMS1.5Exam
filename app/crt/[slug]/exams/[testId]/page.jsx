@@ -7,6 +7,7 @@ import CheckAuth from "../../../../../lib/CheckAuth";
 import { getProgramBySlug } from "../../../../../lib/crtProgramsData";
 import { createSlug } from "../../../../../lib/urlUtils";
 import { db, auth, firestoreHelpers } from "../../../../../lib/firebase";
+import { getDoc, getDocs, doc, collection, query, where } from "firebase/firestore";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -87,6 +88,58 @@ export default function CRTExamTestPage() {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [timeLeftMs, setTimeLeftMs] = useState(null);
   const [userBatch, setUserBatch] = useState(null); // { id, name } for submission
+  const [user, setUser] = useState(null);
+  const [hasCourseAccess, setHasCourseAccess] = useState(false);
+  const [roleCheckDone, setRoleCheckDone] = useState(false);
+
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged((u) => setUser(u));
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setHasCourseAccess(false);
+      setRoleCheckDone(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [userSnap, studentDirectSnap] = await Promise.all([
+          getDoc(doc(db, "users", user.uid)),
+          getDoc(doc(db, "students", user.uid)),
+        ]);
+        if (cancelled) return;
+        const userRole = userSnap.exists() ? userSnap.data().role : null;
+        let studentData = studentDirectSnap.exists()
+          ? studentDirectSnap.data()
+          : null;
+        if (!studentData) {
+          const studentSnap = await getDocs(
+            query(collection(db, "students"), where("uid", "==", user.uid))
+          );
+          if (!studentSnap.empty) studentData = studentSnap.docs[0].data();
+        }
+        const studentRole = studentData?.role;
+        const isSuperAdmin = userRole === "superadmin";
+        const isCrtStudent =
+          userRole === "crtStudent" ||
+          studentRole === "crtStudent" ||
+          studentData?.isCrt === true;
+        const isCrtTrainer =
+          userRole === "crtTrainer" || studentRole === "crtTrainer";
+        setHasCourseAccess(Boolean(isSuperAdmin || isCrtStudent || isCrtTrainer));
+      } catch (_) {
+        if (!cancelled) setHasCourseAccess(false);
+      } finally {
+        if (!cancelled) setRoleCheckDone(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!slug || staticProgram) {
@@ -422,6 +475,33 @@ export default function CRTExamTestPage() {
       <CheckAuth>
         <div className="min-h-screen bg-slate-50 pt-20 flex flex-col items-center justify-center px-4">
           <h1 className="text-xl font-bold text-slate-800 mb-2">{error}</h1>
+          <Link href={`/crt/${slug}/exams`} className="text-[#00448a] font-semibold hover:underline">
+            ← Back to exams
+          </Link>
+        </div>
+      </CheckAuth>
+    );
+  }
+
+  if (!roleCheckDone) {
+    return (
+      <CheckAuth>
+        <div className="min-h-screen bg-slate-50 pt-20 flex flex-col items-center justify-center px-4">
+          <div className="flex items-center gap-2 text-slate-600">
+            <div className="w-5 h-5 border-2 border-violet-300 border-t-violet-600 rounded-full animate-spin" />
+            <span>Checking access...</span>
+          </div>
+        </div>
+      </CheckAuth>
+    );
+  }
+
+  if (!hasCourseAccess) {
+    return (
+      <CheckAuth>
+        <div className="min-h-screen bg-slate-50 pt-20 flex flex-col items-center justify-center px-4">
+          <h1 className="text-xl font-bold text-red-600 mb-2">Access denied</h1>
+          <p className="text-slate-600 mb-4">You do not have access to this CRT exam.</p>
           <Link href={`/crt/${slug}/exams`} className="text-[#00448a] font-semibold hover:underline">
             ← Back to exams
           </Link>

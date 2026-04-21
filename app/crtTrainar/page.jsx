@@ -55,7 +55,8 @@ const CARD_STYLES = [
 /**
  * Batches with trainerId === trainerUid; one card per visible course for that batch.
  * - Skips batch when `showClass === false` (admin can hide until ready).
- * - If batch has `assignedCourseIds` / `courseIds` / `visibleCourseIds` (non-empty array), only those courses are listed.
+ * - If batch has `assignedSubjectIds` / `assignedCourseIds` / `courseIds` / `visibleCourseIds`
+ *   (non-empty array), only those courses are listed.
  */
 async function fetchAssignmentsForTrainer(db, trainerUid) {
   const assignments = [];
@@ -74,7 +75,10 @@ async function fetchAssignmentsForTrainer(db, trainerUid) {
       const batchId = batchDoc.id;
       const courseIdAllowList = (() => {
         const raw =
-          batch.assignedCourseIds ?? batch.visibleCourseIds ?? batch.courseIds;
+          batch.assignedSubjectIds ??
+          batch.assignedCourseIds ??
+          batch.visibleCourseIds ??
+          batch.courseIds;
         if (!Array.isArray(raw) || raw.length === 0) return null;
         return new Set(raw.map((id) => String(id)));
       })();

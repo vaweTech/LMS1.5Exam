@@ -152,7 +152,9 @@ export default function CRTDayAssignmentPage() {
           userRole === "crtStudent" ||
           studentRole === "crtStudent" ||
           studentData?.isCrt === true;
-        setHasCourseAccess(Boolean(isSuperAdmin || isCrtStudent));
+        const isCrtTrainer =
+          userRole === "crtTrainer" || studentRole === "crtTrainer";
+        setHasCourseAccess(Boolean(isSuperAdmin || isCrtStudent || isCrtTrainer));
       } catch (_) {
         if (!cancelled) setHasCourseAccess(false);
       } finally {

@@ -26,10 +26,12 @@ export default function CRTTrainerManagementPage() {
   const [editForm, setEditForm] = useState({ name: "", phone: "" });
   const [deletingId, setDeletingId] = useState(null);
   const [crtPrograms, setCrtPrograms] = useState([]);
-  const [crtBatches, setCrtBatches] = useState([]);
+  const [crtCourses, setCrtCourses] = useState([]);
   const [selectedProgramId, setSelectedProgramId] = useState("");
-  const [selectedBatchId, setSelectedBatchId] = useState("");
   const [selectedTrainerId, setSelectedTrainerId] = useState("");
+  const [selectedTrackType, setSelectedTrackType] = useState("technical");
+  const [selectedSubjectIds, setSelectedSubjectIds] = useState([]);
+  const [trainerAssignedClasses, setTrainerAssignedClasses] = useState({});
   const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
@@ -97,32 +99,110 @@ export default function CRTTrainerManagementPage() {
     }
   }, [user, isAdmin, fetchCrtPrograms]);
 
-  // Load batches when program changes
-  const fetchCrtBatches = useCallback(async (programId) => {
+  const fetchTrainerAssignedClasses = useCallback(async () => {
+    if (!db) return;
+    try {
+      const programsSnap = await firestoreHelpers.getDocs(
+        firestoreHelpers.collection(db, "crt")
+      );
+      const map = {};
+      for (const programDoc of programsSnap.docs) {
+        const programName = programDoc.data()?.name || programDoc.id;
+        const batchesSnap = await firestoreHelpers.getDocs(
+          firestoreHelpers.collection(db, "crt", programDoc.id, "batches")
+        );
+        batchesSnap.docs.forEach((batchDoc) => {
+          const batch = batchDoc.data() || {};
+          if (!batch.trainerId) return;
+          if (!map[batch.trainerId]) map[batch.trainerId] = [];
+          map[batch.trainerId].push({
+            programId: programDoc.id,
+            batchId: batchDoc.id,
+            programName,
+            batchName: batch.name || batchDoc.id,
+          });
+        });
+      }
+      setTrainerAssignedClasses(map);
+    } catch (err) {
+      console.error("Failed to load trainer assigned classes", err);
+      setTrainerAssignedClasses({});
+    }
+  }, []);
+
+  const handleRemoveAssignedClass = useCallback(
+    async (trainerId, programId, batchId) => {
+      if (!db || !trainerId || !programId || !batchId) return;
+      const confirmed = window.confirm(
+        "Remove this class assignment from trainer?"
+      );
+      if (!confirmed) return;
+      try {
+        const batchRef = firestoreHelpers.doc(
+          db,
+          "crt",
+          programId,
+          "batches",
+          batchId
+        );
+        await firestoreHelpers.updateDoc(batchRef, {
+          trainerId: null,
+          trainerName: "",
+          trainerEmail: "",
+          trainerEmpId: "",
+          trainerTrackType: null,
+          assignedCourseIds: [],
+          assignedSubjectIds: [],
+          updatedAt: new Date().toISOString(),
+        });
+        await fetchTrainerAssignedClasses();
+        alert("Class removed from trainer.");
+      } catch (err) {
+        console.error("Failed to remove class assignment", err);
+        alert(err.message || "Failed to remove class.");
+      }
+    },
+    [fetchTrainerAssignedClasses]
+  );
+
+  // Load CRT subjects/courses for selected program
+  const fetchCrtCourses = useCallback(async (programId) => {
     if (!db || !programId) {
-      setCrtBatches([]);
-      setSelectedBatchId("");
+      setCrtCourses([]);
+      setSelectedSubjectIds([]);
       return;
     }
     try {
       const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "crt", programId, "batches")
+        firestoreHelpers.collection(db, "crt", programId, "courses")
       );
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-      setCrtBatches(list);
-      setSelectedBatchId((prev) =>
-        prev && list.some((b) => b.id === prev) ? prev : list[0]?.id || ""
-      );
+        .sort((a, b) =>
+          (a.title || a.name || "").localeCompare(b.title || b.name || "")
+        );
+      setCrtCourses(list);
+      setSelectedSubjectIds((prev) => prev.filter((id) => list.some((c) => c.id === id)));
     } catch (err) {
-      console.error("Failed to load CRT batches", err);
+      console.error("Failed to load CRT subjects", err);
+      setCrtCourses([]);
+      setSelectedSubjectIds([]);
     }
   }, []);
 
   useEffect(() => {
-    fetchCrtBatches(selectedProgramId);
-  }, [selectedProgramId, fetchCrtBatches]);
+    fetchCrtCourses(selectedProgramId);
+  }, [selectedProgramId, fetchCrtCourses]);
+
+  useEffect(() => {
+    setSelectedSubjectIds([]);
+  }, [selectedProgramId, selectedTrackType]);
+
+  useEffect(() => {
+    if (user && isAdmin && isFirebaseConfigured) {
+      fetchTrainerAssignedClasses();
+    }
+  }, [user, isAdmin, fetchTrainerAssignedClasses]);
 
   const openCreateModal = () => {
     setCreateForm({ name: "", email: "", phone: "", empId: "" });
@@ -322,8 +402,8 @@ export default function CRTTrainerManagementPage() {
 
   const handleAssignTrainerToBatch = async (e) => {
     e.preventDefault();
-    if (!selectedProgramId || !selectedBatchId || !selectedTrainerId) {
-      alert("Select program, batch and trainer.");
+    if (!selectedProgramId || !selectedTrainerId) {
+      alert("Select program and trainer.");
       return;
     }
     const trainer = trainers.find((t) => t.id === selectedTrainerId);
@@ -335,22 +415,50 @@ export default function CRTTrainerManagementPage() {
       alert("Firebase is not configured.");
       return;
     }
+    const nonTechnicalCourses = crtCourses.filter((c) => c?.isNonTechnical === true);
+    const subjectIdsToAssign =
+      selectedTrackType === "technical"
+        ? selectedSubjectIds
+        : nonTechnicalCourses.map((c) => c.id);
+
+    if (selectedTrackType === "technical" && subjectIdsToAssign.length === 0) {
+      alert("Select at least one technical subject.");
+      return;
+    }
+
     setAssigning(true);
     try {
-      const batchRef = firestoreHelpers.doc(
-        db,
-        "crt",
-        selectedProgramId,
-        "batches",
-        selectedBatchId
+      const batchesSnap = await firestoreHelpers.getDocs(
+        firestoreHelpers.collection(db, "crt", selectedProgramId, "batches")
       );
-      await firestoreHelpers.updateDoc(batchRef, {
-        trainerId: trainer.id,
-        trainerName: trainer.name || "",
-        trainerEmail: trainer.email || "",
-        trainerEmpId: trainer.empId || "",
-      });
-      alert("Trainer assigned to batch.");
+      if (batchesSnap.empty) {
+        alert("No batches found under selected CRT.");
+        setAssigning(false);
+        return;
+      }
+      await Promise.all(
+        batchesSnap.docs.map((batchDoc) =>
+          firestoreHelpers.updateDoc(
+            firestoreHelpers.doc(db, "crt", selectedProgramId, "batches", batchDoc.id),
+            {
+              trainerId: trainer.id,
+              trainerName: trainer.name || "",
+              trainerEmail: trainer.email || "",
+              trainerEmpId: trainer.empId || "",
+              trainerTrackType: selectedTrackType,
+              assignedCourseIds: subjectIdsToAssign,
+              assignedSubjectIds: subjectIdsToAssign,
+              updatedAt: new Date().toISOString(),
+            }
+          )
+        )
+      );
+      await fetchTrainerAssignedClasses();
+      alert(
+        selectedTrackType === "technical"
+          ? `Trainer assigned to all batches with ${subjectIdsToAssign.length} selected technical subject(s).`
+          : "Trainer assigned to all batches with non-technical subjects."
+      );
     } catch (err) {
       console.error("Failed to assign trainer to batch", err);
       alert(err.message || "Failed to assign trainer");
@@ -411,9 +519,6 @@ export default function CRTTrainerManagementPage() {
             <p className="text-slate-600 mt-1">
               View CRT trainers and create new trainer accounts.
             </p>
-            <p className="text-xs text-slate-500 mt-2 max-w-xl">
-              Trainers appear here only after their profile is saved to the database. If creation shows &quot;Profile could not be saved&quot;, use &quot;Retry save profile&quot; so they show in the list.
-            </p>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -464,6 +569,7 @@ export default function CRTTrainerManagementPage() {
                         <th className="p-4 font-semibold text-slate-700">Name</th>
                         <th className="p-4 font-semibold text-slate-700">Email</th>
                         <th className="p-4 font-semibold text-slate-700">Password</th>
+                        <th className="p-4 font-semibold text-slate-700">Assigned Classes</th>
                         <th className="p-4 font-semibold text-slate-700">Actions</th>
                       </tr>
                     </thead>
@@ -482,6 +588,38 @@ export default function CRTTrainerManagementPage() {
                             <td className="p-4 text-slate-600">{t.email || "—"}</td>
                             <td className="p-4 text-slate-800 font-mono text-xs max-w-[200px] break-all">
                               {t.trainerPassword || DEFAULT_TRAINER_PASSWORD}
+                            </td>
+                            <td className="p-4 text-slate-600">
+                              {Array.isArray(trainerAssignedClasses[t.id]) &&
+                              trainerAssignedClasses[t.id].length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {trainerAssignedClasses[t.id].map((c, idx) => (
+                                    <span
+                                      key={`${c.programName}-${c.batchName}-${idx}`}
+                                      className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-xs text-blue-700"
+                                    >
+                                      {c.programName} - {c.batchName}
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleRemoveAssignedClass(
+                                            t.id,
+                                            c.programId,
+                                            c.batchId
+                                          )
+                                        }
+                                        className="rounded-full px-1 text-blue-700 hover:bg-blue-100"
+                                        title="Remove class from trainer"
+                                        aria-label={`Remove ${c.batchName} from ${t.name || "trainer"}`}
+                                      >
+                                        x
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                "Not assigned"
+                              )}
                             </td>
                             <td className="p-4">
                               <div className="flex items-center gap-2">
@@ -522,14 +660,14 @@ export default function CRTTrainerManagementPage() {
             {/* Assign trainer to CRT batch */}
             <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
               <h2 className="text-base sm:text-lg font-semibold text-slate-900 mb-2">
-                Assign trainer to CRT batch
+                Assign trainer to CRT
               </h2>
               <p className="text-xs sm:text-sm text-slate-500 mb-4">
-                Select a CRT program, then a batch under that program, and finally choose a trainer to assign.
+                Select CRT, choose technical/non-technical, then assign trainer for all batches in that CRT.
               </p>
               <form
                 onSubmit={handleAssignTrainerToBatch}
-                className="grid gap-3 sm:gap-4 md:grid-cols-3"
+                className="grid gap-3 sm:gap-4 md:grid-cols-2"
               >
                 <div>
                   <label className="mb-1.5 block text-xs sm:text-sm font-medium text-slate-700">
@@ -553,22 +691,15 @@ export default function CRTTrainerManagementPage() {
                 </div>
                 <div>
                   <label className="mb-1.5 block text-xs sm:text-sm font-medium text-slate-700">
-                    Batch / section
+                    Track type
                   </label>
                   <select
-                    value={selectedBatchId}
-                    onChange={(e) => setSelectedBatchId(e.target.value)}
+                    value={selectedTrackType}
+                    onChange={(e) => setSelectedTrackType(e.target.value)}
                     className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#00448a]/30 focus:border-[#00448a]"
                   >
-                    {crtBatches.length === 0 ? (
-                      <option value="">No batches for this program</option>
-                    ) : (
-                      crtBatches.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.name || "Unnamed batch"}
-                        </option>
-                      ))
-                    )}
+                    <option value="technical">Technical</option>
+                    <option value="nonTechnical">Non-technical</option>
                   </select>
                 </div>
                 <div>
@@ -600,8 +731,9 @@ export default function CRTTrainerManagementPage() {
                       disabled={
                         assigning ||
                         !selectedProgramId ||
-                        !selectedBatchId ||
-                        !selectedTrainerId
+                        !selectedTrainerId ||
+                        (selectedTrackType === "technical" &&
+                          selectedSubjectIds.length === 0)
                       }
                       className="whitespace-nowrap px-4 py-2 rounded-xl bg-[#00448a] text-white text-xs sm:text-sm font-medium hover:bg-[#003a76] disabled:opacity-50 disabled:cursor-not-allowed"
                     >
@@ -609,6 +741,50 @@ export default function CRTTrainerManagementPage() {
                     </button>
                   </div>
                 </div>
+
+                {selectedTrackType === "technical" && (
+                  <div className="md:col-span-2">
+                    <label className="mb-1.5 block text-xs sm:text-sm font-medium text-slate-700">
+                      Technical subjects
+                    </label>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      {crtCourses.filter((c) => c?.isNonTechnical !== true).length === 0 ? (
+                        <p className="text-xs sm:text-sm text-slate-500">
+                          No technical subjects found for this CRT.
+                        </p>
+                      ) : (
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                          {crtCourses
+                            .filter((c) => c?.isNonTechnical !== true)
+                            .map((subject) => (
+                              <label
+                                key={subject.id}
+                                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedSubjectIds.includes(subject.id)}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setSelectedSubjectIds((prev) =>
+                                      checked
+                                        ? [...prev, subject.id]
+                                        : prev.filter((id) => id !== subject.id)
+                                    );
+                                  }}
+                                  className="h-4 w-4 rounded border-slate-300 text-[#00448a] focus:ring-[#00448a]/30"
+                                />
+                                <span>{subject.title || subject.name || "Untitled subject"}</span>
+                              </label>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Trainer will be assigned only to the selected technical subjects.
+                    </p>
+                  </div>
+                )}
               </form>
             </div>
           </>
