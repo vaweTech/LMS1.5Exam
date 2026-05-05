@@ -19,6 +19,7 @@ function normalizeSubdomain(raw) {
 
 function SuperAdminPage() {
     const [modalOpen, setModalOpen] = useState(false);
+    const [editingSubdomain, setEditingSubdomain] = useState("");
     const [name, setName] = useState("");
     const [subdomain, setSubdomain] = useState("");
     const [email, setEmail] = useState("");
@@ -32,6 +33,7 @@ function SuperAdminPage() {
 
     const closeModal = useCallback(() => {
         setModalOpen(false);
+        setEditingSubdomain("");
         setName("");
         setSubdomain("");
         setEmail("");
@@ -88,15 +90,16 @@ function SuperAdminPage() {
         setSaving(true);
         try {
             const token = await user.getIdToken(true);
+            const editing = !!editingSubdomain;
             const res = await fetch("/api/create-college-admin", {
-                method: "POST",
+                method: editing ? "PATCH" : "POST",
                 headers: {
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${token}`,
                 },
                 body: JSON.stringify({
                     name: name.trim(),
-                    subdomain,
+                    subdomain: editingSubdomain || subdomain,
                     email: email.trim().toLowerCase(),
                     password: password.trim() || undefined,
                     moduleLms,
@@ -110,8 +113,8 @@ function SuperAdminPage() {
                 setSaveError(data?.error || `Request failed (${res.status})`);
                 return;
             }
-            let msg = "College admin account created.";
-            if (data.defaultPasswordUsed && data.initialPassword) {
+            let msg = editing ? "College admin updated." : "College admin account created.";
+            if (!editing && data.defaultPasswordUsed && data.initialPassword) {
                 msg += ` Initial password: ${data.initialPassword} (share securely; user should change it).`;
             }
             setCreateInfo(msg);
@@ -122,6 +125,19 @@ function SuperAdminPage() {
         } finally {
             setSaving(false);
         }
+    };
+
+    const handleEdit = (row) => {
+        setEditingSubdomain(row.subdomain || row.id || "");
+        setName(row.name || "");
+        setSubdomain(row.subdomain || row.id || "");
+        setEmail(row.collegeAdminEmail || "");
+        setPassword("");
+        setModuleLms(!!row.moduleLms);
+        setModuleCrt(!!row.moduleCrt);
+        setSaveError("");
+        setCreateInfo("");
+        setModalOpen(true);
     };
 
     return (
@@ -137,7 +153,10 @@ function SuperAdminPage() {
                 <div className="flex flex-col gap-2">
                     <button
                         type="button"
-                        onClick={() => setModalOpen(true)}
+                        onClick={() => {
+                            closeModal();
+                            setModalOpen(true);
+                        }}
                         className="bg-blue-500 text-white px-4 py-2 w-52 mx-auto rounded-md hover:bg-blue-600 cursor-pointer"
                     >
                         Create College Admin
@@ -160,7 +179,7 @@ function SuperAdminPage() {
                                         id="create-college-admin-title"
                                         className="text-lg font-semibold"
                                     >
-                                        Create College Admin
+                                        {editingSubdomain ? "Edit College Admin" : "Create College Admin"}
                                     </h2>
                                     <button
                                         type="button"
@@ -220,12 +239,14 @@ function SuperAdminPage() {
                                             type="password"
                                             value={password}
                                             onChange={(e) => setPassword(e.target.value)}
-                                            placeholder="Leave blank to use generated default"
+                                            placeholder={editingSubdomain ? "Leave blank to keep current password" : "Leave blank to use generated default"}
                                             className="rounded border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                                             autoComplete="new-password"
                                         />
                                         <p className="text-xs text-gray-500">
-                                            If empty, a default password is set and shown once after creation.
+                                            {editingSubdomain
+                                                ? "If empty, existing password remains unchanged."
+                                                : "If empty, a default password is set and shown once after creation."}
                                         </p>
                                     </div>
                                     <div className="flex flex-col gap-1.5">
@@ -250,6 +271,7 @@ function SuperAdminPage() {
                                                     setSubdomain(normalizeSubdomain(e.target.value))
                                                 }
                                                 placeholder="crreddy"
+                                                disabled={!!editingSubdomain}
                                                 className="min-w-0 flex-1 border-0 px-3 py-2 outline-none font-mono text-sm"
                                                 autoComplete="off"
                                             />
@@ -267,7 +289,7 @@ function SuperAdminPage() {
                                             Modules (permissions)
                                         </legend>
                                         <p className="mb-2 text-xs text-gray-500">
-                                            LMS: main admin tools (content, users, programs, etc.). CRT: placement / CRT manager and CRT courses. CRT also includes Programs / course-style pages.
+                                            LMS: shows LMS admin tools (content, users, programs, internships, etc.). CRT: shows CRT manager pages only. If both are selected, both LMS and CRT sections are shown.
                                         </p>
                                         <label className="flex cursor-pointer items-center gap-2 py-1">
                                             <input
@@ -292,14 +314,14 @@ function SuperAdminPage() {
                                         type="submit"
                                         disabled={
                                             !name.trim() ||
-                                            !subdomain ||
+                                            !(editingSubdomain || subdomain) ||
                                             !email.trim() ||
                                             saving ||
                                             (!moduleLms && !moduleCrt)
                                         }
                                         className="rounded-md bg-blue-500 px-4 py-2 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
                                     >
-                                        {saving ? "Saving…" : "Create"}
+                                        {saving ? "Saving…" : editingSubdomain ? "Update" : "Create"}
                                     </button>
                                 </form>
                             </div>
@@ -323,6 +345,7 @@ function SuperAdminPage() {
                                         <th className="px-3 py-2 font-medium">Admin email</th>
                                         <th className="px-3 py-2 font-medium">LMS</th>
                                         <th className="px-3 py-2 font-medium">CRT</th>
+                                        <th className="px-3 py-2 font-medium">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -333,6 +356,15 @@ function SuperAdminPage() {
                                             <td className="px-3 py-2 text-gray-700">{row.collegeAdminEmail || "—"}</td>
                                             <td className="px-3 py-2">{row.moduleLms ? "Yes" : "—"}</td>
                                             <td className="px-3 py-2">{row.moduleCrt ? "Yes" : "—"}</td>
+                                            <td className="px-3 py-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleEdit(row)}
+                                                    className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
+                                                >
+                                                    Edit
+                                                </button>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>

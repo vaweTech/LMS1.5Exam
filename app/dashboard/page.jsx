@@ -2277,7 +2277,7 @@ export default function DashboardPage() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 sm:mb-10 space-y-4 sm:space-y-0">
           <h1 className="text-2xl sm:text-3xl font-bold">Dashboard</h1>
           <div className="flex items-center gap-3">
-            {(role === "admin" || role === "dataentry") && (
+            {(role === "admin" || role === "dataentry" || role === "collegeAdmin") && (
               <button
                 onClick={() => router.push("/Admin/dashboard")}
                 className="px-3 sm:px-4 py-2 bg-[#00448a] text-white rounded-xl hover:bg-[#003a76] transition text-sm sm:text-base"

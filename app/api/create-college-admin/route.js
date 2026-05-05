@@ -212,3 +212,172 @@ export async function POST(req) {
     }
   });
 }
+
+export async function PATCH(req) {
+  return withAdminAuth(req, async (authReq) => {
+    try {
+      const body = await authReq.json();
+      const name = String(body.name || "").trim();
+      const subdomain = normalizeSubdomain(body.subdomain);
+      const email = String(body.email || "").trim().toLowerCase();
+      const rootDomain = String(body.rootDomain || "skillwins.in").trim() || "skillwins.in";
+      const host = subdomain ? `${subdomain}.${rootDomain}` : "";
+      const passwordRaw = String(body.password || "").trim();
+      const moduleLms = !!body.moduleLms;
+      const moduleCrt = !!body.moduleCrt;
+
+      if (!name || !subdomain || !host) {
+        return NextResponse.json(
+          { error: "name, subdomain, and a valid host are required" },
+          { status: 400 }
+        );
+      }
+      if (!email) {
+        return NextResponse.json({ error: "email is required" }, { status: 400 });
+      }
+      if (!moduleLms && !moduleCrt) {
+        return NextResponse.json(
+          { error: "Select at least one module: LMS and/or CRT" },
+          { status: 400 }
+        );
+      }
+
+      const collegeRef = adminDb.collection(COLLEGE_HOSTS_COLLECTION).doc(subdomain);
+      const collegeSnap = await withRetry(() => collegeRef.get());
+      if (!collegeSnap.exists) {
+        return NextResponse.json({ error: "College not found for this subdomain." }, { status: 404 });
+      }
+      const collegeData = collegeSnap.data() || {};
+      const uid = String(collegeData.collegeAdminUid || "").trim();
+      if (!uid) {
+        return NextResponse.json({ error: "College admin UID missing for this college." }, { status: 400 });
+      }
+
+      const authUpdate = { email, displayName: name };
+      if (passwordRaw) authUpdate.password = passwordRaw;
+      try {
+        await admin.auth().updateUser(uid, authUpdate);
+      } catch (e) {
+        if (e?.code === "auth/email-already-exists") {
+          return NextResponse.json(
+            { error: "This email already has another account. Use a different email." },
+            { status: 409 }
+          );
+        }
+        throw e;
+      }
+
+      const ts = admin.firestore.FieldValue.serverTimestamp();
+      const now = new Date();
+      const detailsPath = `users/${uid}/${USER_DETAILS_SUBCOLLECTION}/${USER_DETAILS_DOC_ID}`;
+
+      const userRootDoc = {
+        role: "collegeAdmin",
+        moduleLms,
+        moduleCrt,
+        platformEmpty: true,
+        status: "active",
+        updatedAt: ts,
+        updatedBySuperAdminUid: authReq.user.uid,
+      };
+
+      const userDetailsDoc = {
+        name,
+        email,
+        role: "collegeAdmin",
+        subdomain,
+        host,
+        moduleLms,
+        moduleCrt,
+        platformEmpty: true,
+        status: "active",
+        collegeAdminUid: uid,
+        updatedAt: ts,
+        updatedBySuperAdminUid: authReq.user.uid,
+      };
+
+      const collegeDoc = {
+        name,
+        subdomain,
+        host,
+        collegeAdminUid: uid,
+        collegeAdminEmail: email,
+        moduleLms,
+        moduleCrt,
+        platformEmpty: true,
+        emptyLms: moduleLms,
+        emptyCrt: moduleCrt,
+        updatedAt: ts,
+      };
+
+      try {
+        await withRetry(() => adminDb.collection("users").doc(uid).set(userRootDoc, { merge: true }));
+        await withRetry(() =>
+          adminDb
+            .collection("users")
+            .doc(uid)
+            .collection(USER_DETAILS_SUBCOLLECTION)
+            .doc(USER_DETAILS_DOC_ID)
+            .set(userDetailsDoc, { merge: true })
+        );
+        await withRetry(() => adminDb.collection(COLLEGE_HOSTS_COLLECTION).doc(subdomain).set(collegeDoc, { merge: true }));
+      } catch (firestoreError) {
+        if (!isRetryableError(firestoreError)) throw firestoreError;
+        console.warn(
+          "update-college-admin: Firestore SDK failed, trying REST fallback…",
+          firestoreError.message
+        );
+
+        await writeDocumentViaRest("users", uid, {
+          role: "collegeAdmin",
+          moduleLms,
+          moduleCrt,
+          platformEmpty: true,
+          status: "active",
+          updatedAt: now,
+          updatedBySuperAdminUid: authReq.user.uid,
+        });
+        await writeDocumentPathViaRest(detailsPath, {
+          name,
+          email,
+          role: "collegeAdmin",
+          subdomain,
+          host,
+          moduleLms,
+          moduleCrt,
+          platformEmpty: true,
+          status: "active",
+          collegeAdminUid: uid,
+          updatedAt: now,
+          updatedBySuperAdminUid: authReq.user.uid,
+        });
+        await writeDocumentViaRest(COLLEGE_HOSTS_COLLECTION, subdomain, {
+          name,
+          subdomain,
+          host,
+          collegeAdminUid: uid,
+          collegeAdminEmail: email,
+          moduleLms,
+          moduleCrt,
+          platformEmpty: true,
+          emptyLms: moduleLms,
+          emptyCrt: moduleCrt,
+          updatedAt: now,
+        });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        uid,
+        host,
+        passwordUpdated: !!passwordRaw,
+      });
+    } catch (e) {
+      console.error("update-college-admin", e);
+      return NextResponse.json(
+        { error: e?.message || "Failed to update college admin" },
+        { status: 500 }
+      );
+    }
+  });
+}
