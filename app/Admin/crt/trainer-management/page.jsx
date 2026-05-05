@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { auth, db, firestoreHelpers, isFirebaseConfigured } from "../../../../lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import { db, firestoreHelpers, isFirebaseConfigured } from "../../../../lib/firebase";
 import { useRouter } from "next/navigation";
+import { useAdminAccess } from "../../AdminAccessContext";
 import { motion } from "framer-motion";
 import { ArrowLeft, UserCog, UserPlus, X, RefreshCw, Pencil, Trash2 } from "lucide-react";
 
@@ -13,9 +13,7 @@ const DEFAULT_TRAINER_PASSWORD = "VaweTrainer@2025";
 
 export default function CRTTrainerManagementPage() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
   const [trainers, setTrainers] = useState([]);
   const [loadingTrainers, setLoadingTrainers] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -33,20 +31,6 @@ export default function CRTTrainerManagementPage() {
   const [selectedSubjectIds, setSelectedSubjectIds] = useState([]);
   const [trainerAssignedClasses, setTrainerAssignedClasses] = useState({});
   const [assigning, setAssigning] = useState(false);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const ref = firestoreHelpers.doc(db, "users", u.uid);
-        const snap = await firestoreHelpers.getDoc(ref);
-        const role = snap.exists() ? snap.data().role : null;
-        setIsAdmin(role === "admin" || role === "superadmin");
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
 
   const fetchTrainers = useCallback(async () => {
     if (!db) return;

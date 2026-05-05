@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { signOut, onAuthStateChanged } from "firebase/auth";
-import { auth, db, firestoreHelpers } from "../../../lib/firebase";
+import { db, firestoreHelpers } from "../../../lib/firebase";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import { useAdminAccess } from "../AdminAccessContext";
+import { collegeAdminPathAllowed } from "@/lib/collegeAdminAccess";
 import {
   Plus,
   ClipboardList,
@@ -94,34 +95,16 @@ function AdminCard({ href, icon: Icon, title, description, color, index }) {
 
 export default function AdminDashboardPage() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isDataEntry, setIsDataEntry] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const access = useAdminAccess();
+  const user = access.user;
+  const loading = access.loading;
   const [search, setSearch] = useState("");
   const [crtCourses, setCrtCourses] = useState([]);
   const [loadingCrtCourses, setLoadingCrtCourses] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const ref = firestoreHelpers.doc(db, "users", u.uid);
-        const snap = await firestoreHelpers.getDoc(ref);
-        const userRole = snap.exists()
-          ? (snap.data().role || snap.data().Role)
-          : null;
-        setIsAdmin(userRole === "admin" || userRole === "superadmin");
-        setIsDataEntry(userRole === "dataentry");
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
     async function loadCrtCourses() {
-      if (!isAdmin && !isDataEntry) {
+      if (!access.hasCrtManagerAccess) {
         setCrtCourses([]);
         return;
       }
@@ -147,17 +130,24 @@ export default function AdminDashboardPage() {
     }
 
     loadCrtCourses();
-  }, [isAdmin, isDataEntry]);
+  }, [access.hasCrtManagerAccess]);
 
   const filteredModules = useMemo(() => {
-    const canSee = (m) => m.adminOnly ? isAdmin : (isAdmin || isDataEntry);
+    const canSee = (m) => {
+      if (access.isFullAdmin) return true;
+      if (access.isDataEntry) return m.adminOnly ? false : true;
+      if (access.isCollegeAdmin) {
+        return collegeAdminPathAllowed(m.href, access.moduleLms, access.moduleCrt);
+      }
+      return false;
+    };
     let list = MODULES.filter(canSee);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter((m) => m.title.toLowerCase().includes(q) || m.description.toLowerCase().includes(q));
     }
     return list;
-  }, [isAdmin, isDataEntry, search]);
+  }, [access, search]);
 
   const bySection = useMemo(() => {
     const map = {};
@@ -190,7 +180,10 @@ export default function AdminDashboardPage() {
     );
   }
 
-  if (!user || (!isAdmin && !isDataEntry)) {
+  const canUseDashboard =
+    access.isFullAdmin || access.isDataEntry || access.isCollegeAdmin;
+
+  if (!user || !canUseDashboard) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
         <motion.div
@@ -202,7 +195,7 @@ export default function AdminDashboardPage() {
             <ShieldAlert className="w-8 h-8 text-red-600" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Access Denied</h1>
-          <p className="text-slate-600 mb-8">Sign in with an admin or data entry account.</p>
+          <p className="text-slate-600 mb-8">Sign in with an admin, college admin, or data entry account.</p>
           <button onClick={() => router.push("/")} className="px-5 py-3 bg-[#00448a] text-white rounded-xl hover:bg-[#003a76] font-medium">
             Go to Home
           </button>
@@ -226,9 +219,9 @@ export default function AdminDashboardPage() {
         </div>
         <div className="flex items-center gap-2 ml-3">
           <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-lg bg-[#00448a]/10 text-[#00448a] text-xs font-semibold">
-            {isAdmin ? "Admin" : "Data entry"}
+            {access.isFullAdmin ? "Admin" : access.isCollegeAdmin ? "College admin" : "Data entry"}
           </span>
-          {isAdmin && (
+          {access.isFullAdmin && (
             <Link
               href="/Admin/register-form"
               className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors shadow-sm"
@@ -256,6 +249,13 @@ export default function AdminDashboardPage() {
             {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </p>
         </motion.div>
+
+        {access.isCollegeAdmin && access.platformEmpty ? (
+          <div className="mb-6 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+            Your college workspace is new: LMS and CRT manager areas start empty until you add your own programs,
+            CRT courses, and users.
+          </div>
+        ) : null}
 
         {filteredModules.length === 0 && (
           <div className="text-center py-16 rounded-2xl bg-white border border-slate-200">
@@ -292,7 +292,7 @@ export default function AdminDashboardPage() {
           </motion.section>
         ))}
 
-        {(isAdmin || isDataEntry) && (
+        {access.hasCrtManagerAccess && (
           <motion.section
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}

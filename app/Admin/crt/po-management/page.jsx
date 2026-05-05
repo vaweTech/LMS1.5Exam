@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { auth, db, firestoreHelpers } from "../../../../lib/firebase";
+import { db, firestoreHelpers } from "../../../../lib/firebase";
+import { useAdminAccess } from "../../AdminAccessContext";
 import { makeAuthenticatedRequest, handleAuthError } from "@/lib/authUtils";
 import Link from "next/link";
 import { Layers, ArrowLeft } from "lucide-react";
@@ -12,9 +12,7 @@ const DEFAULT_PO_PASSWORD = "VawePO@2025";
 
 export default function POManagementPage() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
   const [showForm, setShowForm] = useState(false);
   const [savingPo, setSavingPo] = useState(false);
   const [loadingPos, setLoadingPos] = useState(false);
@@ -44,20 +42,6 @@ export default function POManagementPage() {
   const [selectedBatchId, setSelectedBatchId] = useState("");
   const [selectedPoId, setSelectedPoId] = useState("");
   const [assigningPo, setAssigningPo] = useState(false);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const ref = firestoreHelpers.doc(db, "users", u.uid);
-        const snap = await firestoreHelpers.getDoc(ref);
-        const role = snap.exists() ? snap.data().role : null;
-        setIsAdmin(role === "admin" || role === "superadmin");
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
 
   useEffect(() => {
     if (!user || !isAdmin) return;

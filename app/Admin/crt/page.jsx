@@ -1,32 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth, db, firestoreHelpers } from "../../../lib/firebase";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Cpu, Layers, FileCheck, ChartBar, ArrowLeft, Users, UserCog, UserCheck, Briefcase } from "lucide-react";
+import { useAdminAccess } from "../AdminAccessContext";
 
 export default function CRTDashboardPage() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const ref = firestoreHelpers.doc(db, "users", u.uid);
-        const snap = await firestoreHelpers.getDoc(ref);
-        const role = snap.exists() ? snap.data().role : null;
-        setIsAdmin(role === "admin" || role === "superadmin");
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
+  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
 
   if (loading) {
     return (

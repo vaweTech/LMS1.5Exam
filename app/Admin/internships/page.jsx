@@ -11,13 +11,16 @@ import {
   deleteDoc as mcqDeleteDoc,
   doc as mcqDoc,
 } from "firebase/firestore";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { signOut } from "firebase/auth";
+import { useAdminAccess } from "../AdminAccessContext";
 
 export default function InternshipManager() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const access = useAdminAccess();
+  const user = access.user;
+  const loading = access.loading;
+  const isAdmin =
+    access.isFullAdmin || (access.isCollegeAdmin && (access.moduleLms || access.moduleCrt));
 
   const [internships, setInternships] = useState([]);
   const [selectedInternshipId, setSelectedInternshipId] = useState("");
@@ -61,20 +64,6 @@ export default function InternshipManager() {
       }),
     [internshipStudents, assignedStudentIds]
   );
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const ref = firestoreHelpers.doc(db, "users", u.uid);
-        const snap = await firestoreHelpers.getDoc(ref);
-        const role = snap.exists() ? snap.data().role : null;
-        setIsAdmin(role === "admin" || role === "superadmin");
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
 
   const fetchInternships = useCallback(async function fetchInternships() {
     const snap = await firestoreHelpers.getDocs(

@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
-import { auth, db, firestoreHelpers, isFirebaseConfigured } from "../../../../lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import { db, firestoreHelpers, isFirebaseConfigured } from "../../../../lib/firebase";
 import { useRouter } from "next/navigation";
+import { useAdminAccess } from "../../AdminAccessContext";
 import { motion } from "framer-motion";
 import { ArrowLeft, GraduationCap, Search, RefreshCw, UserPlus, X, Phone, CheckCircle2 } from "lucide-react";
 import { makeAuthenticatedRequest, handleAuthError } from "@/lib/authUtils";
@@ -73,9 +73,7 @@ const INITIAL_ADMISSION_FORM = {
 
 export default function CRTStudentUserManagementPage() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
   const [students, setStudents] = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [search, setSearch] = useState("");
@@ -169,20 +167,6 @@ export default function CRTStudentUserManagementPage() {
       setOtpVerifying(false);
     }
   };
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const ref = firestoreHelpers.doc(db, "users", u.uid);
-        const snap = await firestoreHelpers.getDoc(ref);
-        const role = snap.exists() ? snap.data().role : null;
-        setIsAdmin(role === "admin" || role === "superadmin");
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
 
   const fetchStudents = useCallback(async () => {
     if (!db) return;

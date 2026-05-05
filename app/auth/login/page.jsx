@@ -1,15 +1,23 @@
 "use client";
 import AuthForm from "../../../components/AuthForm";
-import { firebaseAuth } from "../../../lib/firebase";
+import { firebaseAuth, db } from "../../../lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
- 
 
 export default function LoginPage() {
   const router = useRouter();
 
   async function handleLogin(email, password) {
     try {
-      await firebaseAuth.login(email, password);
+      const cred = await firebaseAuth.login(email, password);
+      if (db && cred?.user?.uid) {
+        const snap = await getDoc(doc(db, "users", cred.user.uid));
+        const role = snap.exists() ? snap.data().role : null;
+        if (role === "collegeAdmin") {
+          router.push("/Admin/dashboard");
+          return;
+        }
+      }
       router.push("/dashboard");
     } catch (err) {
       alert(err.message || "Login failed");

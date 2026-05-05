@@ -12,7 +12,8 @@ import {
   deleteDoc as mcqDeleteDoc,
   addDoc as mcqAddDoc,
 } from "firebase/firestore";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { signOut } from "firebase/auth";
+import { useAdminAccess } from "../../../AdminAccessContext";
 
 export default function ManageCRTCourses() {
   const router = useRouter();
@@ -21,9 +22,7 @@ export default function ManageCRTCourses() {
   const crtId = params?.crtId;
   const initialCourseId = search?.get("course") || "";
 
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
 
   const [crtCourses, setCrtCourses] = useState([]);
   const [crtTests, setCrtTests] = useState([]);
@@ -65,20 +64,6 @@ export default function ManageCRTCourses() {
   const [savingCrtTestQuestions, setSavingCrtTestQuestions] = useState(false);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
   const [editingCrtTestId, setEditingCrtTestId] = useState("");
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const ref = firestoreHelpers.doc(db, "users", u.uid);
-        const snap = await firestoreHelpers.getDoc(ref);
-        const role = snap.exists() ? snap.data().role : null;
-        setIsAdmin(role === "admin" || role === "superadmin");
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
 
   const fetchCrtCourses = useCallback(async function fetchCrtCourses() {
     if (!crtId) return;

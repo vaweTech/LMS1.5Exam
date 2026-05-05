@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { auth, db, firestoreHelpers } from "../../../../lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import { db, firestoreHelpers } from "../../../../lib/firebase";
+import { useAdminAccess } from "../../AdminAccessContext";
 import { ArrowLeftIcon, UserGroupIcon, ChartBarIcon, DocumentTextIcon } from "@heroicons/react/24/solid";
 
 const NO_BATCH_KEY = "__no_batch__";
@@ -66,9 +66,7 @@ const DUMMY_SECTION_ANALYTICS = [
 ];
 
 export default function CRTTestSubmissionPage() {
-  const [user, setUser] = useState(null); 
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
 
   const [crts, setCrts] = useState([]);
   const [selectedCrtId, setSelectedCrtId] = useState("");
@@ -77,20 +75,6 @@ export default function CRTTestSubmissionPage() {
   const [submissions, setSubmissions] = useState([]);
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
   const [useDummyData, setUseDummyData] = useState(true);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const ref = firestoreHelpers.doc(db, "users", u.uid);
-        const snap = await firestoreHelpers.getDoc(ref);
-        const role = snap.exists() ? snap.data().role : null;
-        setIsAdmin(role === "admin" || role === "superadmin");
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
 
   const fetchCrts = useCallback(async () => {
     const snap = await firestoreHelpers.getDocs(

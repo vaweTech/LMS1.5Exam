@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { auth, db, firestoreHelpers } from "../../../../../lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import { db, firestoreHelpers } from "../../../../../lib/firebase";
+import { useAdminAccess } from "../../../AdminAccessContext";
 import {
   ArrowLeftIcon,
   ChartBarIcon,
@@ -64,20 +64,6 @@ export default function CRTTestAnalyticsPage() {
   const [sortBy, setSortBy] = useState("avgDesc");
   const [searchQuery, setSearchQuery] = useState("");
   const [useDummyData, setUseDummyData] = useState(true);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const ref = firestoreHelpers.doc(db, "users", u.uid);
-        const snap = await firestoreHelpers.getDoc(ref);
-        const role = snap.exists() ? snap.data().role : null;
-        setIsAdmin(role === "admin" || role === "superadmin");
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
 
   const fetchCrts = useCallback(async () => {
     const snap = await firestoreHelpers.getDocs(

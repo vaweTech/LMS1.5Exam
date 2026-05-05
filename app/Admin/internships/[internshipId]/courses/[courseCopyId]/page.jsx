@@ -3,7 +3,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { auth, db, firestoreHelpers } from "../../../../../../lib/firebase";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { signOut } from "firebase/auth";
+import { useAdminAccess } from "../../../../AdminAccessContext";
 
 export default function EditInternshipCourse() {
   const router = useRouter();
@@ -11,9 +12,11 @@ export default function EditInternshipCourse() {
   const internshipId = params?.internshipId;
   const courseCopyId = params?.courseCopyId;
 
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const access = useAdminAccess();
+  const user = access.user;
+  const loading = access.loading;
+  const isAdmin =
+    access.isFullAdmin || (access.isCollegeAdmin && (access.moduleLms || access.moduleCrt));
 
   const [course, setCourse] = useState(null);
   const [savingCourse, setSavingCourse] = useState(false);
@@ -28,20 +31,6 @@ export default function EditInternshipCourse() {
     classDocs: "",
     order: 1,
   });
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const ref = firestoreHelpers.doc(db, "users", u.uid);
-        const snap = await firestoreHelpers.getDoc(ref);
-        const role = snap.exists() ? snap.data().role : null;
-        setIsAdmin(role === "admin" || role === "superadmin");
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
 
   useEffect(() => {
     if (!internshipId || !courseCopyId) return;

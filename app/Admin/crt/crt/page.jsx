@@ -11,14 +11,13 @@ import {
   deleteDoc as mcqDeleteDoc,
   doc as mcqDoc,
 } from "firebase/firestore";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { signOut } from "firebase/auth";
 import CrtProgrammeExamBuilder from "../../../crtcomponents/CrtProgrammeExamBuilder";
+import { useAdminAccess } from "../../AdminAccessContext";
 
 export default function CRTManager() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
 
   const [crts, setCrts] = useState([]);
   const [selectedCrtId, setSelectedCrtId] = useState(""); 
@@ -129,20 +128,6 @@ export default function CRTManager() {
         : [],
     [crtStudents, selectedBatchId, batchStudentIds]
   );
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const ref = firestoreHelpers.doc(db, "users", u.uid);
-        const snap = await firestoreHelpers.getDoc(ref);
-        const role = snap.exists() ? snap.data().role : null;
-        setIsAdmin(role === "admin" || role === "superadmin");
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
 
   const fetchCrts = useCallback(async function fetchCrts() {
     const snap = await firestoreHelpers.getDocs(

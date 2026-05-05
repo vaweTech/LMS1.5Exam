@@ -12,16 +12,15 @@ import {
   deleteDoc as mcqDeleteDoc,
   addDoc as mcqAddDoc,
 } from "firebase/firestore";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { signOut } from "firebase/auth";
+import { useAdminAccess } from "../../../AdminAccessContext";
 
 export default function CourseSyllabusDays() {
   const router = useRouter();
   const params = useParams();
   const courseId = params?.courseId;
 
-  const [user, setUser] = useState(null);
-  const [canManageCourse, setCanManageCourse] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { user, loading, hasCrtManagerAccess: canManageCourse } = useAdminAccess();
 
   const [course, setCourse] = useState(null);
 
@@ -56,24 +55,6 @@ export default function CourseSyllabusDays() {
   const [editingCourseInfo, setEditingCourseInfo] = useState(false);
   const [courseInfoDraft, setCourseInfoDraft] = useState({ title: "", courseCode: "", description: "" });
   const [savingCourseInfo, setSavingCourseInfo] = useState(false);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const ref = firestoreHelpers.doc(db, "users", u.uid);
-        const snap = await firestoreHelpers.getDoc(ref);
-        const role = snap.exists()
-          ? (snap.data().role || snap.data().Role)
-          : null;
-        setCanManageCourse(
-          role === "admin" || role === "superadmin" || role === "dataentry"
-        );
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
 
   const fetchCourse = useCallback(async () => {
     if (!courseId) return;

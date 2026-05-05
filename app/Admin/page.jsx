@@ -12,6 +12,7 @@ export default function AdminRootPage() {
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isDataEntry, setIsDataEntry] = useState(false);
+  const [isCollegeAdmin, setIsCollegeAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -25,11 +26,12 @@ export default function AdminRootPage() {
           : null;
         const admin = userRole === "admin" || userRole === "superadmin";
         const dataEntry = userRole === "dataentry";
+        const collegeAdmin = userRole === "collegeAdmin";
         setIsAdmin(admin);
         setIsDataEntry(dataEntry);
-        if (admin || dataEntry) {
+        setIsCollegeAdmin(collegeAdmin);
+        if (admin || dataEntry || collegeAdmin) {
           router.replace("/Admin/dashboard");
-          return;
         }
       }
       setLoading(false);
@@ -52,7 +54,7 @@ export default function AdminRootPage() {
     );
   }
 
-  if (!user || (!isAdmin && !isDataEntry)) {
+  if (!user || (!isAdmin && !isDataEntry && !isCollegeAdmin)) {
   return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
         <motion.div

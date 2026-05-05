@@ -127,10 +127,12 @@ export default function ManageMCQs() {
         const userRole = userSnap.exists()
           ? (userSnap.data().role || userSnap.data().Role)
           : null;
+        const d = userSnap.exists() ? userSnap.data() : {};
         const allowedRole =
           userRole === "admin" ||
           userRole === "superadmin" ||
-          userRole === "dataentry";
+          userRole === "dataentry" ||
+          (userRole === "collegeAdmin" && !!d.moduleLms);
         setCanManageMcqs(allowedRole);
         
         if (courses.length > 0 && allowedRole) {

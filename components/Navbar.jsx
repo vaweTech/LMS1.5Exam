@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../lib/firebase";
@@ -46,6 +46,8 @@ export default function Navbar({
   const [isLocked, setIsLocked] = useState(false);
   const [programsDropdownOpen, setProgramsDropdownOpen] = useState(false);
   const [programsMobileExpanded, setProgramsMobileExpanded] = useState(false);
+  /** When set, college admin: Trainings submenu only shows LMS and/or CRT links per superadmin form */
+  const [collegeNavModules, setCollegeNavModules] = useState(null);
   
   // Refs for click-outside detection and dropdown hover timers
   const desktopMenuRef = useRef(null);
@@ -119,10 +121,23 @@ export default function Navbar({
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
         setResolvedUserEmail(u.email || userEmail);
+        setCollegeNavModules(null);
         try {
-          // First try: document keyed by UID
-          const studentRef = doc(db, "students", u.uid);
-          const snap = await getDoc(studentRef);
+          const [snap, userSnap] = await Promise.all([
+            getDoc(doc(db, "students", u.uid)),
+            getDoc(doc(db, "users", u.uid)),
+          ]);
+
+          if (userSnap.exists()) {
+            const ud = userSnap.data();
+            if (ud.role === "collegeAdmin") {
+              setCollegeNavModules({
+                moduleLms: !!ud.moduleLms,
+                moduleCrt: !!ud.moduleCrt,
+              });
+            }
+          }
+
           if (snap.exists()) {
             const data = snap.data();
             setResolvedUserName(data?.name || userName);
@@ -136,7 +151,9 @@ export default function Navbar({
               setResolvedUserName(data?.name || userName);
               setIsLocked(Boolean(data?.locked));
             } else {
-              setResolvedUserName(userName);
+              setResolvedUserName(
+                u.displayName || (userSnap.exists() && userSnap.data()?.name) || userName
+              );
               setIsLocked(false);
             }
           }
@@ -148,6 +165,7 @@ export default function Navbar({
         setResolvedUserEmail(userEmail);
         setResolvedUserName(userName);
         setIsLocked(false);
+        setCollegeNavModules(null);
       }
     });
     return () => unsub();
@@ -250,24 +268,47 @@ export default function Navbar({
     }
   };
 
-  const programsSubLinks = [
-    { href: "/courses", label: "Courses", icon: BookOpenIcon },
-    { href: "/internships", label: "Internships", icon: BriefcaseIcon },
-    { href: "/crt", label: "CRT Programmes", icon: AcademicCapIcon },
-  ];
+  const navigationLinks = useMemo(() => {
+    const allProgramsSubLinks = [
+      { href: "/courses", label: "Courses", icon: BookOpenIcon, kind: "lms" },
+      { href: "/internships", label: "Internships", icon: BriefcaseIcon, kind: "lms" },
+      { href: "/crt", label: "CRT Programmes", icon: AcademicCapIcon, kind: "crt" },
+    ];
 
-  const allLinks = [
-    { href: "/main", icon: HomeIcon, label: "Home" },
-    { href: "/dashboard", icon: RectangleStackIcon, label: "Dashboard" },
-    { label: "Trainings", icon: BookOpenIcon, children: programsSubLinks },
-    { href: "/assignments", icon: CommandLineIcon, label: "Progress Tests" },
-    { href: "/compiler", icon: CommandLineIcon, label: "Compiler" },
-    { href: "/practice", icon: PuzzlePieceIcon, label: "Practice" },
-  ];
+    let programsSubLinks = allProgramsSubLinks;
+    if (collegeNavModules) {
+      const { moduleLms, moduleCrt } = collegeNavModules;
+      programsSubLinks = allProgramsSubLinks.filter((item) => {
+        if (item.kind === "crt") return moduleCrt;
+        return moduleLms;
+      }).map(({ kind: _k, ...rest }) => rest);
+    } else {
+      programsSubLinks = allProgramsSubLinks.map(({ kind: _k, ...rest }) => rest);
+    }
 
-  const navigationLinks = isLocked
-    ? allLinks.filter((l) => l.href && ["/main", "/dashboard"].includes(l.href))
-    : allLinks;
+    const coreLinks = [
+      { href: "/main", icon: HomeIcon, label: "Home" },
+      { href: "/dashboard", icon: RectangleStackIcon, label: "Dashboard" },
+    ];
+    const afterTrainings = [
+      { href: "/assignments", icon: CommandLineIcon, label: "Progress Tests" },
+      { href: "/compiler", icon: CommandLineIcon, label: "Compiler" },
+      { href: "/practice", icon: PuzzlePieceIcon, label: "Practice" },
+    ];
+
+    const allLinks =
+      programsSubLinks.length > 0
+        ? [
+            ...coreLinks,
+            { label: "Trainings", icon: BookOpenIcon, children: programsSubLinks },
+            ...afterTrainings,
+          ]
+        : [...coreLinks, ...afterTrainings];
+
+    return isLocked
+      ? allLinks.filter((l) => l.href && ["/main", "/dashboard"].includes(l.href))
+      : allLinks;
+  }, [collegeNavModules, isLocked]);
 
   return (
     <>

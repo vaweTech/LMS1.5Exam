@@ -1212,9 +1212,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { auth, db, firestoreHelpers, isFirebaseConfigured } from "../../../../lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import { db, firestoreHelpers, isFirebaseConfigured } from "../../../../lib/firebase";
 import { useRouter } from "next/navigation";
+import { useAdminAccess } from "../../AdminAccessContext";
 import { motion } from "framer-motion";
 import { ArrowLeft, UserCheck, Search, RefreshCw, Mail, Phone, X } from "lucide-react";
 
@@ -1253,9 +1253,7 @@ function inchargeRoleLabel(role) {
 
 export default function ActiveInchargePage() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
   const [incharges, setIncharges] = useState([]);
 
   // 🔥 Changed from classes -> batches
@@ -1680,20 +1678,6 @@ export default function ActiveInchargePage() {
         firestoreHelpers.deleteDoc(firestoreHelpers.doc(db, "assignedClasses", id))
       )
     );
-  }, []);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const ref = firestoreHelpers.doc(db, "users", u.uid);
-        const snap = await firestoreHelpers.getDoc(ref);
-        const role = snap.exists() ? snap.data().role || snap.data().Role : null;
-        setIsAdmin(role === "admin" || role === "superadmin");
-      }
-      setLoading(false);
-    });
-    return () => unsub();
   }, []);
 
   const fetchIncharges = useCallback(async () => {
