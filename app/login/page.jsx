@@ -1,23 +1,34 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../../lib/firebase";
+import { registerSingleSessionWithConfirm } from "../../lib/singleSession";
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const infoMessage = useMemo(() => {
+    const reason = searchParams?.get("reason");
+    if (reason === "session-expired") {
+      return "You were logged out because this account was used on another device.";
+    }
+    return "";
+  }, [searchParams]);
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+      await registerSingleSessionWithConfirm(cred?.user?.uid);
       // After successful login, go to CRT PO Management (adjust if you want a different page)
       router.push("/Admin/crt/po-management");
     } catch (err) {
@@ -34,6 +45,12 @@ export default function LoginPage() {
         <p className="text-sm text-slate-600 mb-6">
           Sign in with your registered email and password.
         </p>
+
+        {infoMessage && !error && (
+          <div className="mb-4 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+            {infoMessage}
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">
@@ -76,6 +93,22 @@ export default function LoginPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+          <div className="w-full max-w-md rounded-3xl bg-white border border-slate-200 shadow-xl p-8">
+            Loading...
+          </div>
+        </div>
+      }
+    >
+      <LoginPageInner />
+    </Suspense>
   );
 }
 

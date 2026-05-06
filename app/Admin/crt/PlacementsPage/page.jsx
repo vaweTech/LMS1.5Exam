@@ -2011,7 +2011,7 @@
 
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   AcademicCapIcon,
   CheckCircleIcon,
@@ -2121,11 +2121,11 @@ export default function SingleCollegePlacementERP() {
     finalRoundPlaced: "false",
   });
 
-  const getPlacementStatus = (date) => {
+  const getPlacementStatus = useCallback((date) => {
     if (date > today) return "Upcoming";
     if (date === today) return "Current";
     return "Past";
-  };
+  }, [today]);
 
   const getStatusBadge = (status) => {
     if (status === "Upcoming") return "bg-sky-100 text-sky-700 border border-sky-200";
@@ -2290,7 +2290,7 @@ export default function SingleCollegePlacementERP() {
         branchBreakdown,
       };
     });
-  }, [filteredPlacements, students]);
+  }, [filteredPlacements, students, getPlacementStatus]);
 
   const filteredStudents = useMemo(() => {
     const q = studentSearch.toLowerCase();

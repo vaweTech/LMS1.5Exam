@@ -416,10 +416,9 @@ export default function CRTCoursePage() {
       unlockUnsubsRef.current = [];
     };
   }, [
-    db,
     resolvedCrtId,
     course?.id,
-    user?.uid,
+    user,
     roleCheckDone,
     viewerRole,
     isCrtStudentViewer,

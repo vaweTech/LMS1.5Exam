@@ -327,7 +327,12 @@ export default function StudentAnalyticsPage() {
     }
 
     loadClassAnalytics();
-  }, [selectedClass, classType, selectedStudentIdsKey]);
+  }, [
+    selectedClass,
+    classType,
+    selectedStudentIdsKey,
+    studentsInSelectedClass,
+  ]);
 
   const filteredRows = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();

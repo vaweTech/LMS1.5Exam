@@ -250,13 +250,6 @@ export default function AdminDashboardPage() {
           </p>
         </motion.div>
 
-        {access.isCollegeAdmin && access.platformEmpty ? (
-          <div className="mb-6 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-            Your college workspace is new: LMS and CRT manager areas start empty until you add your own programs,
-            CRT courses, and users.
-          </div>
-        ) : null}
-
         {filteredModules.length === 0 && (
           <div className="text-center py-16 rounded-2xl bg-white border border-slate-200">
             <Search className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -303,7 +296,7 @@ export default function AdminDashboardPage() {
               CRT Course Management
             </h2>
 
-            {loadingCrtCourses ? (
+            {loadingCrtCourses ? ( 
               <div className="rounded-2xl bg-white border border-slate-200 p-8 text-center text-slate-500">
                 Loading CRT courses...
               </div>
@@ -336,3 +329,4 @@ export default function AdminDashboardPage() {
     </div>
   );
 }
+

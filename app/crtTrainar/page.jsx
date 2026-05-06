@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useCallback, useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import CheckAuth from "../../lib/CheckAuth";
@@ -318,7 +318,7 @@ export default function CRTTrainerPage() {
   const [chaptersByCourseForAttendance, setChaptersByCourseForAttendance] = useState({});
   const [chaptersAttendanceLoadingCourseId, setChaptersAttendanceLoadingCourseId] = useState(null);
 
-  const loadAssignments = async () => {
+  const loadAssignments = useCallback(async () => {
     if (!db || !authUid) {
       setAssignments([]);
       setTrainerPreviewMap({});
@@ -361,7 +361,7 @@ export default function CRTTrainerPage() {
     } finally {
       setLoadingAssignments(false);
     }
-  };
+  }, [authUid]);
 
   const handleTrainerPreviewToggle = async (cls, enabled) => {
     if (!db) return;
@@ -424,7 +424,7 @@ export default function CRTTrainerPage() {
     } else {
       setLoadingAssignments(false);
     }
-  }, [authUid, accessDenied]);
+  }, [authUid, accessDenied, loadAssignments]);
 
   useEffect(() => {
     if (!["attendance", "courseTools"].includes(activeModal) || !selectedClass?.batchId || !db) return;
@@ -459,7 +459,12 @@ export default function CRTTrainerPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeModal, selectedClass?.programId, selectedClass?.batchId]);
+  }, [
+    activeModal,
+    selectedClass?.programId,
+    selectedClass?.batchId,
+    studentsByBatch,
+  ]);
 
   const openModal = (modal, cls) => {
     setSelectedClass(cls);
@@ -506,14 +511,16 @@ export default function CRTTrainerPage() {
     setCourseToolsSelectedChapterId(null);
   };
 
-  const getBatchStudents = (cls) => {
+  const getBatchStudents = useCallback((cls) => {
     if (!cls?.programId || !cls?.batchId) return [];
     const bk = `${cls.programId}__${cls.batchId}`;
     return studentsByBatch[bk] || [];
-  };
+  }, [studentsByBatch]);
 
-  const attendanceDayKey = (cls, ch, dateStr = getTodayStr()) =>
-    `${cls.courseId}::${ch.id}::${dateStr}`;
+  const attendanceDayKey = useCallback(
+    (cls, ch, dateStr = getTodayStr()) => `${cls.courseId}::${ch.id}::${dateStr}`,
+    []
+  );
 
   const setStudentDayAttendance = (dayKey, studentRowId, present) => {
     setAttendanceByDay((prev) => ({
@@ -522,7 +529,7 @@ export default function CRTTrainerPage() {
     }));
   };
 
-  const loadTrainerAttendanceForChapters = async (cls, chapters, students) => {
+  const loadTrainerAttendanceForChapters = useCallback(async (cls, chapters, students) => {
     if (!db || !students.length) return;
     const dateStr = getTodayStr();
     await Promise.all(
@@ -554,7 +561,7 @@ export default function CRTTrainerPage() {
         }
       })
     );
-  };
+  }, [attendanceDayKey]);
 
   const toggleAttendanceCourseExpand = async (cls) => {
     const id = cls.courseId;
@@ -711,6 +718,7 @@ export default function CRTTrainerPage() {
     };
   }, [
     activeModal,
+    selectedClass,
     selectedClass?.id,
     selectedClass?.programId,
     selectedClass?.courseId,
@@ -984,7 +992,7 @@ export default function CRTTrainerPage() {
         sensitivity: "base",
       })
     );
-  }, [assignments, selectedClass?.programId, selectedClass?.batchId]);
+  }, [assignments, selectedClass]);
 
   /** CourseTools modal: load chapters for selected course */
   useEffect(() => {
@@ -1017,7 +1025,7 @@ export default function CRTTrainerPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeModal, selectedClass?.programId, selectedClass?.courseId, db]);
+  }, [activeModal, selectedClass?.programId, selectedClass?.courseId]);
 
   /** CourseTools modal: live dayReferenceLinks for selected course */
   useEffect(() => {
@@ -1048,7 +1056,7 @@ export default function CRTTrainerPage() {
       });
       setCourseToolsDayLinks(map);
     });
-  }, [activeModal, selectedClass?.programId, selectedClass?.batchId, selectedClass?.courseId, db]);
+  }, [activeModal, selectedClass?.programId, selectedClass?.batchId, selectedClass?.courseId]);
 
   /** CourseTools modal: once students + chapters exist, hydrate attendance (today) */
   useEffect(() => {
@@ -1056,7 +1064,14 @@ export default function CRTTrainerPage() {
     const students = getBatchStudents(selectedClass);
     if (!students.length || !courseToolsChapters.length) return;
     loadTrainerAttendanceForChapters(selectedClass, courseToolsChapters, students);
-  }, [activeModal, selectedClass?.programId, selectedClass?.batchId, selectedClass?.courseId, db, studentsByBatch, courseToolsChapters]);
+  }, [
+    activeModal,
+    selectedClass,
+    studentsByBatch,
+    courseToolsChapters,
+    getBatchStudents,
+    loadTrainerAttendanceForChapters,
+  ]);
 
   /** If chapters were expanded before students finished loading, hydrate attendance once students exist */
   useEffect(() => {
@@ -1072,13 +1087,12 @@ export default function CRTTrainerPage() {
     }
   }, [
     activeModal,
-    selectedClass?.programId,
-    selectedClass?.batchId,
-    db,
+    selectedClass,
     studentsByBatch,
     attendanceExpandedCourseIds,
     chaptersByCourseForAttendance,
     coursesInSelectedBatch,
+    loadTrainerAttendanceForChapters,
   ]);
 
   /** trainerSharedLinks per course in this batch (notes modal) */
@@ -1129,7 +1143,7 @@ export default function CRTTrainerPage() {
       );
     });
     return () => unsubs.forEach((u) => u());
-  }, [activeModal, selectedClass?.batchId, selectedClass?.programId, db, coursesInSelectedBatch]);
+  }, [activeModal, selectedClass?.batchId, selectedClass?.programId, coursesInSelectedBatch]);
 
   /** Day-wise reference link docs per course */
   useEffect(() => {
@@ -1162,7 +1176,7 @@ export default function CRTTrainerPage() {
       });
     });
     return () => unsubs.forEach((u) => u());
-  }, [activeModal, selectedClass?.batchId, selectedClass?.programId, db, coursesInSelectedBatch]);
+  }, [activeModal, selectedClass?.batchId, selectedClass?.programId, coursesInSelectedBatch]);
 
   /** Stable list of assignment ids so unlock listeners are not torn down when only progress counts change */
   const unlockWatchKey = useMemo(

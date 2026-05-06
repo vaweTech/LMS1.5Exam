@@ -795,7 +795,7 @@ export default function CRTPOAnalyticsDashboardPage() {
   useEffect(() => {
     if (!user || !hasAccess || !db || !isFirebaseConfigured) return;
     loadStudents();
-  }, [user, hasAccess, db, loadStudents]);
+  }, [user, hasAccess, loadStudents]);
 
   const setFilter = (key, value) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
