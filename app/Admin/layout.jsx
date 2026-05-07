@@ -24,7 +24,6 @@ import {
   Cpu,
 } from "lucide-react";
 import { AdminAccessProvider, useAdminAccess } from "./AdminAccessContext";
-import { collegeAdminPathAllowed } from "@/lib/collegeAdminAccess";
 
 const SIDEBAR_LINKS = [
   { href: "/Admin/dashboard", icon: LayoutDashboard, label: "All modules" },
@@ -57,18 +56,10 @@ function AdminLayoutInner({ children }) {
       router.replace("/auth/login");
       return;
     }
-    const { role, isFullAdmin, isDataEntry, isCollegeAdmin, moduleLms, moduleCrt } =
-      access;
+    const { isFullAdmin, isDataEntry, isCollegeAdmin } = access;
     if (isFullAdmin) return;
     if (isDataEntry) return;
     if (isCollegeAdmin) {
-      if (!moduleLms && !moduleCrt) {
-        router.replace("/not-authorized");
-        return;
-      }
-      if (!collegeAdminPathAllowed(pathname, moduleLms, moduleCrt)) {
-        router.replace("/Admin/dashboard");
-      }
       return;
     }
     router.replace("/not-authorized");
@@ -111,10 +102,7 @@ function AdminLayoutInner({ children }) {
   const showAdminNav =
     roleChecked && !access.isDataEntry && (access.isFullAdmin || access.isCollegeAdmin);
 
-  const visibleLinks = SIDEBAR_LINKS.filter((link) => {
-    if (!access.isCollegeAdmin) return true;
-    return collegeAdminPathAllowed(link.href, access.moduleLms, access.moduleCrt);
-  });
+  const visibleLinks = SIDEBAR_LINKS;
 
   return (
     <div className="min-h-screen bg-slate-50">

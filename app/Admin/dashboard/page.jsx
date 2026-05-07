@@ -6,7 +6,6 @@ import { db, firestoreHelpers } from "../../../lib/firebase";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { useAdminAccess } from "../AdminAccessContext";
-import { collegeAdminPathAllowed } from "@/lib/collegeAdminAccess";
 import {
   Plus,
   ClipboardList,
@@ -137,7 +136,7 @@ export default function AdminDashboardPage() {
       if (access.isFullAdmin) return true;
       if (access.isDataEntry) return m.adminOnly ? false : true;
       if (access.isCollegeAdmin) {
-        return collegeAdminPathAllowed(m.href, access.moduleLms, access.moduleCrt);
+        return true;
       }
       return false;
     };

@@ -26,7 +26,7 @@ export default function ManageInternshipCourses() {
   const user = access.user;
   const loading = access.loading;
   const isAdmin =
-    access.isFullAdmin || (access.isCollegeAdmin && (access.moduleLms || access.moduleCrt));
+    access.isFullAdmin || access.isCollegeAdmin;
 
   const [courses, setCourses] = useState([]);
   const [activeCourseId, setActiveCourseId] = useState(initialCourseId);

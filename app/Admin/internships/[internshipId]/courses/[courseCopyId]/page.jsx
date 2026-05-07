@@ -16,7 +16,7 @@ export default function EditInternshipCourse() {
   const user = access.user;
   const loading = access.loading;
   const isAdmin =
-    access.isFullAdmin || (access.isCollegeAdmin && (access.moduleLms || access.moduleCrt));
+    access.isFullAdmin || access.isCollegeAdmin;
 
   const [course, setCourse] = useState(null);
   const [savingCourse, setSavingCourse] = useState(false);
