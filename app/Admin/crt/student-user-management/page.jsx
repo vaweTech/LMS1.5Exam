@@ -36,14 +36,19 @@ function toDateInputString(value) {
 }
 
 /** Normalize role for display/edit — subcollection is CRT-only, but legacy docs may omit or vary role. */
-function getCrtStudentRole(s) {
+function getCrtStudentRole(s, defaultRole) {
   const r = (s?.role || "").trim();
-  if (!r) return "crtStudent";
+  if (!r) return defaultRole;
   const lower = r.toLowerCase();
   if (lower === "crtstudent" || lower === "crt student" || lower === "crt-student") {
-    return "crtStudent";
+    return defaultRole;
   }
   return r;
+}
+
+function getScopedCrtStudentRole(collegeSubdomain) {
+  const sub = String(collegeSubdomain || "").trim().toLowerCase();
+  return sub ? `${sub}CrtStudent` : "";
 }
 
 const INITIAL_ADMISSION_FORM = {
@@ -75,6 +80,10 @@ const INITIAL_ADMISSION_FORM = {
 export default function CRTStudentUserManagementPage() {
   const router = useRouter();
   const { user, loading, hasCrtManagerAccess: isAdmin, collegeSubdomain } = useAdminAccess();
+  const scopedCrtStudentRole = useMemo(
+    () => getScopedCrtStudentRole(collegeSubdomain),
+    [collegeSubdomain]
+  );
   const [students, setStudents] = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [search, setSearch] = useState("");
@@ -224,6 +233,10 @@ export default function CRTStudentUserManagementPage() {
 
   const handleAdmissionSubmit = async (e) => {
     e.preventDefault();
+    if (!scopedCrtStudentRole) {
+      alert("College subdomain is required to create CRT students.");
+      return;
+    }
     if (!phoneVerified) {
       alert("Please verify your mobile number with OTP first.");
       return;
@@ -267,7 +280,8 @@ export default function CRTStudentUserManagementPage() {
         PayedFee: paidFee ? Number(paidFee) : undefined,
         remarks: remarks?.trim() || undefined,
         isCrt: true,
-        role: "crtStudent",
+        role: scopedCrtStudentRole,
+        collegeSubdomain: collegeSubdomain || undefined,
       };
       const res = await makeAuthenticatedRequest("/api/create-student", {
         method: "POST",
@@ -293,7 +307,7 @@ export default function CRTStudentUserManagementPage() {
           regdNo: regNo.trim(),
           name: studentName.trim(),
           email: email.trim().toLowerCase(),
-          role: "crtStudent",
+          role: scopedCrtStudentRole,
           isCrt: true,
           password: defaultPassword,
           phone1: phone1?.trim() || "",
@@ -325,7 +339,7 @@ export default function CRTStudentUserManagementPage() {
     setEditForm({
       name: student.name || "",
       email: student.email || "",
-      role: getCrtStudentRole(student),
+      role: getCrtStudentRole(student, scopedCrtStudentRole),
       password: student.password || "",
       phone: student.phone1 || student.phone || "",
     });
@@ -350,7 +364,7 @@ export default function CRTStudentUserManagementPage() {
         name: editForm.name.trim(),
         email: editForm.email.trim().toLowerCase(),
         emailNormalized: editForm.email.trim().toLowerCase(),
-        role: (editForm.role || "").trim() || "crtStudent",
+        role: (editForm.role || "").trim() || scopedCrtStudentRole,
         password: editForm.password,
         phone1: editForm.phone,
         phone: editForm.phone,
@@ -785,7 +799,7 @@ export default function CRTStudentUserManagementPage() {
                         const isEditing = editingId === s.id;
                         const role = isEditing
                           ? editForm.role
-                          : getCrtStudentRole(s);
+                          : getCrtStudentRole(s, scopedCrtStudentRole);
                         const password = isEditing ? editForm.password : s.password || "—";
                         const phone = isEditing ? editForm.phone : s.phone1 || s.phone || "—";
                         return (
@@ -828,7 +842,9 @@ export default function CRTStudentUserManagementPage() {
                                   className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm"
                                 >
                                   <option value="">Select</option>
-                                  <option value="crtStudent">crtStudent</option>
+                                  {scopedCrtStudentRole && (
+                                    <option value={scopedCrtStudentRole}>{scopedCrtStudentRole}</option>
+                                  )}
                                   <option value="student">student</option>
                                   <option value="internship">internship</option>
                                 </select>

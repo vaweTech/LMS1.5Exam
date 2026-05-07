@@ -6,6 +6,7 @@ import { Search, Users, TrendingUp, CalendarDays, Trophy } from "lucide-react";
 import CheckAdminAuth from "@/lib/CheckAdminAuth";
 import { db } from "@/lib/firebase";
 import { mcqDb } from "@/lib/firebaseMCQs";
+import { isCrtStudentRole } from "@/lib/studentRole";
 
 const chunkArray = (arr, size) => {
   const out = [];
@@ -114,7 +115,7 @@ export default function StudentAnalyticsPage() {
 
   const typeFilteredStudents = useMemo(() => {
     return students.filter((student) => {
-      const isCrtStudent = student.isCrt === true || student.role === "crtStudent";
+      const isCrtStudent = student.isCrt === true || isCrtStudentRole(student.role);
       const isInternshipStudent = student.isInternship === true;
       if (classType === "internship") return isInternshipStudent;
       if (classType === "crt") return isCrtStudent;

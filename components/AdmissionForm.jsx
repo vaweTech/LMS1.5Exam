@@ -749,6 +749,8 @@ import { useState, useEffect } from "react";
 import { makeAuthenticatedRequest } from "@/lib/authUtils";
  
 import CheckAdminAuth from "@/lib/CheckAdminAuth";
+import { getClientCollegeSubdomain } from "@/lib/tenantPath";
+import { getScopedCrtStudentRole } from "@/lib/studentRole";
  
 
 // ✅ Reusable Label component
@@ -762,6 +764,8 @@ function Label({ children, required }) {
 }
 
 export default function AdmissionForm({ onStudentAdded }) { 
+  const collegeSubdomain = getClientCollegeSubdomain();
+  const crtRole = getScopedCrtStudentRole(collegeSubdomain);
   const [formData, setFormData] = useState({
     regdNo: "",
     studentName: "",
@@ -955,6 +959,10 @@ export default function AdmissionForm({ onStudentAdded }) {
     if (isSubmitting) return; // Prevent double submissions
 
     try {
+      if (formData.isCrt && !collegeSubdomain) {
+        alert("College subdomain is required for CRT student role.");
+        return;
+      }
       // Mandatory fields
       const mandatoryFields = [
         { field: "regdNo", label: "Registration No." },
@@ -1021,7 +1029,8 @@ export default function AdmissionForm({ onStudentAdded }) {
         remarks: formData.remarks,
         isInternship: formData.isInternship,
         isCrt: formData.isCrt,
-        role: formData.isCrt ? "crtStudent" : formData.isInternship ? "internship" : "student",
+        collegeSubdomain: formData.isCrt ? collegeSubdomain : undefined,
+        role: formData.isCrt ? crtRole : formData.isInternship ? "internship" : "student",
       };
 
       const res = await makeAuthenticatedRequest("/api/create-student", {

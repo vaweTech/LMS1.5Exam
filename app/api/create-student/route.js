@@ -6,6 +6,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { getScopedCrtStudentRole, isCrtStudentRole } from "@/lib/studentRole";
 
 let cachedServiceAccount = null;
 
@@ -144,9 +145,31 @@ function normalizeEmail(rawEmail) {
 // Use fixed default password as requested
 const DEFAULT_STUDENT_PASSWORD = 'Vawe@2026';
 
+function deriveStudentRole(body, reqUser) {
+  const incomingRole = String(body.role || "").trim();
+  if (body.isCrt) {
+    // Allow superadmin/central flows to explicitly set target tenant subdomain.
+    const targetSubdomain = body.collegeSubdomain || reqUser?.collegeSubdomain;
+    if (!targetSubdomain) {
+      throw new Error("collegeSubdomain is required for CRT student role.");
+    }
+    const scopedRole = getScopedCrtStudentRole(targetSubdomain);
+    if (!incomingRole || isCrtStudentRole(incomingRole)) return scopedRole;
+    return incomingRole;
+  }
+  if (incomingRole) return incomingRole;
+  return body.isInternship ? "internship" : "student";
+}
+
 async function createStudentHandler(req) {
   const body = req.validatedBody;
   const { email, name, classId, regdNo } = body;
+  if (body?.isCrt && !String(body?.collegeSubdomain || req?.user?.collegeSubdomain || "").trim()) {
+    return new Response(
+      JSON.stringify({ error: "collegeSubdomain is required for CRT students." }),
+      { status: 400 }
+    );
+  }
   
   // Use fixed default password for new student accounts
   const defaultPassword = DEFAULT_STUDENT_PASSWORD;
@@ -325,7 +348,7 @@ async function createStudentHandler(req) {
     
     try {
       const phoneNormalized = normalizeToE164(body.phone || body.phone1);
-      const derivedRole = body.role || (body.isCrt ? "crtStudent" : body.isInternship ? "internship" : "student");
+      const derivedRole = deriveStudentRole(body, req.user);
       const isCrt = !!body.isCrt;
       
       const studentData = {
@@ -420,7 +443,7 @@ async function createStudentHandler(req) {
             serviceAccount.project_id;
           
           const phoneNormalized2 = normalizeToE164(body.phone || body.phone1);
-          const derivedRoleRest = body.role || (body.isCrt ? "crtStudent" : body.isInternship ? "internship" : "student");
+          const derivedRoleRest = deriveStudentRole(body, req.user);
           const isCrtRest = !!body.isCrt;
           
           const studentDataRest = {

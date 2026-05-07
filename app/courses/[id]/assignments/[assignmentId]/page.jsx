@@ -20,6 +20,7 @@
   import CheckAuth from "../../../../../lib/CheckAuth";
   import dynamic from "next/dynamic";
   import { parseCourseUrl, createSlug } from "../../../../../lib/urlUtils";
+  import { isCrtStudentRole } from "../../../../../lib/studentRole";
 
   const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -233,8 +234,8 @@
           studentRole === "internship" ||
           studentData?.isInternship === true;
         const isCrtRole =
-          userRole === "crtStudent" ||
-          studentRole === "crtStudent" ||
+          isCrtStudentRole(userRole) ||
+          isCrtStudentRole(studentRole) ||
           studentData?.isCrt === true;
 
         // When opened from internship course page: load assignment from that course copy and grant access by chapter unlock

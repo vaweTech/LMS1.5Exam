@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import CheckAdminAuth from "@/lib/CheckAdminAuth";
 import AdmissionForm from "@/components/AdmissionForm";
 import { getClientCollegeSubdomain, tenantSegments } from "@/lib/tenantPath";
+import { isCrtStudentRole, matchesStudentRoleFilter } from "@/lib/studentRole";
 
 export default function UserManagerPage() {
   const router = useRouter();
@@ -463,7 +464,7 @@ export default function UserManagerPage() {
 
   // Students filtered by role (for Students list section)
   const roleFilteredStudents = roleFilter
-    ? students.filter((s) => getStudentRole(s) === roleFilter)
+    ? students.filter((s) => matchesStudentRoleFilter(getStudentRole(s), roleFilter))
     : students;
 
   // Sort students based on selected option (after role filter)
@@ -1056,11 +1057,11 @@ export default function UserManagerPage() {
                       <td className="border p-2">{s.email}</td>
                       <td className="border p-2">
                         <span className={`text-xs px-2 py-0.5 rounded ${
-                          getStudentRole(s) === "crtStudent" ? "bg-blue-100 text-blue-700" :
+                          isCrtStudentRole(getStudentRole(s)) ? "bg-blue-100 text-blue-700" :
                           getStudentRole(s) === "internship" ? "bg-emerald-100 text-emerald-700" :
                           "bg-gray-100 text-gray-700"
                         }`}>
-                          {getStudentRole(s) === "crtStudent" ? "CRT Student" :
+                          {isCrtStudentRole(getStudentRole(s)) ? getStudentRole(s) :
                            getStudentRole(s) === "internship" ? "Internship" : "Student"}
                         </span>
                       </td>

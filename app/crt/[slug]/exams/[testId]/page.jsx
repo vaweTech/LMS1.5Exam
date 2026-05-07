@@ -7,6 +7,7 @@ import CheckAuth from "../../../../../lib/CheckAuth";
 import { getProgramBySlug } from "../../../../../lib/crtProgramsData";
 import { createSlug } from "../../../../../lib/urlUtils";
 import { db, auth, firestoreHelpers } from "../../../../../lib/firebase";
+import { isCrtStudentRole } from "../../../../../lib/studentRole";
 import { getDoc, getDocs, doc, collection, query, where } from "firebase/firestore";
 import {
   ArrowLeftIcon,
@@ -124,8 +125,8 @@ export default function CRTExamTestPage() {
         const studentRole = studentData?.role;
         const isSuperAdmin = userRole === "superadmin";
         const isCrtStudent =
-          userRole === "crtStudent" ||
-          studentRole === "crtStudent" ||
+          isCrtStudentRole(userRole) ||
+          isCrtStudentRole(studentRole) ||
           studentData?.isCrt === true;
         const isCrtTrainer =
           userRole === "crtTrainer" || studentRole === "crtTrainer";

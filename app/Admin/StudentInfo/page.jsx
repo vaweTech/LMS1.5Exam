@@ -8,6 +8,7 @@ import CheckAdminAuth from "@/lib/CheckAdminAuth";
 import { useRouter } from "next/navigation";
 import { CreditCard, DollarSign, CheckCircle, AlertCircle, MessageCircle } from "lucide-react";
 import { makeAuthenticatedRequest, handleAuthError } from "@/lib/authUtils";
+import { isCrtStudentRole, matchesStudentRoleFilter } from "@/lib/studentRole";
 
 export default function StudentListPage() {
       const router = useRouter();
@@ -291,7 +292,7 @@ export default function StudentListPage() {
     const isLocked = Boolean(s.locked);
     if (lockFilter === "locked" && !isLocked) return false;
     if (lockFilter === "unlocked" && isLocked) return false;
-    if (roleFilter && getStudentRole(s) !== roleFilter) return false;
+    if (roleFilter && !matchesStudentRoleFilter(getStudentRole(s), roleFilter)) return false;
 
     const dept = s.branch || s.department || "";
     if (deptFilter && dept !== deptFilter) return false;
@@ -1020,11 +1021,11 @@ export default function StudentListPage() {
                     <td className="border p-2">{s.email}</td>
                     <td className="border p-2">
                       <span className={`text-xs px-2 py-0.5 rounded ${
-                        getStudentRole(s) === "crtStudent" ? "bg-blue-100 text-blue-700" :
+                        isCrtStudentRole(getStudentRole(s)) ? "bg-blue-100 text-blue-700" :
                         getStudentRole(s) === "internship" ? "bg-emerald-100 text-emerald-700" :
                         "bg-gray-100 text-gray-700"
                       }`}>
-                        {getStudentRole(s) === "crtStudent" ? "CRT Student" :
+                        {isCrtStudentRole(getStudentRole(s)) ? getStudentRole(s) :
                          getStudentRole(s) === "internship" ? "Internship" : "Student"}
                       </span>
                     </td>

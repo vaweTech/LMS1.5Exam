@@ -6,6 +6,7 @@ import Link from "next/link";
 import CheckAuth from "../../../../../lib/CheckAuth";
 import { createSlug, createCourseUrl } from "../../../../../lib/urlUtils";
 import { db, auth, firestoreHelpers } from "../../../../../lib/firebase";
+import { isCrtStudentRole } from "../../../../../lib/studentRole";
 import { mcqDb } from "../../../../../lib/firebaseMCQs";
 import {
   collection,
@@ -311,8 +312,8 @@ export default function CRTCoursePage() {
         const isAdmin = userRole === "admin" || userRole === "superadmin";
         const isTrainerRole = userRole === "crtTrainer" || userRole === "trainer";
         const isCrtStudent =
-          userRole === "crtStudent" ||
-          studentRole === "crtStudent" ||
+          isCrtStudentRole(userRole) ||
+          isCrtStudentRole(studentRole) ||
           studentData?.isCrt === true;
         setViewerRole(userRole || null);
         setIsCrtStudentViewer(Boolean(isCrtStudent));

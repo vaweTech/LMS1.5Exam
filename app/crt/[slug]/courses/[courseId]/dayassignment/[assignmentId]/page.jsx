@@ -7,6 +7,7 @@ import CheckAuth from "../../../../../../../lib/CheckAuth";
 import { createSlug } from "../../../../../../../lib/urlUtils";
 import { db, auth, firestoreHelpers } from "../../../../../../../lib/firebase";
 import { mcqDb } from "../../../../../../../lib/firebaseMCQs";
+import { isCrtStudentRole } from "../../../../../../../lib/studentRole";
 import {
   addDoc,
   collection,
@@ -149,8 +150,8 @@ export default function CRTDayAssignmentPage() {
         const studentRole = studentData?.role;
         const isSuperAdmin = userRole === "superadmin";
         const isCrtStudent =
-          userRole === "crtStudent" ||
-          studentRole === "crtStudent" ||
+          isCrtStudentRole(userRole) ||
+          isCrtStudentRole(studentRole) ||
           studentData?.isCrt === true;
         const isCrtTrainer =
           userRole === "crtTrainer" || studentRole === "crtTrainer";
