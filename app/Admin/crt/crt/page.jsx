@@ -771,17 +771,32 @@ export default function CRTManager() {
     }
     try {
       setCreatingBatch(true);
-      const batchRef = await firestoreHelpers.addDoc(
-        firestoreHelpers.collection(db, "crt", selectedCrtId, "batches"),
+      const rawBatchName = newBatchName.trim();
+      const batchId =
+        rawBatchName
+          .toLowerCase()
+          .replace(/\s+/g, "-")
+          .replace(/[^a-z0-9-]/g, "")
+          .replace(/-+/g, "-")
+          .replace(/^-+|-+$/g, "") || `batch-${Date.now()}`;
+      await firestoreHelpers.setDoc(
+        firestoreHelpers.doc(
+          db,
+          ...tenantSegments(collegeSubdomain, "crt"),
+          selectedCrtId,
+          "batches",
+          batchId
+        ),
         {
-          name: newBatchName.trim(),
+          name: rawBatchName,
           createdAt: new Date().toISOString(),
           createdBy: user?.uid || null,
-        }
+        },
+        { merge: true }
       );
       setNewBatchName("");
       await fetchCrtBatches(selectedCrtId);
-      setSelectedBatchId(batchRef.id);
+      setSelectedBatchId(batchId);
     } catch (e) {
       console.error(e);
       alert("Failed to create batch.");
@@ -837,7 +852,7 @@ export default function CRTManager() {
       await firestoreHelpers.deleteDoc(
         firestoreHelpers.doc(
           db,
-          "crt",
+          ...tenantSegments(collegeSubdomain, "crt"),
           selectedCrtId,
           "batches",
           selectedBatchId,
@@ -867,7 +882,7 @@ export default function CRTManager() {
         await firestoreHelpers.updateDoc(
           firestoreHelpers.doc(
             db,
-            "crt",
+            ...tenantSegments(collegeSubdomain, "crt"),
             selectedCrtId,
             "batches",
             selectedBatchId,
@@ -885,7 +900,7 @@ export default function CRTManager() {
         const ref = await firestoreHelpers.addDoc(
           firestoreHelpers.collection(
             db,
-            "crt",
+            ...tenantSegments(collegeSubdomain, "crt"),
             selectedCrtId,
             "batches",
             selectedBatchId,
@@ -924,7 +939,7 @@ export default function CRTManager() {
       await firestoreHelpers.updateDoc(
         firestoreHelpers.doc(
           db,
-          "crt",
+          ...tenantSegments(collegeSubdomain, "crt"),
           selectedCrtId,
           "batches",
           selectedBatchId,
@@ -956,7 +971,7 @@ export default function CRTManager() {
       await firestoreHelpers.deleteDoc(
         firestoreHelpers.doc(
           db,
-          "crt",
+          ...tenantSegments(collegeSubdomain, "crt"),
           selectedCrtId,
           "batches",
           selectedBatchId,
@@ -1003,7 +1018,7 @@ export default function CRTManager() {
       await firestoreHelpers.updateDoc(
         firestoreHelpers.doc(
           db,
-          "crt",
+          ...tenantSegments(collegeSubdomain, "crt"),
           selectedCrtId,
           "batches",
           editingBatchId
@@ -1033,7 +1048,7 @@ export default function CRTManager() {
       const studentsSnap = await firestoreHelpers.getDocs(
         firestoreHelpers.collection(
           db,
-          "crt",
+          ...tenantSegments(collegeSubdomain, "crt"),
           selectedCrtId,
           "batches",
           batchId,
@@ -1044,7 +1059,13 @@ export default function CRTManager() {
         await firestoreHelpers.deleteDoc(studentDoc.ref);
       }
       await firestoreHelpers.deleteDoc(
-        firestoreHelpers.doc(db, "crt", selectedCrtId, "batches", batchId)
+        firestoreHelpers.doc(
+          db,
+          ...tenantSegments(collegeSubdomain, "crt"),
+          selectedCrtId,
+          "batches",
+          batchId
+        )
       );
       if (editingBatchId === batchId) {
         setEditingBatchId("");
@@ -1077,14 +1098,19 @@ export default function CRTManager() {
 
       // Delete course copies and their chapters/assignments
       const coursesSnap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "crt", targetId, "courses")
+        firestoreHelpers.collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "crt"),
+          targetId,
+          "courses"
+        )
       );
       for (const courseDoc of coursesSnap.docs) {
         // Delete chapters
         const chaptersSnap = await firestoreHelpers.getDocs(
           firestoreHelpers.collection(
             db,
-            "crt",
+            ...tenantSegments(collegeSubdomain, "crt"),
             targetId,
             "courses",
             courseDoc.id,
@@ -1115,7 +1141,12 @@ export default function CRTManager() {
 
       // Delete student assignments
       const studentsSnap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "crt", targetId, "students")
+        firestoreHelpers.collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "crt"),
+          targetId,
+          "students"
+        )
       );
       for (const studentDoc of studentsSnap.docs) {
         await firestoreHelpers.deleteDoc(studentDoc.ref);
@@ -1123,7 +1154,7 @@ export default function CRTManager() {
 
       // Delete CRT itself
       await firestoreHelpers.deleteDoc(
-        firestoreHelpers.doc(db, "crt", targetId)
+        firestoreHelpers.doc(db, ...tenantSegments(collegeSubdomain, "crt"), targetId)
       );
 
       if (selectedCrtId === targetId) {
@@ -1199,7 +1230,12 @@ export default function CRTManager() {
       }
 
       await firestoreHelpers.addDoc(
-        firestoreHelpers.collection(db, "crt", selectedCrtId, "placementOffers"),
+        firestoreHelpers.collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "crt"),
+          selectedCrtId,
+          "placementOffers"
+        ),
         {
           collegeName: placementForm.collegeName.trim(),
           role: placementForm.role.trim(),
