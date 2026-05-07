@@ -30,6 +30,7 @@ function SuperAdminPage() {
     const [saveError, setSaveError] = useState("");
     const [createInfo, setCreateInfo] = useState("");
     const [saving, setSaving] = useState(false);
+    const [rowActionLoading, setRowActionLoading] = useState({});
 
     const closeModal = useCallback(() => {
         setModalOpen(false);
@@ -138,6 +139,95 @@ function SuperAdminPage() {
         setSaveError("");
         setCreateInfo("");
         setModalOpen(true);
+    };
+
+    const handleLockToggle = async (row) => {
+        const sub = row.subdomain || row.id;
+        if (!sub) return;
+        const isLocked = row.status === "locked" || row.locked === true;
+        const confirmText = isLocked
+            ? "Do you want to unlock this college admin?"
+            : "Do you want to lock this college admin?";
+        if (!window.confirm(confirmText)) return;
+
+        const user = auth?.currentUser;
+        if (!user) {
+            setSaveError("You must be signed in as an admin.");
+            return;
+        }
+        setSaveError("");
+        setCreateInfo("");
+        setRowActionLoading((prev) => ({ ...prev, [sub]: true }));
+        try {
+            const token = await user.getIdToken(true);
+            const res = await fetch("/api/create-college-admin", {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    subdomain: sub,
+                    locked: !isLocked,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setSaveError(data?.error || `Request failed (${res.status})`);
+                return;
+            }
+            setCreateInfo(!isLocked ? "College admin locked." : "College admin unlocked.");
+        } catch (e) {
+            console.error(e);
+            setSaveError(e?.message || "Failed to update lock state.");
+        } finally {
+            setRowActionLoading((prev) => ({ ...prev, [sub]: false }));
+        }
+    };
+
+    const handleDeleteCollege = async (row) => {
+        const sub = row.subdomain || row.id;
+        if (!sub) return;
+        const label = row.name || sub;
+        if (
+            !window.confirm(
+                `Delete "${label}" college admin? This removes login access and college host mapping permanently.`
+            )
+        ) {
+            return;
+        }
+        const user = auth?.currentUser;
+        if (!user) {
+            setSaveError("You must be signed in as an admin.");
+            return;
+        }
+        setSaveError("");
+        setCreateInfo("");
+        setRowActionLoading((prev) => ({ ...prev, [sub]: true }));
+        try {
+            const token = await user.getIdToken(true);
+            const res = await fetch("/api/create-college-admin", {
+                method: "DELETE",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    subdomain: sub,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setSaveError(data?.error || `Request failed (${res.status})`);
+                return;
+            }
+            setCreateInfo("College deleted successfully.");
+        } catch (e) {
+            console.error(e);
+            setSaveError(e?.message || "Failed to delete college.");
+        } finally {
+            setRowActionLoading((prev) => ({ ...prev, [sub]: false }));
+        }
     };
 
     return (
@@ -345,11 +435,16 @@ function SuperAdminPage() {
                                         <th className="px-3 py-2 font-medium">Admin email</th>
                                         <th className="px-3 py-2 font-medium">LMS</th>
                                         <th className="px-3 py-2 font-medium">CRT</th>
+                                        <th className="px-3 py-2 font-medium">Status</th>
                                         <th className="px-3 py-2 font-medium">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {colleges.map((row) => (
+                                    {colleges.map((row) => {
+                                        const rowKey = row.subdomain || row.id;
+                                        const rowBusy = !!rowActionLoading[rowKey];
+                                        const isLocked = row.status === "locked" || row.locked === true;
+                                        return (
                                         <tr key={row.id} className="border-t border-gray-100">
                                             <td className="px-3 py-2">{row.name}</td>
                                             <td className="px-3 py-2 font-mono text-gray-800">{row.host || row.id}</td>
@@ -357,16 +452,50 @@ function SuperAdminPage() {
                                             <td className="px-3 py-2">{row.moduleLms ? "Yes" : "—"}</td>
                                             <td className="px-3 py-2">{row.moduleCrt ? "Yes" : "—"}</td>
                                             <td className="px-3 py-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleEdit(row)}
-                                                    className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
+                                                <span
+                                                    className={`rounded px-2 py-0.5 text-xs font-medium ${
+                                                        isLocked
+                                                            ? "bg-red-100 text-red-700"
+                                                            : "bg-emerald-100 text-emerald-700"
+                                                    }`}
                                                 >
-                                                    Edit
-                                                </button>
+                                                    {isLocked ? "Locked" : "Active"}
+                                                </span>
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleEdit(row)}
+                                                        disabled={rowBusy}
+                                                        className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    >
+                                                        Edit
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleLockToggle(row)}
+                                                        disabled={rowBusy}
+                                                        className={`rounded px-2 py-1 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-60 ${
+                                                            isLocked
+                                                                ? "bg-emerald-600 hover:bg-emerald-700"
+                                                                : "bg-amber-600 hover:bg-amber-700"
+                                                        }`}
+                                                    >
+                                                        {rowBusy ? "Please wait..." : isLocked ? "Unlock" : "Lock"}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDeleteCollege(row)}
+                                                        disabled={rowBusy}
+                                                        className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
-                                    ))}
+                                    )})}
                                 </tbody>
                             </table>
                         </div>

@@ -8,6 +8,7 @@ const COLLEGE_TENANTS_COLLECTION = "collegeTenants";
 const USER_DETAILS_SUBCOLLECTION = "details";
 const USER_DETAILS_DOC_ID = "profile";
 const DEFAULT_PASSWORD = "VaweCollegeAdmin@2026";
+const USER_COLLECTION = "users";
 
 function normalizeSubdomain(raw) {
   return String(raw || "")
@@ -105,10 +106,12 @@ export async function POST(req) {
       const userRootDoc = {
         role: "collegeAdmin",
         collegeSubdomain: subdomain,
+        collegeAdminPassword: password,
         moduleLms,
         moduleCrt,
         platformEmpty: true,
         status: "active",
+        locked: false,
         createdAt: ts,
         createdBySuperAdminUid: authReq.user.uid,
       };
@@ -119,12 +122,14 @@ export async function POST(req) {
         email,
         role: "collegeAdmin",
         collegeSubdomain: subdomain,
+        collegeAdminPassword: password,
         subdomain,
         host,
         moduleLms,
         moduleCrt,
         platformEmpty: true,
         status: "active",
+        locked: false,
         collegeAdminUid: uid,
         createdAt: ts,
         createdBySuperAdminUid: authReq.user.uid,
@@ -136,9 +141,12 @@ export async function POST(req) {
         host,
         collegeAdminUid: uid,
         collegeAdminEmail: email,
+        collegeAdminPassword: password,
         moduleLms,
         moduleCrt,
         platformEmpty: true,
+        status: "active",
+        locked: false,
         emptyLms: moduleLms,
         emptyCrt: moduleCrt,
         updatedAt: ts,
@@ -172,10 +180,12 @@ export async function POST(req) {
         await writeDocumentViaRest("users", uid, {
           role: "collegeAdmin",
           collegeSubdomain: subdomain,
+          collegeAdminPassword: password,
           moduleLms,
           moduleCrt,
           platformEmpty: true,
           status: "active",
+          locked: false,
           createdAt: now,
           createdBySuperAdminUid: authReq.user.uid,
         });
@@ -184,12 +194,14 @@ export async function POST(req) {
           email,
           role: "collegeAdmin",
           collegeSubdomain: subdomain,
+          collegeAdminPassword: password,
           subdomain,
           host,
           moduleLms,
           moduleCrt,
           platformEmpty: true,
           status: "active",
+          locked: false,
           collegeAdminUid: uid,
           createdAt: now,
           createdBySuperAdminUid: authReq.user.uid,
@@ -200,9 +212,12 @@ export async function POST(req) {
           host,
           collegeAdminUid: uid,
           collegeAdminEmail: email,
+          collegeAdminPassword: password,
           moduleLms,
           moduleCrt,
           platformEmpty: true,
+          status: "active",
+          locked: false,
           emptyLms: moduleLms,
           emptyCrt: moduleCrt,
           updatedAt: now,
@@ -213,9 +228,12 @@ export async function POST(req) {
           host,
           collegeAdminUid: uid,
           collegeAdminEmail: email,
+          collegeAdminPassword: password,
           moduleLms,
           moduleCrt,
           platformEmpty: true,
+          status: "active",
+          locked: false,
           emptyLms: moduleLms,
           emptyCrt: moduleCrt,
           createdAt: now,
@@ -301,10 +319,12 @@ export async function PATCH(req) {
       const userRootDoc = {
         role: "collegeAdmin",
         collegeSubdomain: subdomain,
+        ...(passwordRaw ? { collegeAdminPassword: passwordRaw } : {}),
         moduleLms,
         moduleCrt,
         platformEmpty: true,
         status: "active",
+        locked: false,
         updatedAt: ts,
         updatedBySuperAdminUid: authReq.user.uid,
       };
@@ -314,12 +334,14 @@ export async function PATCH(req) {
         email,
         role: "collegeAdmin",
         collegeSubdomain: subdomain,
+        ...(passwordRaw ? { collegeAdminPassword: passwordRaw } : {}),
         subdomain,
         host,
         moduleLms,
         moduleCrt,
         platformEmpty: true,
         status: "active",
+        locked: false,
         collegeAdminUid: uid,
         updatedAt: ts,
         updatedBySuperAdminUid: authReq.user.uid,
@@ -331,9 +353,12 @@ export async function PATCH(req) {
         host,
         collegeAdminUid: uid,
         collegeAdminEmail: email,
+        ...(passwordRaw ? { collegeAdminPassword: passwordRaw } : {}),
         moduleLms,
         moduleCrt,
         platformEmpty: true,
+        status: "active",
+        locked: false,
         emptyLms: moduleLms,
         emptyCrt: moduleCrt,
         updatedAt: ts,
@@ -365,10 +390,12 @@ export async function PATCH(req) {
         await writeDocumentViaRest("users", uid, {
           role: "collegeAdmin",
           collegeSubdomain: subdomain,
+          ...(passwordRaw ? { collegeAdminPassword: passwordRaw } : {}),
           moduleLms,
           moduleCrt,
           platformEmpty: true,
           status: "active",
+          locked: false,
           updatedAt: now,
           updatedBySuperAdminUid: authReq.user.uid,
         });
@@ -377,12 +404,14 @@ export async function PATCH(req) {
           email,
           role: "collegeAdmin",
           collegeSubdomain: subdomain,
+          ...(passwordRaw ? { collegeAdminPassword: passwordRaw } : {}),
           subdomain,
           host,
           moduleLms,
           moduleCrt,
           platformEmpty: true,
           status: "active",
+          locked: false,
           collegeAdminUid: uid,
           updatedAt: now,
           updatedBySuperAdminUid: authReq.user.uid,
@@ -393,9 +422,12 @@ export async function PATCH(req) {
           host,
           collegeAdminUid: uid,
           collegeAdminEmail: email,
+          ...(passwordRaw ? { collegeAdminPassword: passwordRaw } : {}),
           moduleLms,
           moduleCrt,
           platformEmpty: true,
+          status: "active",
+          locked: false,
           emptyLms: moduleLms,
           emptyCrt: moduleCrt,
           updatedAt: now,
@@ -406,9 +438,12 @@ export async function PATCH(req) {
           host,
           collegeAdminUid: uid,
           collegeAdminEmail: email,
+          ...(passwordRaw ? { collegeAdminPassword: passwordRaw } : {}),
           moduleLms,
           moduleCrt,
           platformEmpty: true,
+          status: "active",
+          locked: false,
           emptyLms: moduleLms,
           emptyCrt: moduleCrt,
           updatedAt: now,
@@ -425,6 +460,158 @@ export async function PATCH(req) {
       console.error("update-college-admin", e);
       return NextResponse.json(
         { error: e?.message || "Failed to update college admin" },
+        { status: 500 }
+      );
+    }
+  });
+}
+
+export async function PUT(req) {
+  return withAdminAuth(req, async (authReq) => {
+    try {
+      const body = await authReq.json();
+      const subdomain = normalizeSubdomain(body.subdomain);
+      const locked = !!body.locked;
+
+      if (!subdomain) {
+        return NextResponse.json({ error: "subdomain is required" }, { status: 400 });
+      }
+
+      const collegeRef = adminDb.collection(COLLEGE_HOSTS_COLLECTION).doc(subdomain);
+      const collegeSnap = await withRetry(() => collegeRef.get());
+      if (!collegeSnap.exists) {
+        return NextResponse.json({ error: "College not found." }, { status: 404 });
+      }
+      const collegeData = collegeSnap.data() || {};
+      const uid = String(collegeData.collegeAdminUid || "").trim();
+      if (!uid) {
+        return NextResponse.json({ error: "College admin UID missing." }, { status: 400 });
+      }
+
+      await admin.auth().updateUser(uid, { disabled: locked });
+      const ts = admin.firestore.FieldValue.serverTimestamp();
+      const now = new Date();
+      const status = locked ? "locked" : "active";
+      const detailsPath = `users/${uid}/${USER_DETAILS_SUBCOLLECTION}/${USER_DETAILS_DOC_ID}`;
+      const statusDoc = {
+        status,
+        locked: locked,
+        updatedAt: ts,
+        updatedBySuperAdminUid: authReq.user.uid,
+      };
+
+      try {
+        await withRetry(() =>
+          adminDb.collection(USER_COLLECTION).doc(uid).set(statusDoc, { merge: true })
+        );
+        await withRetry(() =>
+          adminDb
+            .collection(USER_COLLECTION)
+            .doc(uid)
+            .collection(USER_DETAILS_SUBCOLLECTION)
+            .doc(USER_DETAILS_DOC_ID)
+            .set(statusDoc, { merge: true })
+        );
+        await withRetry(() =>
+          adminDb.collection(COLLEGE_HOSTS_COLLECTION).doc(subdomain).set(statusDoc, { merge: true })
+        );
+        await withRetry(() =>
+          adminDb.collection(COLLEGE_TENANTS_COLLECTION).doc(subdomain).set(statusDoc, { merge: true })
+        );
+      } catch (firestoreError) {
+        if (!isRetryableError(firestoreError)) throw firestoreError;
+        await writeDocumentViaRest(USER_COLLECTION, uid, {
+          ...statusDoc,
+          updatedAt: now,
+        });
+        await writeDocumentPathViaRest(detailsPath, {
+          ...statusDoc,
+          updatedAt: now,
+        });
+        await writeDocumentViaRest(COLLEGE_HOSTS_COLLECTION, subdomain, {
+          ...statusDoc,
+          updatedAt: now,
+        });
+        await writeDocumentViaRest(COLLEGE_TENANTS_COLLECTION, subdomain, {
+          ...statusDoc,
+          updatedAt: now,
+        });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        status,
+      });
+    } catch (e) {
+      console.error("lock-college-admin", e);
+      return NextResponse.json(
+        { error: e?.message || "Failed to update lock state." },
+        { status: 500 }
+      );
+    }
+  });
+}
+
+export async function DELETE(req) {
+  return withAdminAuth(req, async (authReq) => {
+    try {
+      const body = await authReq.json();
+      const subdomain = normalizeSubdomain(body.subdomain);
+      if (!subdomain) {
+        return NextResponse.json({ error: "subdomain is required" }, { status: 400 });
+      }
+
+      const collegeRef = adminDb.collection(COLLEGE_HOSTS_COLLECTION).doc(subdomain);
+      const collegeSnap = await withRetry(() => collegeRef.get());
+      if (!collegeSnap.exists) {
+        return NextResponse.json({ error: "College not found." }, { status: 404 });
+      }
+      const collegeData = collegeSnap.data() || {};
+      const uid = String(collegeData.collegeAdminUid || "").trim();
+      if (!uid) {
+        return NextResponse.json({ error: "College admin UID missing." }, { status: 400 });
+      }
+
+      try {
+        await admin.auth().deleteUser(uid);
+      } catch (e) {
+        if (e?.code !== "auth/user-not-found") {
+          throw e;
+        }
+      }
+
+      const detailsPath = `users/${uid}/${USER_DETAILS_SUBCOLLECTION}/${USER_DETAILS_DOC_ID}`;
+      const deleteNow = new Date();
+      try {
+        await withRetry(() =>
+          adminDb
+            .collection(USER_COLLECTION)
+            .doc(uid)
+            .collection(USER_DETAILS_SUBCOLLECTION)
+            .doc(USER_DETAILS_DOC_ID)
+            .delete()
+        );
+      } catch (e) {
+        if (isRetryableError(e)) {
+          await writeDocumentPathViaRest(detailsPath, {
+            deletedAt: deleteNow,
+            status: "deleted",
+            deletedBySuperAdminUid: authReq.user.uid,
+          });
+        } else {
+          throw e;
+        }
+      }
+
+      await withRetry(() => adminDb.collection(USER_COLLECTION).doc(uid).delete());
+      await withRetry(() => adminDb.collection(COLLEGE_HOSTS_COLLECTION).doc(subdomain).delete());
+      await withRetry(() => adminDb.collection(COLLEGE_TENANTS_COLLECTION).doc(subdomain).delete());
+
+      return NextResponse.json({ ok: true });
+    } catch (e) {
+      console.error("delete-college-admin", e);
+      return NextResponse.json(
+        { error: e?.message || "Failed to delete college." },
         { status: 500 }
       );
     }
