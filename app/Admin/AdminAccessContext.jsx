@@ -15,6 +15,7 @@ const emptyAccess = {
   moduleLms: true,
   moduleCrt: true,
   platformEmpty: false,
+  collegeSubdomain: null,
   ...computeAdminAccess(null, true, true),
 };
 
@@ -31,6 +32,7 @@ export function AdminAccessProvider({ children }) {
           moduleLms: true,
           moduleCrt: true,
           platformEmpty: false,
+          collegeSubdomain: null,
           ...computeAdminAccess(null, true, true),
         });
         return;
@@ -42,6 +44,14 @@ export function AdminAccessProvider({ children }) {
       const moduleLms = isCollege ? !!d.moduleLms : true;
       const moduleCrt = isCollege ? !!d.moduleCrt : true;
       const platformEmpty = isCollege && !!d.platformEmpty;
+      let collegeSubdomain = (d.collegeSubdomain || d.subdomain || "").trim() || null;
+      if (isCollege && !collegeSubdomain) {
+        const detailSnap = await getDoc(doc(db, "users", u.uid, "details", "profile"));
+        if (detailSnap.exists()) {
+          const det = detailSnap.data() || {};
+          collegeSubdomain = (det.subdomain || det.collegeSubdomain || "").trim() || null;
+        }
+      }
       setState({
         loading: false,
         user: u,
@@ -49,6 +59,7 @@ export function AdminAccessProvider({ children }) {
         moduleLms,
         moduleCrt,
         platformEmpty,
+        collegeSubdomain,
         ...computeAdminAccess(role, moduleLms, moduleCrt),
       });
     });

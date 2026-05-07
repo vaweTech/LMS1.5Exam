@@ -9,6 +9,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, GraduationCap, Search, RefreshCw, UserPlus, X, Phone, CheckCircle2 } from "lucide-react";
 import { makeAuthenticatedRequest, handleAuthError } from "@/lib/authUtils";
 import { requestWhatsAppOtp, verifyWhatsAppOtp } from "@/lib/whatsappOtpClient";
+import { crtStudentRosterCollectionSegments, crtStudentRosterDocSegments } from "@/lib/collegeTenantFirestore";
 
 /** HTML date inputs require YYYY-MM-DD. Accepts Firestore Timestamp, ISO, or dd-mm-yyyy / dd/mm/yyyy. */
 function toDateInputString(value) {
@@ -73,7 +74,7 @@ const INITIAL_ADMISSION_FORM = {
 
 export default function CRTStudentUserManagementPage() {
   const router = useRouter();
-  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
+  const { user, loading, hasCrtManagerAccess: isAdmin, collegeSubdomain } = useAdminAccess();
   const [students, setStudents] = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [search, setSearch] = useState("");
@@ -175,7 +176,7 @@ export default function CRTStudentUserManagementPage() {
       // Central CRT students path:
       // users (collection) -> crtStudent (document) -> students (subcollection)
       const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "users", "crtStudent", "students")
+        firestoreHelpers.collection(db, ...crtStudentRosterCollectionSegments(collegeSubdomain))
       );
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setStudents(list);
@@ -185,7 +186,7 @@ export default function CRTStudentUserManagementPage() {
     } finally {
       setLoadingStudents(false);
     }
-  }, []);
+  }, [collegeSubdomain]);
 
   useEffect(() => {
     if (user && isAdmin && isFirebaseConfigured) {
@@ -284,10 +285,7 @@ export default function CRTStudentUserManagementPage() {
       if (db && data.uid) {
         const centralRef = firestoreHelpers.doc(
           db,
-          "users",
-          "crtStudent",
-          "students",
-          data.uid
+          ...crtStudentRosterDocSegments(collegeSubdomain, data.uid)
         );
         await firestoreHelpers.setDoc(centralRef, {
           uid: data.uid,
@@ -346,10 +344,7 @@ export default function CRTStudentUserManagementPage() {
       if (!db || !student?.id) return;
       const docRef = firestoreHelpers.doc(
         db,
-        "users",
-        "crtStudent",
-        "students",
-        student.id
+        ...crtStudentRosterDocSegments(collegeSubdomain, student.id)
       );
       const updatePayload = {
         name: editForm.name.trim(),
@@ -382,10 +377,7 @@ export default function CRTStudentUserManagementPage() {
       if (db) {
         const centralRef = firestoreHelpers.doc(
           db,
-          "users",
-          "crtStudent",
-          "students",
-          studentId
+          ...crtStudentRosterDocSegments(collegeSubdomain, studentId)
         );
         await firestoreHelpers.deleteDoc(centralRef);
       }

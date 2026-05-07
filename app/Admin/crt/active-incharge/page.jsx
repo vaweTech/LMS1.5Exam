@@ -1217,6 +1217,11 @@ import { useRouter } from "next/navigation";
 import { useAdminAccess } from "../../AdminAccessContext";
 import { motion } from "framer-motion";
 import { ArrowLeft, UserCheck, Search, RefreshCw, Mail, Phone, X } from "lucide-react";
+import {
+  crtInchargeAssignedClassesCollectionSegments,
+  crtInchargeDocSegments,
+  crtInchargeSubcollectionSegments,
+} from "@/lib/collegeTenantFirestore";
 
 const DEFAULT_INCHARGE_PASSWORD = "VaweIncharge@2025";
 
@@ -1253,7 +1258,7 @@ function inchargeRoleLabel(role) {
 
 export default function ActiveInchargePage() {
   const router = useRouter();
-  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
+  const { user, loading, hasCrtManagerAccess: isAdmin, collegeSubdomain } = useAdminAccess();
   const [incharges, setIncharges] = useState([]);
 
   // 🔥 Changed from classes -> batches
@@ -1420,10 +1425,16 @@ export default function ActiveInchargePage() {
       if (inchargeId) {
         queries.push(
           firestoreHelpers.getDocs(
-            firestoreHelpers.query(
-              firestoreHelpers.collection(db, "assignedClasses"),
-              firestoreHelpers.where("inchargeId", "==", inchargeId)
-            )
+            collegeSubdomain
+              ? firestoreHelpers.query(
+                  firestoreHelpers.collection(db, "assignedClasses"),
+                  firestoreHelpers.where("collegeSubdomain", "==", collegeSubdomain),
+                  firestoreHelpers.where("inchargeId", "==", inchargeId)
+                )
+              : firestoreHelpers.query(
+                  firestoreHelpers.collection(db, "assignedClasses"),
+                  firestoreHelpers.where("inchargeId", "==", inchargeId)
+                )
           )
         );
       }
@@ -1431,10 +1442,16 @@ export default function ActiveInchargePage() {
       if (safeEmail) {
         queries.push(
           firestoreHelpers.getDocs(
-            firestoreHelpers.query(
-              firestoreHelpers.collection(db, "assignedClasses"),
-              firestoreHelpers.where("inchargeEmail", "==", safeEmail)
-            )
+            collegeSubdomain
+              ? firestoreHelpers.query(
+                  firestoreHelpers.collection(db, "assignedClasses"),
+                  firestoreHelpers.where("collegeSubdomain", "==", collegeSubdomain),
+                  firestoreHelpers.where("inchargeEmail", "==", safeEmail)
+                )
+              : firestoreHelpers.query(
+                  firestoreHelpers.collection(db, "assignedClasses"),
+                  firestoreHelpers.where("inchargeEmail", "==", safeEmail)
+                )
           )
         );
       }
@@ -1483,6 +1500,7 @@ export default function ActiveInchargePage() {
           departmentName: b.departmentName || b.department || "",
           departmentId: b.departmentId || "",
           updatedAt: now,
+          ...(collegeSubdomain ? { collegeSubdomain } : {}),
         };
 
         const existing = existingByBatchId.get(batchId);
@@ -1508,7 +1526,7 @@ export default function ActiveInchargePage() {
         }
       }
     },
-    [batches]
+    [batches, collegeSubdomain]
   );
 
   const syncAssignedBatchesInInchargeDoc = useCallback(
@@ -1531,11 +1549,11 @@ export default function ActiveInchargePage() {
 
       const assignedCol = firestoreHelpers.collection(
         db,
-        "users",
-        "crtActiveIncharge",
-        subcollectionName,
-        inchargeDocId,
-        "assignedClasses"
+        ...crtInchargeAssignedClassesCollectionSegments(
+          collegeSubdomain,
+          subcollectionName,
+          inchargeDocId
+        )
       );
       const existingSnap = await firestoreHelpers.getDocs(assignedCol);
       const existingByBatchId = new Map(
@@ -1571,11 +1589,11 @@ export default function ActiveInchargePage() {
           await firestoreHelpers.updateDoc(
             firestoreHelpers.doc(
               db,
-              "users",
-              "crtActiveIncharge",
-              subcollectionName,
-              inchargeDocId,
-              "assignedClasses",
+              ...crtInchargeAssignedClassesCollectionSegments(
+                collegeSubdomain,
+                subcollectionName,
+                inchargeDocId
+              ),
               existing.id
             ),
             payload
@@ -1594,18 +1612,18 @@ export default function ActiveInchargePage() {
           await firestoreHelpers.deleteDoc(
             firestoreHelpers.doc(
               db,
-              "users",
-              "crtActiveIncharge",
-              subcollectionName,
-              inchargeDocId,
-              "assignedClasses",
+              ...crtInchargeAssignedClassesCollectionSegments(
+                collegeSubdomain,
+                subcollectionName,
+                inchargeDocId
+              ),
               existing.id
             )
           );
         }
       }
     },
-    [batches]
+    [batches, collegeSubdomain]
   );
 
   const clearAssignedBatchesInInchargeDoc = useCallback(
@@ -1613,11 +1631,11 @@ export default function ActiveInchargePage() {
       if (!db || !subcollectionName || !inchargeDocId) return;
       const assignedCol = firestoreHelpers.collection(
         db,
-        "users",
-        "crtActiveIncharge",
-        subcollectionName,
-        inchargeDocId,
-        "assignedClasses"
+        ...crtInchargeAssignedClassesCollectionSegments(
+          collegeSubdomain,
+          subcollectionName,
+          inchargeDocId
+        )
       );
       const snap = await firestoreHelpers.getDocs(assignedCol);
       await Promise.all(
@@ -1625,18 +1643,18 @@ export default function ActiveInchargePage() {
           firestoreHelpers.deleteDoc(
             firestoreHelpers.doc(
               db,
-              "users",
-              "crtActiveIncharge",
-              subcollectionName,
-              inchargeDocId,
-              "assignedClasses",
+              ...crtInchargeAssignedClassesCollectionSegments(
+                collegeSubdomain,
+                subcollectionName,
+                inchargeDocId
+              ),
               d.id
             )
           )
         )
       );
     },
-    []
+    [collegeSubdomain]
   );
 
   const clearAssignedBatches = useCallback(async ({ inchargeId, inchargeEmail }) => {
@@ -1649,10 +1667,16 @@ export default function ActiveInchargePage() {
     if (inchargeId) {
       queries.push(
         firestoreHelpers.getDocs(
-          firestoreHelpers.query(
-            firestoreHelpers.collection(db, "assignedClasses"),
-            firestoreHelpers.where("inchargeId", "==", inchargeId)
-          )
+          collegeSubdomain
+            ? firestoreHelpers.query(
+                firestoreHelpers.collection(db, "assignedClasses"),
+                firestoreHelpers.where("collegeSubdomain", "==", collegeSubdomain),
+                firestoreHelpers.where("inchargeId", "==", inchargeId)
+              )
+            : firestoreHelpers.query(
+                firestoreHelpers.collection(db, "assignedClasses"),
+                firestoreHelpers.where("inchargeId", "==", inchargeId)
+              )
         )
       );
     }
@@ -1660,10 +1684,16 @@ export default function ActiveInchargePage() {
     if (safeEmail) {
       queries.push(
         firestoreHelpers.getDocs(
-          firestoreHelpers.query(
-            firestoreHelpers.collection(db, "assignedClasses"),
-            firestoreHelpers.where("inchargeEmail", "==", safeEmail)
-          )
+          collegeSubdomain
+            ? firestoreHelpers.query(
+                firestoreHelpers.collection(db, "assignedClasses"),
+                firestoreHelpers.where("collegeSubdomain", "==", collegeSubdomain),
+                firestoreHelpers.where("inchargeEmail", "==", safeEmail)
+              )
+            : firestoreHelpers.query(
+                firestoreHelpers.collection(db, "assignedClasses"),
+                firestoreHelpers.where("inchargeEmail", "==", safeEmail)
+              )
         )
       );
     }
@@ -1678,7 +1708,7 @@ export default function ActiveInchargePage() {
         firestoreHelpers.deleteDoc(firestoreHelpers.doc(db, "assignedClasses", id))
       )
     );
-  }, []);
+  }, [collegeSubdomain]);
 
   const fetchIncharges = useCallback(async () => {
     if (!db) return;
@@ -1686,7 +1716,10 @@ export default function ActiveInchargePage() {
     try {
       // 1. activeIncharge subcollection
       const activeSnap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "users", "crtActiveIncharge", "activeIncharge")
+        firestoreHelpers.collection(
+          db,
+          ...crtInchargeSubcollectionSegments(collegeSubdomain, "activeIncharge")
+        )
       );
       const assignmentList = activeSnap.docs.map((d) => ({
         id: d.id,
@@ -1697,7 +1730,10 @@ export default function ActiveInchargePage() {
 
       // 2. classroomMonitor subcollection
       const classroomSnap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "users", "crtActiveIncharge", "classroomMonitor")
+        firestoreHelpers.collection(
+          db,
+          ...crtInchargeSubcollectionSegments(collegeSubdomain, "classroomMonitor")
+        )
       );
       const classroomList = classroomSnap.docs.map((d) => ({
         id: d.id,
@@ -1708,7 +1744,12 @@ export default function ActiveInchargePage() {
 
       // 3. Fetch assigned batches from top-level assignedClasses
       const assignedSnap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "assignedClasses")
+        collegeSubdomain
+          ? firestoreHelpers.query(
+              firestoreHelpers.collection(db, "assignedClasses"),
+              firestoreHelpers.where("collegeSubdomain", "==", collegeSubdomain)
+            )
+          : firestoreHelpers.collection(db, "assignedClasses")
       );
 
       const assignmentsByInchargeId = new Map();
@@ -1767,7 +1808,7 @@ export default function ActiveInchargePage() {
     } finally {
       setLoadingIncharges(false);
     }
-  }, []);
+  }, [collegeSubdomain]);
 
   useEffect(() => {
     if (user && isAdmin && isFirebaseConfigured) {
@@ -1870,9 +1911,7 @@ export default function ActiveInchargePage() {
 
         const centralCol = firestoreHelpers.collection(
           db,
-          "users",
-          "crtActiveIncharge",
-          subcollectionName
+          ...crtInchargeSubcollectionSegments(collegeSubdomain, subcollectionName)
         );
 
         const centralDocRef = await firestoreHelpers.addDoc(centralCol, {
@@ -1889,6 +1928,14 @@ export default function ActiveInchargePage() {
           isIncharge: true,
           createdAt: new Date().toISOString(),
         });
+
+        if (collegeSubdomain && data.uid) {
+          await firestoreHelpers.setDoc(
+            firestoreHelpers.doc(db, "users", data.uid),
+            { collegeSubdomain },
+            { merge: true }
+          );
+        }
 
         await syncAssignedBatches({
           inchargeId: data.uid || null,
@@ -1974,10 +2021,7 @@ export default function ActiveInchargePage() {
       if (newSubcollection === oldSubcollection) {
         const docRef = firestoreHelpers.doc(
           db,
-          "users",
-          "crtActiveIncharge",
-          oldSubcollection,
-          editingIncharge.id
+          ...crtInchargeDocSegments(collegeSubdomain, oldSubcollection, editingIncharge.id)
         );
         await firestoreHelpers.updateDoc(docRef, payload);
       } else {
@@ -1988,18 +2032,13 @@ export default function ActiveInchargePage() {
 
         const oldRef = firestoreHelpers.doc(
           db,
-          "users",
-          "crtActiveIncharge",
-          oldSubcollection,
-          editingIncharge.id
+          ...crtInchargeDocSegments(collegeSubdomain, oldSubcollection, editingIncharge.id)
         );
         await firestoreHelpers.deleteDoc(oldRef);
 
         const newCol = firestoreHelpers.collection(
           db,
-          "users",
-          "crtActiveIncharge",
-          newSubcollection
+          ...crtInchargeSubcollectionSegments(collegeSubdomain, newSubcollection)
         );
 
         const newDocRef = await firestoreHelpers.addDoc(newCol, {
@@ -2067,10 +2106,7 @@ export default function ActiveInchargePage() {
       const subcollection = u.subcollection || "activeIncharge";
       const centralDoc = firestoreHelpers.doc(
         db,
-        "users",
-        "crtActiveIncharge",
-        subcollection,
-        u.id
+        ...crtInchargeDocSegments(collegeSubdomain, subcollection, u.id)
       );
 
       const ops = [firestoreHelpers.deleteDoc(centralDoc)];

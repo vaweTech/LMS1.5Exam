@@ -84,12 +84,17 @@ async function deletePoUserHandler(req) {
     return NextResponse.json({ error: "poId is required" }, { status: 400 });
   }
 
-  const centralPath = `users/crtPO/po/${encodeURIComponent(poId)}`;
-  const centralRef = adminDb
-    .collection("users")
-    .doc("crtPO")
-    .collection("po")
-    .doc(poId);
+  const collegeSubdomain = String(body.collegeSubdomain || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "");
+
+  const centralPath = collegeSubdomain
+    ? `collegeTenants/${encodeURIComponent(collegeSubdomain)}/crtPO/${encodeURIComponent(poId)}`
+    : `users/crtPO/po/${encodeURIComponent(poId)}`;
+  const centralRef = collegeSubdomain
+    ? adminDb.collection("collegeTenants").doc(collegeSubdomain).collection("crtPO").doc(poId)
+    : adminDb.collection("users").doc("crtPO").collection("po").doc(poId);
 
   let poData = {};
   let centralExists = false;
@@ -102,9 +107,7 @@ async function deletePoUserHandler(req) {
     }
   } catch (e) {
     console.warn("delete-po-user: SDK get central PO failed, trying REST:", e?.message);
-    const restDoc = await restGetDocument(
-      `users/crtPO/po/${encodeURIComponent(poId)}`
-    );
+    const restDoc = await restGetDocument(centralPath);
     if (restDoc?.fields) {
       centralExists = true;
       poData = {

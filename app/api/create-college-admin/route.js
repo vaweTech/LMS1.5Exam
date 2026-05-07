@@ -3,6 +3,7 @@ import { withAdminAuth } from "@/lib/apiAuth";
 import admin, { adminDb, writeDocumentViaRest, writeDocumentPathViaRest } from "@/lib/firebaseAdmin";
 
 const COLLEGE_HOSTS_COLLECTION = "collegeHosts";
+const COLLEGE_TENANTS_COLLECTION = "collegeTenants";
 /** Full college-admin profile: users/{uid}/details/profile */
 const USER_DETAILS_SUBCOLLECTION = "details";
 const USER_DETAILS_DOC_ID = "profile";
@@ -103,6 +104,7 @@ export async function POST(req) {
       /** Minimal fields on users/{uid} for existing auth / AdminAccess reads */
       const userRootDoc = {
         role: "collegeAdmin",
+        collegeSubdomain: subdomain,
         moduleLms,
         moduleCrt,
         platformEmpty: true,
@@ -116,6 +118,7 @@ export async function POST(req) {
         name,
         email,
         role: "collegeAdmin",
+        collegeSubdomain: subdomain,
         subdomain,
         host,
         moduleLms,
@@ -141,6 +144,11 @@ export async function POST(req) {
         updatedAt: ts,
       };
 
+      const tenantDoc = {
+        ...collegeDoc,
+        createdAt: ts,
+      };
+
       const detailsPath = `users/${uid}/${USER_DETAILS_SUBCOLLECTION}/${USER_DETAILS_DOC_ID}`;
 
       try {
@@ -151,6 +159,9 @@ export async function POST(req) {
         await withRetry(() =>
           adminDb.collection(COLLEGE_HOSTS_COLLECTION).doc(subdomain).set(collegeDoc, { merge: true })
         );
+        await withRetry(() =>
+          adminDb.collection(COLLEGE_TENANTS_COLLECTION).doc(subdomain).set(tenantDoc, { merge: true })
+        );
       } catch (firestoreError) {
         if (!isRetryableError(firestoreError)) throw firestoreError;
         console.warn(
@@ -160,6 +171,7 @@ export async function POST(req) {
         const now = new Date();
         await writeDocumentViaRest("users", uid, {
           role: "collegeAdmin",
+          collegeSubdomain: subdomain,
           moduleLms,
           moduleCrt,
           platformEmpty: true,
@@ -171,6 +183,7 @@ export async function POST(req) {
           name,
           email,
           role: "collegeAdmin",
+          collegeSubdomain: subdomain,
           subdomain,
           host,
           moduleLms,
@@ -192,6 +205,20 @@ export async function POST(req) {
           platformEmpty: true,
           emptyLms: moduleLms,
           emptyCrt: moduleCrt,
+          updatedAt: now,
+        });
+        await writeDocumentViaRest(COLLEGE_TENANTS_COLLECTION, subdomain, {
+          name,
+          subdomain,
+          host,
+          collegeAdminUid: uid,
+          collegeAdminEmail: email,
+          moduleLms,
+          moduleCrt,
+          platformEmpty: true,
+          emptyLms: moduleLms,
+          emptyCrt: moduleCrt,
+          createdAt: now,
           updatedAt: now,
         });
       }
@@ -273,6 +300,7 @@ export async function PATCH(req) {
 
       const userRootDoc = {
         role: "collegeAdmin",
+        collegeSubdomain: subdomain,
         moduleLms,
         moduleCrt,
         platformEmpty: true,
@@ -285,6 +313,7 @@ export async function PATCH(req) {
         name,
         email,
         role: "collegeAdmin",
+        collegeSubdomain: subdomain,
         subdomain,
         host,
         moduleLms,
@@ -310,6 +339,8 @@ export async function PATCH(req) {
         updatedAt: ts,
       };
 
+      const tenantDoc = { ...collegeDoc };
+
       try {
         await withRetry(() => adminDb.collection("users").doc(uid).set(userRootDoc, { merge: true }));
         await withRetry(() =>
@@ -321,6 +352,9 @@ export async function PATCH(req) {
             .set(userDetailsDoc, { merge: true })
         );
         await withRetry(() => adminDb.collection(COLLEGE_HOSTS_COLLECTION).doc(subdomain).set(collegeDoc, { merge: true }));
+        await withRetry(() =>
+          adminDb.collection(COLLEGE_TENANTS_COLLECTION).doc(subdomain).set(tenantDoc, { merge: true })
+        );
       } catch (firestoreError) {
         if (!isRetryableError(firestoreError)) throw firestoreError;
         console.warn(
@@ -330,6 +364,7 @@ export async function PATCH(req) {
 
         await writeDocumentViaRest("users", uid, {
           role: "collegeAdmin",
+          collegeSubdomain: subdomain,
           moduleLms,
           moduleCrt,
           platformEmpty: true,
@@ -341,6 +376,7 @@ export async function PATCH(req) {
           name,
           email,
           role: "collegeAdmin",
+          collegeSubdomain: subdomain,
           subdomain,
           host,
           moduleLms,
@@ -352,6 +388,19 @@ export async function PATCH(req) {
           updatedBySuperAdminUid: authReq.user.uid,
         });
         await writeDocumentViaRest(COLLEGE_HOSTS_COLLECTION, subdomain, {
+          name,
+          subdomain,
+          host,
+          collegeAdminUid: uid,
+          collegeAdminEmail: email,
+          moduleLms,
+          moduleCrt,
+          platformEmpty: true,
+          emptyLms: moduleLms,
+          emptyCrt: moduleCrt,
+          updatedAt: now,
+        });
+        await writeDocumentViaRest(COLLEGE_TENANTS_COLLECTION, subdomain, {
           name,
           subdomain,
           host,

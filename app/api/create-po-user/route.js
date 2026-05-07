@@ -31,7 +31,20 @@ async function withRetry(fn, maxAttempts = 5) {
 
 export async function POST(req) {
   try {
-    const { name, email, empId, department, mobile, notes, createdBy } = await req.json();
+    const {
+      name,
+      email,
+      empId,
+      department,
+      mobile,
+      notes,
+      createdBy,
+      collegeSubdomain: collegeSubdomainRaw,
+    } = await req.json();
+    const collegeSubdomain = String(collegeSubdomainRaw || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "");
 
     if (!name || !email) {
       return NextResponse.json(
@@ -62,6 +75,7 @@ export async function POST(req) {
       defaultPassword,
       status: "active",
       createdAt: now,
+      ...(collegeSubdomain ? { collegeSubdomain } : {}),
     };
 
     try {
@@ -81,6 +95,7 @@ export async function POST(req) {
         createdAt: now,
         createdBy: createdBy || null,
         userId: userRecord.uid,
+        ...(collegeSubdomain ? { collegeSubdomain } : {}),
       };
 
       // Store PO under per-user subcollection `users/{uid}/po`
@@ -88,12 +103,10 @@ export async function POST(req) {
         userRef.collection("po").add(poData)
       );
 
-      // Also store PO under central admin path: users/crtPO/po/{poId}
-      const centralPoRef = adminDb
-        .collection("users")
-        .doc("crtPO")
-        .collection("po")
-        .doc(poRef.id);
+      // Central listing for admin UIs: global or per-college tenant
+      const centralPoRef = collegeSubdomain
+        ? adminDb.collection("collegeTenants").doc(collegeSubdomain).collection("crtPO").doc(poRef.id)
+        : adminDb.collection("users").doc("crtPO").collection("po").doc(poRef.id);
       await withRetry(() => centralPoRef.set(poData, { merge: true }));
 
       return NextResponse.json({
@@ -127,11 +140,15 @@ export async function POST(req) {
         createdAt: now,
         createdBy: createdBy || null,
         userId: userRecord.uid,
+        ...(collegeSubdomain ? { collegeSubdomain } : {}),
       };
 
       await writeDocumentViaRest("users", userRecord.uid, userDoc);
       await writeDocumentViaRest(`users/${userRecord.uid}/po`, basePoId, poDataRest);
-      await writeDocumentViaRest(`users/crtPO/po`, basePoId, poDataRest);
+      const centralPoPath = collegeSubdomain
+        ? `collegeTenants/${collegeSubdomain}/crtPO`
+        : "users/crtPO/po";
+      await writeDocumentViaRest(centralPoPath, basePoId, poDataRest);
 
       return NextResponse.json({
         ok: true,

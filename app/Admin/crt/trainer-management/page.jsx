@@ -7,13 +7,14 @@ import { useRouter } from "next/navigation";
 import { useAdminAccess } from "../../AdminAccessContext";
 import { motion } from "framer-motion";
 import { ArrowLeft, UserCog, UserPlus, X, RefreshCw, Pencil, Trash2 } from "lucide-react";
+import { crtTrainerCollectionSegments, crtTrainerDocSegments } from "@/lib/collegeTenantFirestore";
 
 /** Must match default in /api/create-trainer (Auth + Firestore `trainerPassword`). */
 const DEFAULT_TRAINER_PASSWORD = "VaweTrainer@2025";
 
 export default function CRTTrainerManagementPage() {
   const router = useRouter();
-  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
+  const { user, loading, hasCrtManagerAccess: isAdmin, collegeSubdomain } = useAdminAccess();
   const [trainers, setTrainers] = useState([]);
   const [loadingTrainers, setLoadingTrainers] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -38,7 +39,7 @@ export default function CRTTrainerManagementPage() {
     try {
       // users (collection) -> crtTrainers (document) -> trainers (subcollection)
       const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "users", "crtTrainers", "trainers")
+        firestoreHelpers.collection(db, ...crtTrainerCollectionSegments(collegeSubdomain))
       );
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -50,7 +51,7 @@ export default function CRTTrainerManagementPage() {
     } finally {
       setLoadingTrainers(false);
     }
-  }, []);
+  }, [collegeSubdomain]);
 
   useEffect(() => {
     if (user && isAdmin && isFirebaseConfigured) {
@@ -266,7 +267,7 @@ export default function CRTTrainerManagementPage() {
 
       // Store in users/crtTrainers/trainers/{uid} (doc id = Auth uid)
       if (db && data.uid) {
-        const trainerDoc = firestoreHelpers.doc(db, "users", "crtTrainers", "trainers", data.uid);
+        const trainerDoc = firestoreHelpers.doc(db, ...crtTrainerDocSegments(collegeSubdomain, data.uid));
         await firestoreHelpers.setDoc(trainerDoc, {
           name: createForm.name.trim(),
           email: createForm.email.trim(),
@@ -296,7 +297,10 @@ export default function CRTTrainerManagementPage() {
     try {
       await syncTrainerDoc(pendingSync.uid, pendingSync.trainerData);
       if (db) {
-        const trainerDoc = firestoreHelpers.doc(db, "users", "crtTrainers", "trainers", pendingSync.uid);
+        const trainerDoc = firestoreHelpers.doc(
+          db,
+          ...crtTrainerDocSegments(collegeSubdomain, pendingSync.uid)
+        );
         await firestoreHelpers.setDoc(trainerDoc, {
           name: pendingSync.trainerData.name || "",
           email: pendingSync.trainerData.email || "",
@@ -343,7 +347,10 @@ export default function CRTTrainerManagementPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Update trainer failed");
       if (db) {
-        const trainerRef = firestoreHelpers.doc(db, "users", "crtTrainers", "trainers", editingTrainer.id);
+        const trainerRef = firestoreHelpers.doc(
+          db,
+          ...crtTrainerDocSegments(collegeSubdomain, editingTrainer.id)
+        );
         await firestoreHelpers.updateDoc(trainerRef, {
           name: name || editingTrainer.name || "",
           phone: phone ?? editingTrainer.phone ?? "",
@@ -367,7 +374,10 @@ export default function CRTTrainerManagementPage() {
     setDeletingId(trainer.id);
     try {
       if (db) {
-        const trainerRef = firestoreHelpers.doc(db, "users", "crtTrainers", "trainers", trainer.id);
+        const trainerRef = firestoreHelpers.doc(
+          db,
+          ...crtTrainerDocSegments(collegeSubdomain, trainer.id)
+        );
         await firestoreHelpers.deleteDoc(trainerRef);
       }
       const res = await fetch(`/api/delete-trainer?uid=${encodeURIComponent(trainer.id)}`, {

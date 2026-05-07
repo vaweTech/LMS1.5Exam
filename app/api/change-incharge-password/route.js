@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import admin, { adminDb } from "@/lib/firebaseAdmin";
 
 async function updateInchargePasswordInFirestore(uid, newPassword) {
+  const userSnap = await adminDb.collection("users").doc(uid).get();
+  const collegeSubdomain = String(userSnap.data()?.collegeSubdomain || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "");
+
   const updates = [];
 
   updates.push(
@@ -29,20 +35,35 @@ async function updateInchargePasswordInFirestore(uid, newPassword) {
       )
   );
 
-  const [activeSnap, monitorSnap] = await Promise.all([
-    adminDb
-      .collection("users")
-      .doc("crtActiveIncharge")
-      .collection("activeIncharge")
-      .where("userId", "==", uid)
-      .get(),
-    adminDb
-      .collection("users")
-      .doc("crtActiveIncharge")
-      .collection("classroomMonitor")
-      .where("userId", "==", uid)
-      .get(),
-  ]);
+  const [activeSnap, monitorSnap] = collegeSubdomain
+    ? await Promise.all([
+        adminDb
+          .collection("collegeTenants")
+          .doc(collegeSubdomain)
+          .collection("activeIncharge")
+          .where("userId", "==", uid)
+          .get(),
+        adminDb
+          .collection("collegeTenants")
+          .doc(collegeSubdomain)
+          .collection("classroomMonitor")
+          .where("userId", "==", uid)
+          .get(),
+      ])
+    : await Promise.all([
+        adminDb
+          .collection("users")
+          .doc("crtActiveIncharge")
+          .collection("activeIncharge")
+          .where("userId", "==", uid)
+          .get(),
+        adminDb
+          .collection("users")
+          .doc("crtActiveIncharge")
+          .collection("classroomMonitor")
+          .where("userId", "==", uid)
+          .get(),
+      ]);
 
   activeSnap.docs.forEach((d) => {
     updates.push(

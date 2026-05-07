@@ -7,12 +7,13 @@ import { useAdminAccess } from "../../AdminAccessContext";
 import { makeAuthenticatedRequest, handleAuthError } from "@/lib/authUtils";
 import Link from "next/link";
 import { Layers, ArrowLeft } from "lucide-react";
+import { crtPoCollectionSegments, crtPoDocSegments } from "@/lib/collegeTenantFirestore";
 
 const DEFAULT_PO_PASSWORD = "VawePO@2025";
 
 export default function POManagementPage() {
   const router = useRouter();
-  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
+  const { user, loading, hasCrtManagerAccess: isAdmin, collegeSubdomain } = useAdminAccess();
   const [showForm, setShowForm] = useState(false);
   const [savingPo, setSavingPo] = useState(false);
   const [loadingPos, setLoadingPos] = useState(false);
@@ -47,7 +48,7 @@ export default function POManagementPage() {
     if (!user || !isAdmin) return;
     fetchPos();
     fetchCrtPrograms();
-  }, [user, isAdmin]);
+  }, [user, isAdmin, collegeSubdomain]);
 
   useEffect(() => {
     fetchCrtBatches(selectedProgramId);
@@ -58,7 +59,7 @@ export default function POManagementPage() {
     setLoadingPos(true);
     try {
       // Load POs from central document path: users/crtPO/po/{poId}
-      const poCol = firestoreHelpers.collection(db, "users", "crtPO", "po");
+      const poCol = firestoreHelpers.collection(db, ...crtPoCollectionSegments(collegeSubdomain));
       const poSnap = await firestoreHelpers.getDocs(poCol);
 
       const allPos = poSnap.docs.map((d) => ({
@@ -158,13 +159,7 @@ export default function POManagementPage() {
     if (!editingPo) return;
     try {
       setSavingPo(true);
-      const centralPoRef = firestoreHelpers.doc(
-        db,
-        "users",
-        "crtPO",
-        "po",
-        editingPo.id
-      );
+      const centralPoRef = firestoreHelpers.doc(db, ...crtPoDocSegments(collegeSubdomain, editingPo.id));
       await firestoreHelpers.updateDoc(centralPoRef, {
         name: editForm.name.trim(),
         empId: editForm.empId.trim(),
@@ -193,7 +188,11 @@ export default function POManagementPage() {
       setDeletingId(po.id);
       const res = await makeAuthenticatedRequest("/api/delete-po-user", {
         method: "POST",
-        body: JSON.stringify({ poId: po.id, uid: po.userId || undefined }),
+        body: JSON.stringify({
+          poId: po.id,
+          uid: po.userId || undefined,
+          ...(collegeSubdomain ? { collegeSubdomain } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -236,6 +235,7 @@ export default function POManagementPage() {
           mobile: poForm.mobile.trim(),
           notes: poForm.notes.trim(),
           createdBy: user?.uid || null,
+          ...(collegeSubdomain ? { collegeSubdomain } : {}),
         }),
       });
       const data = await res.json();

@@ -106,7 +106,7 @@ function SuperAdminPage() {
                     moduleCrt,
                     host,
                     rootDomain: ROOT_DOMAIN,
-                }),
+                }), // eslint-disable-line comma-dangle                 
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {

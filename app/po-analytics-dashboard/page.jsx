@@ -828,8 +828,7 @@ export default function CRTPOAnalyticsDashboardPage() {
   ]);
 
   const filteredStudents = useMemo(() => {
-    if (filters.placementStatus === "All") return cohortStudents;
-    return cohortStudents.filter((s) => s.status === filters.placementStatus);
+    if (filters.placementStatus === "All") return cohortStudents;  
   }, [cohortStudents, filters.placementStatus]);
 
   const placedStudents = useMemo(
