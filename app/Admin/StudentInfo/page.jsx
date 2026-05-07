@@ -1122,7 +1122,9 @@ export default function StudentListPage() {
                     >
                       {waSendingId === s.id ? "Sending..." : "WhatsApp"}
                     </button>
-                    {(currentUserRole === "superadmin" || currentUserRole === "admin") && (
+                    {(currentUserRole === "superadmin" ||
+                      currentUserRole === "admin" ||
+                      currentUserRole === "collegeAdmin") && (
                       <button
                         onClick={() => openEditFeeModal(s)}
                         disabled={isProcessingPayment}

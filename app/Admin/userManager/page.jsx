@@ -553,7 +553,12 @@ export default function UserManagerPage() {
       };
 
       // Only allow superadmin or admin to update totalFee
-      if ((currentUserRole === "superadmin" || currentUserRole === "admin") && editStudent.totalFee !== undefined) {
+      if (
+        (currentUserRole === "superadmin" ||
+          currentUserRole === "admin" ||
+          currentUserRole === "collegeAdmin") &&
+        editStudent.totalFee !== undefined
+      ) {
         updateData.totalFee = Number(editStudent.totalFee) || 0;
       }
 
@@ -1340,7 +1345,9 @@ export default function UserManagerPage() {
                 </div>
 
                 {/* Total Fee - Only for Admin/Superadmin */}
-                {(currentUserRole === "superadmin" || currentUserRole === "admin") && (
+                {(currentUserRole === "superadmin" ||
+                  currentUserRole === "admin" ||
+                  currentUserRole === "collegeAdmin") && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Total Fee (₹) <span className="text-purple-600 text-xs">Admin Only</span>

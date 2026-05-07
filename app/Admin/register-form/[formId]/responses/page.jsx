@@ -122,7 +122,11 @@ export default function FormResponsesPage() {
         const ref = firestoreHelpers.doc(db, "users", u.uid);
         const snap = await firestoreHelpers.getDoc(ref);
         const userRole = snap.exists() ? snap.data().role : null;
-        setIsAdmin(userRole === "admin" || userRole === "superadmin");
+        setIsAdmin(
+          userRole === "admin" ||
+          userRole === "superadmin" ||
+          userRole === "collegeAdmin"
+        );
       }
       setLoading(false);
     });
