@@ -8,6 +8,7 @@ import { makeAuthenticatedRequest, handleAuthError } from "@/lib/authUtils";
 import Link from "next/link";
 import { Layers, ArrowLeft } from "lucide-react";
 import { crtPoCollectionSegments, crtPoDocSegments } from "@/lib/collegeTenantFirestore";
+import { tenantSegments } from "@/lib/tenantPath";
 
 const DEFAULT_PO_PASSWORD = "VawePO@2025";
 
@@ -86,7 +87,7 @@ export default function POManagementPage() {
     if (!db) return;
     try {
       const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "crt")
+        firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "crt"))
       );
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -108,7 +109,12 @@ export default function POManagementPage() {
     }
     try {
       const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "crt", programId, "batches")
+        firestoreHelpers.collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "crt"),
+          programId,
+          "batches"
+        )
       );
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))

@@ -18,6 +18,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import CheckAdminAuth from "@/lib/CheckAdminAuth";
 import AdmissionForm from "@/components/AdmissionForm";
+import { getClientCollegeSubdomain, tenantSegments } from "@/lib/tenantPath";
 
 export default function UserManagerPage() {
   const router = useRouter();
@@ -53,6 +54,7 @@ export default function UserManagerPage() {
   const [roleFilter, setRoleFilter] = useState(""); // "", "student", "internship", "crtStudent"
   const [showEditStudentModal, setShowEditStudentModal] = useState(false);
   const [editStudent, setEditStudent] = useState(null);
+  const collegeSubdomain = getClientCollegeSubdomain();
 
   
 
@@ -85,23 +87,23 @@ export default function UserManagerPage() {
   async function handleAddClass(e) {
     e.preventDefault();
     if (!newClass.name) return alert("Class name is required");
-    await addDoc(collection(db, "classes"), newClass);
+    await addDoc(collection(db, ...tenantSegments(collegeSubdomain, "classes")), newClass);
     setNewClass({ name: "" });
     fetchClasses();
   }
 
   async function fetchClasses() {
-    const snap = await getDocs(collection(db, "classes"));
+    const snap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "classes")));
     setClasses(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
   }
 
   async function fetchStudents() {
-    const snap = await getDocs(collection(db, "students"));
+    const snap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "students")));
     setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
   }
 
   async function fetchCourses() {
-    const snap = await getDocs(collection(db, "courses"));
+    const snap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "courses")));
     setCourses(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
   }
 

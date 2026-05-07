@@ -14,10 +14,11 @@ import {
 import { signOut } from "firebase/auth";
 import CrtProgrammeExamBuilder from "../../../crtcomponents/CrtProgrammeExamBuilder";
 import { useAdminAccess } from "../../AdminAccessContext";
+import { tenantSegments } from "@/lib/tenantPath";
 
 export default function CRTManager() {
   const router = useRouter();
-  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
+  const { user, loading, hasCrtManagerAccess: isAdmin, collegeSubdomain } = useAdminAccess();
 
   const [crts, setCrts] = useState([]);
   const [selectedCrtId, setSelectedCrtId] = useState(""); 
@@ -131,14 +132,14 @@ export default function CRTManager() {
 
   const fetchCrts = useCallback(async function fetchCrts() {
     const snap = await firestoreHelpers.getDocs(
-      firestoreHelpers.collection(db, "crt")
+      firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "crt"))
     );
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setCrts(list);
     if (!selectedCrtId && list.length > 0) {
       setSelectedCrtId(list[0].id);
     }
-  }, [selectedCrtId]);
+  }, [selectedCrtId, collegeSubdomain]);
 
   useEffect(() => {
     if (!user) return;
@@ -151,10 +152,10 @@ export default function CRTManager() {
 
   const fetchAllCrtCourses = useCallback(async function fetchAllCrtCourses() {
     const snap = await firestoreHelpers.getDocs(
-      firestoreHelpers.collection(db, "crtCourses")
+      firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "crtCourses"))
     );
     setAllCrtCourses(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-  }, []);
+  }, [collegeSubdomain]);
 
   useEffect(() => {
     if (!user) return;
@@ -163,7 +164,10 @@ export default function CRTManager() {
 
   const fetchCrtStudents = useCallback(async function fetchCrtStudents() {
     try {
-      const studentsRef = firestoreHelpers.collection(db, "students");
+      const studentsRef = firestoreHelpers.collection(
+        db,
+        ...tenantSegments(collegeSubdomain, "students")
+      );
       const q = firestoreHelpers.query(
         studentsRef,
         firestoreHelpers.where("isCrt", "==", true)
@@ -183,7 +187,7 @@ export default function CRTManager() {
       console.error("Failed to fetch CRT students", e);
       alert("Failed to load CRT students.");
     }
-  }, []);
+  }, [collegeSubdomain]);
 
   useEffect(() => {
     if (!user) return;
@@ -194,7 +198,12 @@ export default function CRTManager() {
     async function fetchAssignedCrtStudents(targetId) {
       if (!targetId) return;
       const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "crt", targetId, "students")
+        firestoreHelpers.collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "crt"),
+          targetId,
+          "students"
+        )
       );
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -205,7 +214,7 @@ export default function CRTManager() {
         );
       setAssignedCrtStudents(list);
     },
-    []
+    [collegeSubdomain]
   );
 
   useEffect(() => {
@@ -225,7 +234,12 @@ export default function CRTManager() {
         return;
       }
       const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "crt", targetId, "batches")
+        firestoreHelpers.collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "crt"),
+          targetId,
+          "batches"
+        )
       );
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -240,7 +254,7 @@ export default function CRTManager() {
         setSelectedBatchId("");
       }
     },
-    [selectedBatchId]
+    [selectedBatchId, collegeSubdomain]
   );
 
   const fetchBatchTests = useCallback(
@@ -252,7 +266,7 @@ export default function CRTManager() {
       const snap = await firestoreHelpers.getDocs(
         firestoreHelpers.collection(
           db,
-          "crt",
+          ...tenantSegments(collegeSubdomain, "crt"),
           targetCrtId,
           "batches",
           batchId,
@@ -269,7 +283,7 @@ export default function CRTManager() {
         setActiveBatchTestId(list[0].id);
       }
     },
-    [activeBatchTestId]
+    [activeBatchTestId, collegeSubdomain]
   );
 
   const fetchBatchStudents = useCallback(
@@ -342,7 +356,7 @@ export default function CRTManager() {
           .map((x) => x.trim())
           .filter(Boolean);
       const ref = await firestoreHelpers.addDoc(
-        firestoreHelpers.collection(db, "crt"),
+        firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "crt")),
         {
           name: newCrt.name.trim(),
           description: newCrt.description.trim(),
@@ -407,7 +421,7 @@ export default function CRTManager() {
     try {
       setSavingCrt(true);
       await firestoreHelpers.updateDoc(
-        firestoreHelpers.doc(db, "crt", editingCrtId),
+        firestoreHelpers.doc(db, ...tenantSegments(collegeSubdomain, "crt"), editingCrtId),
         {
           name: editCrtForm.name.trim(),
           description: editCrtForm.description.trim(),
@@ -473,7 +487,7 @@ export default function CRTManager() {
       setAssigningCourses(true);
       const coursesCol = firestoreHelpers.collection(
         db,
-        "crt",
+        ...tenantSegments(collegeSubdomain, "crt"),
         selectedCrtId,
         "courses"
       );

@@ -100,7 +100,7 @@ function SuperAdminPage() {
                 },
                 body: JSON.stringify({
                     name: name.trim(),
-                    subdomain: editingSubdomain || subdomain,
+                    subdomain: editingSubdomain || subdomain, 
                     email: email.trim().toLowerCase(),
                     password: password.trim() || undefined,
                     moduleLms,

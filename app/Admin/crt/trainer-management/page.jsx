@@ -8,6 +8,7 @@ import { useAdminAccess } from "../../AdminAccessContext";
 import { motion } from "framer-motion";
 import { ArrowLeft, UserCog, UserPlus, X, RefreshCw, Pencil, Trash2 } from "lucide-react";
 import { crtTrainerCollectionSegments, crtTrainerDocSegments } from "@/lib/collegeTenantFirestore";
+import { tenantSegments } from "@/lib/tenantPath";
 
 /** Must match default in /api/create-trainer (Auth + Firestore `trainerPassword`). */
 const DEFAULT_TRAINER_PASSWORD = "VaweTrainer@2025";
@@ -64,7 +65,7 @@ export default function CRTTrainerManagementPage() {
     if (!db) return;
     try {
       const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "crt")
+        firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "crt"))
       );
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -76,7 +77,7 @@ export default function CRTTrainerManagementPage() {
     } catch (err) {
       console.error("Failed to load CRT programs", err);
     }
-  }, [selectedProgramId]);
+  }, [selectedProgramId, collegeSubdomain]);
 
   useEffect(() => {
     if (user && isAdmin && isFirebaseConfigured) {
@@ -88,13 +89,18 @@ export default function CRTTrainerManagementPage() {
     if (!db) return;
     try {
       const programsSnap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "crt")
+        firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "crt"))
       );
       const map = {};
       for (const programDoc of programsSnap.docs) {
         const programName = programDoc.data()?.name || programDoc.id;
         const batchesSnap = await firestoreHelpers.getDocs(
-          firestoreHelpers.collection(db, "crt", programDoc.id, "batches")
+          firestoreHelpers.collection(
+            db,
+            ...tenantSegments(collegeSubdomain, "crt"),
+            programDoc.id,
+            "batches"
+          )
         );
         batchesSnap.docs.forEach((batchDoc) => {
           const batch = batchDoc.data() || {};
@@ -113,7 +119,7 @@ export default function CRTTrainerManagementPage() {
       console.error("Failed to load trainer assigned classes", err);
       setTrainerAssignedClasses({});
     }
-  }, []);
+  }, [collegeSubdomain]);
 
   const handleRemoveAssignedClass = useCallback(
     async (trainerId, programId, batchId) => {
@@ -159,7 +165,12 @@ export default function CRTTrainerManagementPage() {
     }
     try {
       const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "crt", programId, "courses")
+        firestoreHelpers.collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "crt"),
+          programId,
+          "courses"
+        )
       );
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -423,7 +434,12 @@ export default function CRTTrainerManagementPage() {
     setAssigning(true);
     try {
       const batchesSnap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "crt", selectedProgramId, "batches")
+        firestoreHelpers.collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "crt"),
+          selectedProgramId,
+          "batches"
+        )
       );
       if (batchesSnap.empty) {
         alert("No batches found under selected CRT.");
@@ -433,7 +449,13 @@ export default function CRTTrainerManagementPage() {
       await Promise.all(
         batchesSnap.docs.map((batchDoc) =>
           firestoreHelpers.updateDoc(
-            firestoreHelpers.doc(db, "crt", selectedProgramId, "batches", batchDoc.id),
+            firestoreHelpers.doc(
+              db,
+              ...tenantSegments(collegeSubdomain, "crt"),
+              selectedProgramId,
+              "batches",
+              batchDoc.id
+            ),
             {
               trainerId: trainer.id,
               trainerName: trainer.name || "",

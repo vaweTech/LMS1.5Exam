@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { useAdminAccess } from "../AdminAccessContext";
+import { tenantSegments } from "@/lib/tenantPath";
 
 export default function InternshipManager() {
   const router = useRouter();
@@ -21,6 +22,7 @@ export default function InternshipManager() {
   const loading = access.loading;
   const isAdmin =
     access.isFullAdmin || (access.isCollegeAdmin && (access.moduleLms || access.moduleCrt));
+  const collegeSubdomain = access.collegeSubdomain || null;
 
   const [internships, setInternships] = useState([]);
   const [selectedInternshipId, setSelectedInternshipId] = useState("");
@@ -67,7 +69,7 @@ export default function InternshipManager() {
 
   const fetchInternships = useCallback(async function fetchInternships() {
     const snap = await firestoreHelpers.getDocs(
-      firestoreHelpers.collection(db, "internships")
+      firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "internships"))
     );
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setInternships(list);
@@ -78,7 +80,7 @@ export default function InternshipManager() {
 
   const fetchCourses = useCallback(async function fetchCourses() {
     const snap = await firestoreHelpers.getDocs(
-      firestoreHelpers.collection(db, "courses")
+      firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "courses"))
     );
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setCourses(list);
@@ -114,7 +116,7 @@ useEffect(() => {
         await firestoreHelpers.deleteDoc(
           firestoreHelpers.doc(
             db,
-            "internships",
+            ...tenantSegments(collegeSubdomain, "internships"),
             selectedInternshipId,
             "courses",
             courseId,
@@ -125,7 +127,13 @@ useEffect(() => {
       }
       // delete course copy
       await firestoreHelpers.deleteDoc(
-        firestoreHelpers.doc(db, "internships", selectedInternshipId, "courses", courseId)
+        firestoreHelpers.doc(
+          db,
+          ...tenantSegments(collegeSubdomain, "internships"),
+          selectedInternshipId,
+          "courses",
+          courseId
+        )
       );
       await fetchInternshipCourses(selectedInternshipId);
     } catch (e) {
@@ -139,16 +147,21 @@ useEffect(() => {
   const fetchInternshipCourses = useCallback(
     async function fetchInternshipCourses(internshipId) {
       const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "internships", internshipId, "courses")
+        firestoreHelpers.collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "internships"),
+          internshipId,
+          "courses"
+        )
       );
       setInternshipCourses(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     },
-    []
+    [collegeSubdomain]
   );
 
   const fetchInternshipStudents = useCallback(async function fetchInternshipStudents() {
     try {
-      const studentsRef = firestoreHelpers.collection(db, "students");
+      const studentsRef = firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "students"));
       const q = firestoreHelpers.query(
         studentsRef,
         firestoreHelpers.where("isInternship", "==", true)
@@ -168,7 +181,7 @@ useEffect(() => {
       console.error("Failed to fetch internship students", e);
       alert("Failed to load internship students.");
     }
-  }, []);
+  }, [collegeSubdomain]);
 
 useEffect(() => {
   if (!user) return;
@@ -179,7 +192,12 @@ useEffect(() => {
     async function fetchAssignedInternshipStudents(targetId) {
       if (!targetId) return;
       const snap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "internships", targetId, "students")
+        firestoreHelpers.collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "internships"),
+          targetId,
+          "students"
+        )
       );
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -190,7 +208,7 @@ useEffect(() => {
         );
       setAssignedInternshipStudents(list);
     },
-    []
+    [collegeSubdomain]
   );
 
 useEffect(() => {
@@ -213,7 +231,7 @@ useEffect(() => {
     try {
       setCreating(true);
       const ref = await firestoreHelpers.addDoc(
-        firestoreHelpers.collection(db, "internships"),
+        firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "internships")),
         {
           name: newInternship.name.trim(),
           description: newInternship.description.trim(),
@@ -237,7 +255,7 @@ useEffect(() => {
       const courseCopyRef = await firestoreHelpers.addDoc(
         firestoreHelpers.collection(
           db,
-          "internships",
+          ...tenantSegments(collegeSubdomain, "internships"),
           selectedInternshipId,
           "courses"
         ),
@@ -254,7 +272,12 @@ useEffect(() => {
 
       // 2) Copy chapters
       const masterChaptersSnap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "courses", course.id, "chapters")
+        firestoreHelpers.collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "courses"),
+          course.id,
+          "chapters"
+        )
       );
       const chapters = masterChaptersSnap.docs.map((d) => ({
         id: d.id,
@@ -266,7 +289,7 @@ useEffect(() => {
           return firestoreHelpers.addDoc(
             firestoreHelpers.collection(
               db,
-              "internships",
+              ...tenantSegments(collegeSubdomain, "internships"),
               selectedInternshipId,
               "courses",
               courseCopyRef.id,
@@ -523,7 +546,7 @@ useEffect(() => {
       await firestoreHelpers.deleteDoc(
         firestoreHelpers.doc(
           db,
-          "internships",
+          ...tenantSegments(collegeSubdomain, "internships"),
           selectedInternshipId,
           "students",
           recordId
@@ -549,13 +572,18 @@ useEffect(() => {
 
       // Delete courses and their chapters under the internship
       const coursesSnap = await firestoreHelpers.getDocs(
-        firestoreHelpers.collection(db, "internships", targetId, "courses")
+        firestoreHelpers.collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "internships"),
+          targetId,
+          "courses"
+        )
       );
       for (const courseDoc of coursesSnap.docs) {
         const chaptersSnap = await firestoreHelpers.getDocs(
           firestoreHelpers.collection(
             db,
-            "internships",
+            ...tenantSegments(collegeSubdomain, "internships"),
             targetId,
             "courses",
             courseDoc.id,
@@ -590,13 +618,23 @@ useEffect(() => {
           // Continue even if assignments deletion fails
         }
         await firestoreHelpers.deleteDoc(
-          firestoreHelpers.doc(db, "internships", targetId, "courses", courseDoc.id)
+          firestoreHelpers.doc(
+            db,
+            ...tenantSegments(collegeSubdomain, "internships"),
+            targetId,
+            "courses",
+            courseDoc.id
+          )
         );
       }
 
       // Delete internship itself
       await firestoreHelpers.deleteDoc(
-        firestoreHelpers.doc(db, "internships", targetId)
+        firestoreHelpers.doc(
+          db,
+          ...tenantSegments(collegeSubdomain, "internships"),
+          targetId
+        )
       );
 
       if (selectedInternshipId === targetId) {

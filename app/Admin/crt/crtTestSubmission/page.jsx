@@ -5,6 +5,7 @@ import Link from "next/link";
 import { db, firestoreHelpers } from "../../../../lib/firebase";
 import { useAdminAccess } from "../../AdminAccessContext";
 import { ArrowLeftIcon, UserGroupIcon, ChartBarIcon, DocumentTextIcon } from "@heroicons/react/24/solid";
+import { tenantSegments } from "@/lib/tenantPath";
 
 const NO_BATCH_KEY = "__no_batch__";
 
@@ -66,7 +67,7 @@ const DUMMY_SECTION_ANALYTICS = [
 ];
 
 export default function CRTTestSubmissionPage() {
-  const { user, loading, hasCrtManagerAccess: isAdmin } = useAdminAccess();
+  const { user, loading, hasCrtManagerAccess: isAdmin, collegeSubdomain } = useAdminAccess();
 
   const [crts, setCrts] = useState([]);
   const [selectedCrtId, setSelectedCrtId] = useState("");
@@ -78,14 +79,14 @@ export default function CRTTestSubmissionPage() {
 
   const fetchCrts = useCallback(async () => {
     const snap = await firestoreHelpers.getDocs(
-      firestoreHelpers.collection(db, "crt")
+      firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "crt"))
     );
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setCrts(list);
     if (list.length > 0 && !selectedCrtId) {
       setSelectedCrtId(list[0].id);
     }
-  }, [selectedCrtId]);
+  }, [selectedCrtId, collegeSubdomain]);
 
   useEffect(() => {
     if (!user) return;
@@ -99,12 +100,17 @@ export default function CRTTestSubmissionPage() {
       return;
     }
     const snap = await firestoreHelpers.getDocs(
-      firestoreHelpers.collection(db, "crt", crtId, "tests")
+      firestoreHelpers.collection(
+        db,
+        ...tenantSegments(collegeSubdomain, "crt"),
+        crtId,
+        "tests"
+      )
     );
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setTests(list);
     setSelectedTestId(list.length > 0 ? list[0].id : "");
-  }, []);
+  }, [selectedCrtId, collegeSubdomain]);
 
   useEffect(() => {
     if (!selectedCrtId) {
@@ -124,7 +130,7 @@ export default function CRTTestSubmissionPage() {
     try {
       const subRef = firestoreHelpers.collection(
         db,
-        "crt",
+        ...tenantSegments(collegeSubdomain, "crt"),
         selectedCrtId,
         "tests",
         selectedTestId,
@@ -139,7 +145,7 @@ export default function CRTTestSubmissionPage() {
     } finally {
       setLoadingSubmissions(false);
     }
-  }, [selectedCrtId, selectedTestId]);
+  }, [selectedCrtId, selectedTestId, collegeSubdomain]);
 
   useEffect(() => {
     fetchSubmissions();

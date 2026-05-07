@@ -8,6 +8,7 @@ import { firestoreHelpers } from "../../../lib/firebase";
 import { createSlug } from "../../../lib/urlUtils";
 import { db, auth } from "../../../lib/firebase";
 import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
+import { getClientCollegeSubdomain, tenantSegments } from "@/lib/tenantPath";
 import {
   ArrowLeftIcon,
   AcademicCapIcon,
@@ -50,6 +51,7 @@ function programFromCrtDoc(id, data) {
 export default function CRTProgramDetailPage() {
   const params = useParams();
   const slug = params?.slug;
+  const collegeSubdomain = getClientCollegeSubdomain();
   const [program, setProgram] = useState(null);
   const [programLoading, setProgramLoading] = useState(!!slug);
 
@@ -61,14 +63,16 @@ export default function CRTProgramDetailPage() {
     let cancelled = false;
     (async () => {
       try {
-        const ref = firestoreHelpers.doc(db, "crt", slug);
+        const ref = firestoreHelpers.doc(db, ...tenantSegments(collegeSubdomain, "crt"), slug);
         const snap = await firestoreHelpers.getDoc(ref);
         if (cancelled) return;
         if (snap.exists()) {
           setProgram(programFromCrtDoc(snap.id, snap.data()));
           return;
         }
-        const crtSnap = await firestoreHelpers.getDocs(firestoreHelpers.collection(db, "crt"));
+        const crtSnap = await firestoreHelpers.getDocs(
+          firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "crt"))
+        );
         if (cancelled) return;
         const found = crtSnap.docs.find(
           (d) => createSlug(d.data().name || "") === slug
@@ -105,14 +109,21 @@ export default function CRTProgramDetailPage() {
     let cancelled = false;
     (async () => {
       try {
-        const coursesRef = collection(db, "crt", program.id, "courses");
+        const coursesRef = collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "crt"),
+          program.id,
+          "courses"
+        );
         const snap = await getDocs(coursesRef);
         if (cancelled) return;
         const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         for (const c of list) {
           if (c.sourceCourseId) {
             try {
-              const masterSnap = await getDoc(doc(db, "crtCourses", c.sourceCourseId));
+              const masterSnap = await getDoc(
+                doc(db, ...tenantSegments(collegeSubdomain, "crtCourses"), c.sourceCourseId)
+              );
               if (masterSnap.exists() && !cancelled) {
                 c.isNonTechnical = masterSnap.data().isNonTechnical === true;
               }
@@ -137,7 +148,7 @@ export default function CRTProgramDetailPage() {
     (async () => {
       try {
         setAttendanceLoading(true);
-        const crtSnap = await getDocs(collection(db, "crt"));
+        const crtSnap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "crt")));
         let resolvedCrtId = null;
         const coursesList = [];
         for (const crtDoc of crtSnap.docs) {
@@ -149,7 +160,12 @@ export default function CRTProgramDetailPage() {
             (data.name && data.name === program.title);
           if (!matchesProgram) continue;
           resolvedCrtId = crtDoc.id;
-          const coursesRef = collection(db, "crt", crtDoc.id, "courses");
+          const coursesRef = collection(
+            db,
+            ...tenantSegments(collegeSubdomain, "crt"),
+            crtDoc.id,
+            "courses"
+          );
           const coursesSnap = await getDocs(coursesRef);
           coursesSnap.docs.forEach((c) => {
             coursesList.push({ id: c.id, ...c.data() });
@@ -163,14 +179,19 @@ export default function CRTProgramDetailPage() {
         const uid = user.uid;
         let studentDocId = uid;
         try {
-          const directSnap = await getDoc(doc(db, "students", uid));
+          const directSnap = await getDoc(
+            doc(db, ...tenantSegments(collegeSubdomain, "students"), uid)
+          );
           if (!directSnap.exists()) {
-            const sq = query(collection(db, "students"), where("uid", "==", uid));
+            const sq = query(
+              collection(db, ...tenantSegments(collegeSubdomain, "students")),
+              where("uid", "==", uid)
+            );
             const sSnap = await getDocs(sq);
             if (!sSnap.empty) studentDocId = sSnap.docs[0].id;
           }
         } catch (_) {}
-        const attCol = collection(db, "attendance");
+        const attCol = collection(db, ...tenantSegments(collegeSubdomain, "attendance"));
         let totalSessions = 0;
         let presentSessions = 0;
         for (const course of coursesList) {
@@ -223,7 +244,7 @@ export default function CRTProgramDetailPage() {
     (async () => {
       try {
         setExamsLoading(true);
-        const crtSnap = await getDocs(collection(db, "crt"));
+        const crtSnap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "crt")));
         let resolvedCrtId = null;
         for (const crtDoc of crtSnap.docs) {
           const data = crtDoc.data();
@@ -240,7 +261,12 @@ export default function CRTProgramDetailPage() {
           setExamsList([]);
           return;
         }
-        const testsRef = collection(db, "crt", resolvedCrtId, "tests");
+        const testsRef = collection(
+          db,
+          ...tenantSegments(collegeSubdomain, "crt"),
+          resolvedCrtId,
+          "tests"
+        );
         const testsSnap = await getDocs(testsRef);
         if (cancelled) return;
         const uid = user?.uid;
@@ -257,7 +283,14 @@ export default function CRTProgramDetailPage() {
           let submission = null;
           if (uid) {
             try {
-              const subRef = collection(db, "crt", resolvedCrtId, "tests", testDoc.id, "submissions");
+              const subRef = collection(
+                db,
+                ...tenantSegments(collegeSubdomain, "crt"),
+                resolvedCrtId,
+                "tests",
+                testDoc.id,
+                "submissions"
+              );
               const q = query(subRef, where("userId", "==", uid));
               const subSnap = await getDocs(q);
               if (!subSnap.empty) {

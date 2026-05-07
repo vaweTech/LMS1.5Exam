@@ -5,6 +5,7 @@ import Image from "next/image";
 import CheckAuth from "../../lib/CheckAuth";
 import { db, firestoreHelpers } from "../../lib/firebase";
 import { createSlug } from "../../lib/urlUtils";
+import { getClientCollegeSubdomain, tenantSegments } from "@/lib/tenantPath";
 import {
   CodeBracketIcon,
   CpuChipIcon,
@@ -50,6 +51,7 @@ function mapCrtToProgram(doc) {
 
 export default function CRTPage() {
   const router = useRouter();
+  const collegeSubdomain = getClientCollegeSubdomain();
   const [imageErrors, setImageErrors] = useState({});
   const [expandedId, setExpandedId] = useState(null);
   const [crts, setCrts] = useState([]);
@@ -60,7 +62,7 @@ export default function CRTPage() {
     (async () => {
       try {
         const snap = await firestoreHelpers.getDocs(
-          firestoreHelpers.collection(db, "crt")
+          firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "crt"))
         );
         if (cancelled) return;
         setCrts(snap.docs.map(mapCrtToProgram));

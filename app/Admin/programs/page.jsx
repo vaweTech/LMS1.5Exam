@@ -13,6 +13,7 @@ import {
 import { useRouter } from "next/navigation";
 import CheckAdminAuth from "@/lib/CheckAdminAuth";
 import { motion } from "framer-motion";
+import { getClientCollegeSubdomain, tenantSegments } from "@/lib/tenantPath";
 import {
   Plus,
   Edit,
@@ -29,6 +30,7 @@ import {
 
 export default function ProgramsPage() {
   const router = useRouter();
+  const collegeSubdomain = getClientCollegeSubdomain();
   const [programs, setPrograms] = useState([]);
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -68,7 +70,7 @@ export default function ProgramsPage() {
   // Fetch students from a class to get allocated student names
   const fetchStudentsFromClass = async (classId) => {
     try {
-      const studentsRef = collection(db, "students");
+      const studentsRef = collection(db, ...tenantSegments(collegeSubdomain, "students"));
       const studentsSnapshot = await getDocs(studentsRef);
       const allStudents = studentsSnapshot.docs.map(doc => ({
         id: doc.id,
@@ -102,8 +104,8 @@ export default function ProgramsPage() {
   // POST /api/programs/update-student-list with { programId: "..." }
   const updateProgramStudentList = async (programId) => {
     try {
-      const programRef = doc(db, "programs", programId);
-      const programSnap = await getDocs(collection(db, "programs"));
+      const programRef = doc(db, ...tenantSegments(collegeSubdomain, "programs"), programId);
+      const programSnap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "programs")));
       const programDoc = programSnap.docs.find(d => d.id === programId);
       
       if (!programDoc) return;
@@ -168,7 +170,7 @@ export default function ProgramsPage() {
   const fetchPrograms = async () => {
     setLoading(true);
     try {
-      const programsRef = collection(db, "programs");
+      const programsRef = collection(db, ...tenantSegments(collegeSubdomain, "programs"));
       const snapshot = await getDocs(programsRef);
       const programsData = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -186,7 +188,7 @@ export default function ProgramsPage() {
   const fetchClasses = async () => {
     setLoadingClasses(true);
     try {
-      const classesRef = collection(db, "classes");
+      const classesRef = collection(db, ...tenantSegments(collegeSubdomain, "classes"));
       const snapshot = await getDocs(classesRef);
       const classesData = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -216,7 +218,7 @@ export default function ProgramsPage() {
         updatedAt: serverTimestamp()
       };
 
-      await addDoc(collection(db, "programs"), programData);
+      await addDoc(collection(db, ...tenantSegments(collegeSubdomain, "programs")), programData);
       alert("Program created successfully!");
       setNewProgram({ name: "", description: "", duration: "", fee: "", status: "active" });
       setShowProgramForm(false);
@@ -235,7 +237,7 @@ export default function ProgramsPage() {
     }
 
     try {
-      const programRef = doc(db, "programs", editingProgram.id);
+      const programRef = doc(db, ...tenantSegments(collegeSubdomain, "programs"), editingProgram.id);
       await updateDoc(programRef, {
         name: editingProgram.name,
         description: editingProgram.description,
@@ -258,7 +260,7 @@ export default function ProgramsPage() {
     }
 
     try {
-      await deleteDoc(doc(db, "programs", programId));
+      await deleteDoc(doc(db, ...tenantSegments(collegeSubdomain, "programs"), programId));
       alert("Program deleted successfully!");
       fetchPrograms();
     } catch (error) {
@@ -275,7 +277,7 @@ export default function ProgramsPage() {
     }
 
     try {
-      const programRef = doc(db, "programs", selectedProgram.id);
+      const programRef = doc(db, ...tenantSegments(collegeSubdomain, "programs"), selectedProgram.id);
       const currentProgram = programs.find(p => p.id === selectedProgram.id);
       const currentBatches = currentProgram?.batches || [];
 
@@ -329,7 +331,7 @@ export default function ProgramsPage() {
     }
 
     try {
-      const programRef = doc(db, "programs", selectedProgram.id);
+      const programRef = doc(db, ...tenantSegments(collegeSubdomain, "programs"), selectedProgram.id);
       const currentProgram = programs.find(p => p.id === selectedProgram.id);
       const currentBatches = currentProgram?.batches || [];
       
@@ -379,7 +381,7 @@ export default function ProgramsPage() {
     }
 
     try {
-      const programRef = doc(db, "programs", selectedProgram.id);
+      const programRef = doc(db, ...tenantSegments(collegeSubdomain, "programs"), selectedProgram.id);
       const currentProgram = programs.find(p => p.id === selectedProgram.id);
       const currentBatches = currentProgram?.batches || [];
       const updatedBatches = currentBatches.filter(batch => batch.id !== batchId);
@@ -418,7 +420,7 @@ export default function ProgramsPage() {
     
     // Get fresh classes from state (will be updated after fetchClasses completes)
     // Use a small delay to ensure state is updated, or fetch directly
-    const classesRef = collection(db, "classes");
+    const classesRef = collection(db, ...tenantSegments(collegeSubdomain, "classes"));
     const classesSnapshot = await getDocs(classesRef);
     const freshClasses = classesSnapshot.docs.map(doc => ({
       id: doc.id,
@@ -450,7 +452,7 @@ export default function ProgramsPage() {
   const fetchCourses = async () => {
     setLoadingCourses(true);
     try {
-      const coursesRef = collection(db, "courses");
+      const coursesRef = collection(db, ...tenantSegments(collegeSubdomain, "courses"));
       const snap = await getDocs(coursesRef);
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setAllCourses(list);
