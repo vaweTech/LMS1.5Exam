@@ -102,7 +102,19 @@ function AdminLayoutInner({ children }) {
   const showAdminNav =
     roleChecked && !access.isDataEntry && (access.isFullAdmin || access.isCollegeAdmin);
 
-  const visibleLinks = SIDEBAR_LINKS;
+  const visibleLinks = SIDEBAR_LINKS.filter((link) => {
+    if (!access.isCollegeAdmin) return true;
+    if (link.href === "/Admin/crt" && !access.moduleCrt) return false;
+    if (
+      link.href !== "/Admin/crt" &&
+      link.href !== "/Admin/whatsapp" &&
+      !access.moduleLms
+    ) {
+      return false;
+    }
+    if (link.href === "/Admin/internships") return false;
+    return true;
+  });
 
   return (
     <div className="min-h-screen bg-slate-50">
