@@ -136,6 +136,11 @@ export default function AdminDashboardPage() {
       if (access.isFullAdmin) return true;
       if (access.isDataEntry) return m.adminOnly ? false : true;
       if (access.isCollegeAdmin) {
+        // Respect module toggles from superadmin for college domains.
+        if (!access.moduleLms && m.href !== "/Admin/crt") return false;
+        if (!access.moduleCrt && m.href === "/Admin/crt") return false;
+        // Hide internship management for college-domain admins.
+        if (m.href === "/Admin/internships") return false;
         return true;
       }
       return false;

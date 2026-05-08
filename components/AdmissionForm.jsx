@@ -766,6 +766,7 @@ function Label({ children, required }) {
 export default function AdmissionForm({ onStudentAdded }) { 
   const collegeSubdomain = getClientCollegeSubdomain();
   const crtRole = getScopedCrtStudentRole(collegeSubdomain);
+  const isCollegeDomain = !!collegeSubdomain;
   const [formData, setFormData] = useState({
     regdNo: "",
     studentName: "",
@@ -1027,10 +1028,16 @@ export default function AdmissionForm({ onStudentAdded }) {
         workCompany: formData.workCompany,
         skillSet: formData.skillSet,
         remarks: formData.remarks,
-        isInternship: formData.isInternship,
+        isInternship: isCollegeDomain ? false : formData.isInternship,
         isCrt: formData.isCrt,
         collegeSubdomain: formData.isCrt ? collegeSubdomain : undefined,
-        role: formData.isCrt ? crtRole : formData.isInternship ? "internship" : "student",
+        role: formData.isCrt
+          ? crtRole
+          : isCollegeDomain
+          ? "student"
+          : formData.isInternship
+          ? "internship"
+          : "student",
       };
 
       const res = await makeAuthenticatedRequest("/api/create-student", {
@@ -1110,20 +1117,22 @@ export default function AdmissionForm({ onStudentAdded }) {
           </h2>
           <div className="flex flex-col items-end gap-3 text-right">
             <div className="flex flex-wrap items-center justify-end gap-6">
-              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={formData.isInternship}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      isInternship: e.target.checked,
-                    }))
-                  }
-                  className="h-4 w-4 accent-emerald-600"
-                />
-                Internship Admission
-              </label>
+              {!isCollegeDomain && (
+                <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={formData.isInternship}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        isInternship: e.target.checked,
+                      }))
+                    }
+                    className="h-4 w-4 accent-emerald-600"
+                  />
+                  Internship Admission
+                </label>
+              )}
               <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                 <input
                   type="checkbox"
@@ -1140,7 +1149,9 @@ export default function AdmissionForm({ onStudentAdded }) {
               </label>
             </div>
             <p className="text-xs text-slate-500">
-              Internship: tag as intern. CRT Student: eligible for CRT programs and appears in CRT Manager.
+              {isCollegeDomain
+                ? "CRT Student: eligible for CRT programs and appears in CRT Manager."
+                : "Internship: tag as intern. CRT Student: eligible for CRT programs and appears in CRT Manager."}
             </p>
           </div>
         </div>

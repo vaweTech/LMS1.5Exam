@@ -13,6 +13,8 @@ export default function AdminRootPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isDataEntry, setIsDataEntry] = useState(false);
   const [isCollegeAdmin, setIsCollegeAdmin] = useState(false);
+  const [moduleLms, setModuleLms] = useState(true);
+  const [moduleCrt, setModuleCrt] = useState(true);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -27,11 +29,20 @@ export default function AdminRootPage() {
         const admin = userRole === "admin" || userRole === "superadmin";
         const dataEntry = userRole === "dataentry";
         const collegeAdmin = userRole === "collegeAdmin";
+        const userData = snap.exists() ? snap.data() : {};
+        const lmsEnabled = collegeAdmin ? !!userData.moduleLms : true;
+        const crtEnabled = collegeAdmin ? !!userData.moduleCrt : true;
         setIsAdmin(admin);
         setIsDataEntry(dataEntry);
         setIsCollegeAdmin(collegeAdmin);
-        if (admin || dataEntry || collegeAdmin) {
+        setModuleLms(lmsEnabled);
+        setModuleCrt(crtEnabled);
+        if (admin || dataEntry) {
           router.replace("/Admin/dashboard");
+        } else if (collegeAdmin && lmsEnabled) {
+          router.replace("/Admin/dashboard");
+        } else if (collegeAdmin && !lmsEnabled && crtEnabled) {
+          router.replace("/Admin/crt");
         }
       }
       setLoading(false);
@@ -54,7 +65,11 @@ export default function AdminRootPage() {
     );
   }
 
-  if (!user || (!isAdmin && !isDataEntry && !isCollegeAdmin)) {
+  if (
+    !user ||
+    (!isAdmin && !isDataEntry && !isCollegeAdmin) ||
+    (isCollegeAdmin && !moduleLms && !moduleCrt)
+  ) {
   return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
         <motion.div
