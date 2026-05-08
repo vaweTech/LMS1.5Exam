@@ -161,6 +161,25 @@ function deriveStudentRole(body, reqUser) {
   return body.isInternship ? "internship" : "student";
 }
 
+function parseLimitNumber(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const num = Number.parseInt(value, 10);
+  if (!Number.isFinite(num) || num < 0) return null;
+  return num;
+}
+
+async function getCollegeStudentLimits(subdomain) {
+  const key = String(subdomain || "").trim().toLowerCase();
+  if (!key) return { studentLimit: null, crtStudentLimit: null };
+  const snap = await adminDb.collection("collegeTenants").doc(key).get();
+  if (!snap.exists) return { studentLimit: null, crtStudentLimit: null };
+  const data = snap.data() || {};
+  return {
+    studentLimit: parseLimitNumber(data.studentLimit),
+    crtStudentLimit: parseLimitNumber(data.crtStudentLimit),
+  };
+}
+
 async function createStudentHandler(req) {
   const body = req.validatedBody;
   const { email, name, classId, regdNo } = body;
@@ -175,6 +194,51 @@ async function createStudentHandler(req) {
   const defaultPassword = DEFAULT_STUDENT_PASSWORD;
 
   try {
+    const derivedRole = deriveStudentRole(body, req.user);
+    const targetSubdomain = String(
+      body?.collegeSubdomain || req?.user?.collegeSubdomain || ""
+    )
+      .trim()
+      .toLowerCase();
+
+    if (targetSubdomain && (derivedRole === "student" || isCrtStudentRole(derivedRole))) {
+      const { studentLimit, crtStudentLimit } = await getCollegeStudentLimits(targetSubdomain);
+      if (derivedRole === "student" && studentLimit !== null) {
+        const existingStudentsSnap = await adminDb
+          .collection("students")
+          .where("collegeSubdomain", "==", targetSubdomain)
+          .where("role", "==", "student")
+          .count()
+          .get();
+        const existingStudentsCount = existingStudentsSnap.data().count || 0;
+        if (existingStudentsCount >= studentLimit) {
+          return new Response(
+            JSON.stringify({
+              error: `Student creation limit reached for this college (${studentLimit}).`,
+            }),
+            { status: 400 }
+          );
+        }
+      }
+      if (isCrtStudentRole(derivedRole) && crtStudentLimit !== null) {
+        const existingCrtStudentsSnap = await adminDb
+          .collection("students")
+          .where("collegeSubdomain", "==", targetSubdomain)
+          .where("role", "==", derivedRole)
+          .count()
+          .get();
+        const existingCrtStudentsCount = existingCrtStudentsSnap.data().count || 0;
+        if (existingCrtStudentsCount >= crtStudentLimit) {
+          return new Response(
+            JSON.stringify({
+              error: `CRT student creation limit reached for this college (${crtStudentLimit}).`,
+            }),
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     let userRecord;
     const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
@@ -348,7 +412,6 @@ async function createStudentHandler(req) {
     
     try {
       const phoneNormalized = normalizeToE164(body.phone || body.phone1);
-      const derivedRole = deriveStudentRole(body, req.user);
       const isCrt = !!body.isCrt;
       
       const studentData = {
@@ -360,6 +423,7 @@ async function createStudentHandler(req) {
         uid: studentUid,
         role: derivedRole,
         isCrt,
+        collegeSubdomain: targetSubdomain || null,
         // Store default password for admin visibility in Student Info (note: security trade-off as requested)
         password: DEFAULT_STUDENT_PASSWORD,
         // Store phone fields for UI/searching
@@ -443,7 +507,6 @@ async function createStudentHandler(req) {
             serviceAccount.project_id;
           
           const phoneNormalized2 = normalizeToE164(body.phone || body.phone1);
-          const derivedRoleRest = deriveStudentRole(body, req.user);
           const isCrtRest = !!body.isCrt;
           
           const studentDataRest = {
@@ -454,8 +517,9 @@ async function createStudentHandler(req) {
               name: { stringValue: name },
               classId: { stringValue: classId || 'general' },
               uid: { stringValue: studentUid },
-              role: { stringValue: derivedRoleRest },
+              role: { stringValue: derivedRole },
               isCrt: { booleanValue: isCrtRest },
+              collegeSubdomain: { stringValue: targetSubdomain || "" },
               password: { stringValue: DEFAULT_STUDENT_PASSWORD },
               phone1: { stringValue: body.phone1 || '' },
               phone: { stringValue: phoneNormalized2 || body.phone || body.phone1 || '' },

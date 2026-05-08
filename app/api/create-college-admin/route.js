@@ -10,6 +10,13 @@ const USER_DETAILS_DOC_ID = "profile";
 const DEFAULT_PASSWORD = "VaweCollegeAdmin@2026";
 const USER_COLLECTION = "users";
 
+function parseOptionalLimit(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const num = Number.parseInt(value, 10);
+  if (!Number.isFinite(num) || num < 0) return null;
+  return num;
+}
+
 function normalizeSubdomain(raw) {
   return String(raw || "")
     .toLowerCase()
@@ -62,6 +69,8 @@ export async function POST(req) {
       const password = passwordRaw || DEFAULT_PASSWORD;
       const moduleLms = !!body.moduleLms;
       const moduleCrt = !!body.moduleCrt;
+      const studentLimit = parseOptionalLimit(body.studentLimit);
+      const crtStudentLimit = parseOptionalLimit(body.crtStudentLimit);
 
       if (!name || !subdomain || !host) {
         return NextResponse.json(
@@ -109,6 +118,8 @@ export async function POST(req) {
         collegeAdminPassword: password,
         moduleLms,
         moduleCrt,
+        studentLimit,
+        crtStudentLimit,
         platformEmpty: true,
         status: "active",
         locked: false,
@@ -127,6 +138,8 @@ export async function POST(req) {
         host,
         moduleLms,
         moduleCrt,
+        studentLimit,
+        crtStudentLimit,
         platformEmpty: true,
         status: "active",
         locked: false,
@@ -144,6 +157,8 @@ export async function POST(req) {
         collegeAdminPassword: password,
         moduleLms,
         moduleCrt,
+        studentLimit,
+        crtStudentLimit,
         platformEmpty: true,
         status: "active",
         locked: false,
@@ -183,6 +198,8 @@ export async function POST(req) {
           collegeAdminPassword: password,
           moduleLms,
           moduleCrt,
+          studentLimit,
+          crtStudentLimit,
           platformEmpty: true,
           status: "active",
           locked: false,
@@ -199,6 +216,8 @@ export async function POST(req) {
           host,
           moduleLms,
           moduleCrt,
+          studentLimit,
+          crtStudentLimit,
           platformEmpty: true,
           status: "active",
           locked: false,
@@ -215,6 +234,8 @@ export async function POST(req) {
           collegeAdminPassword: password,
           moduleLms,
           moduleCrt,
+          studentLimit,
+          crtStudentLimit,
           platformEmpty: true,
           status: "active",
           locked: false,
@@ -231,6 +252,8 @@ export async function POST(req) {
           collegeAdminPassword: password,
           moduleLms,
           moduleCrt,
+          studentLimit,
+          crtStudentLimit,
           platformEmpty: true,
           status: "active",
           locked: false,
@@ -270,6 +293,8 @@ export async function PATCH(req) {
       const passwordRaw = String(body.password || "").trim();
       const moduleLms = !!body.moduleLms;
       const moduleCrt = !!body.moduleCrt;
+      const studentLimit = parseOptionalLimit(body.studentLimit);
+      const crtStudentLimit = parseOptionalLimit(body.crtStudentLimit);
 
       if (!name || !subdomain || !host) {
         return NextResponse.json(
@@ -322,6 +347,8 @@ export async function PATCH(req) {
         ...(passwordRaw ? { collegeAdminPassword: passwordRaw } : {}),
         moduleLms,
         moduleCrt,
+        studentLimit,
+        crtStudentLimit,
         platformEmpty: true,
         status: "active",
         locked: false,
@@ -339,6 +366,8 @@ export async function PATCH(req) {
         host,
         moduleLms,
         moduleCrt,
+        studentLimit,
+        crtStudentLimit,
         platformEmpty: true,
         status: "active",
         locked: false,
@@ -356,6 +385,8 @@ export async function PATCH(req) {
         ...(passwordRaw ? { collegeAdminPassword: passwordRaw } : {}),
         moduleLms,
         moduleCrt,
+        studentLimit,
+        crtStudentLimit,
         platformEmpty: true,
         status: "active",
         locked: false,
@@ -393,6 +424,8 @@ export async function PATCH(req) {
           ...(passwordRaw ? { collegeAdminPassword: passwordRaw } : {}),
           moduleLms,
           moduleCrt,
+          studentLimit,
+          crtStudentLimit,
           platformEmpty: true,
           status: "active",
           locked: false,
@@ -409,6 +442,8 @@ export async function PATCH(req) {
           host,
           moduleLms,
           moduleCrt,
+          studentLimit,
+          crtStudentLimit,
           platformEmpty: true,
           status: "active",
           locked: false,
@@ -425,6 +460,8 @@ export async function PATCH(req) {
           ...(passwordRaw ? { collegeAdminPassword: passwordRaw } : {}),
           moduleLms,
           moduleCrt,
+          studentLimit,
+          crtStudentLimit,
           platformEmpty: true,
           status: "active",
           locked: false,
@@ -441,6 +478,8 @@ export async function PATCH(req) {
           ...(passwordRaw ? { collegeAdminPassword: passwordRaw } : {}),
           moduleLms,
           moduleCrt,
+          studentLimit,
+          crtStudentLimit,
           platformEmpty: true,
           status: "active",
           locked: false,

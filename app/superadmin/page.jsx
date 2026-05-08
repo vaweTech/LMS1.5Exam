@@ -26,6 +26,8 @@ function SuperAdminPage() {
     const [password, setPassword] = useState("");
     const [moduleLms, setModuleLms] = useState(true);
     const [moduleCrt, setModuleCrt] = useState(true);
+    const [studentLimit, setStudentLimit] = useState("");
+    const [crtStudentLimit, setCrtStudentLimit] = useState("");
     const [colleges, setColleges] = useState([]);
     const [saveError, setSaveError] = useState("");
     const [createInfo, setCreateInfo] = useState("");
@@ -41,6 +43,8 @@ function SuperAdminPage() {
         setPassword("");
         setModuleLms(true);
         setModuleCrt(true);
+        setStudentLimit("");
+        setCrtStudentLimit("");
         setSaveError("");
     }, []);
 
@@ -105,6 +109,12 @@ function SuperAdminPage() {
                     password: password.trim() || undefined,
                     moduleLms,
                     moduleCrt,
+                    studentLimit:
+                        studentLimit === "" ? undefined : Math.max(0, Number.parseInt(studentLimit, 10) || 0),
+                    crtStudentLimit:
+                        crtStudentLimit === ""
+                            ? undefined
+                            : Math.max(0, Number.parseInt(crtStudentLimit, 10) || 0),
                     host,
                     rootDomain: ROOT_DOMAIN,
                 }), // eslint-disable-line comma-dangle                 
@@ -136,6 +146,14 @@ function SuperAdminPage() {
         setPassword("");
         setModuleLms(!!row.moduleLms);
         setModuleCrt(!!row.moduleCrt);
+        setStudentLimit(
+            row.studentLimit === undefined || row.studentLimit === null ? "" : String(row.studentLimit)
+        );
+        setCrtStudentLimit(
+            row.crtStudentLimit === undefined || row.crtStudentLimit === null
+                ? ""
+                : String(row.crtStudentLimit)
+        );
         setSaveError("");
         setCreateInfo("");
         setModalOpen(true);
@@ -400,6 +418,46 @@ function SuperAdminPage() {
                                             <span className="text-sm text-gray-800">CRT</span>
                                         </label>
                                     </fieldset>
+                                    <fieldset className="rounded border border-gray-200 px-3 py-3">
+                                        <legend className="px-1 text-sm font-medium text-gray-800">
+                                            Student limits (optional)
+                                        </legend>
+                                        <p className="mb-2 text-xs text-gray-500">
+                                            Set max students allowed for this college. Leave blank for no limit.
+                                        </p>
+                                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                            <div className="flex flex-col gap-1.5">
+                                                <label htmlFor="student-limit" className="text-sm font-medium text-gray-800">
+                                                    Student role limit
+                                                </label>
+                                                <input
+                                                    id="student-limit"
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    value={studentLimit}
+                                                    onChange={(e) => setStudentLimit(e.target.value)}
+                                                    placeholder="e.g. 500"
+                                                    className="rounded border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                                />
+                                            </div>
+                                            <div className="flex flex-col gap-1.5">
+                                                <label htmlFor="crt-student-limit" className="text-sm font-medium text-gray-800">
+                                                    CRT Student role limit
+                                                </label>
+                                                <input
+                                                    id="crt-student-limit"
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    value={crtStudentLimit}
+                                                    onChange={(e) => setCrtStudentLimit(e.target.value)}
+                                                    placeholder="e.g. 300"
+                                                    className="rounded border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                                />
+                                            </div>
+                                        </div>
+                                    </fieldset>
                                     <button
                                         type="submit"
                                         disabled={
@@ -435,6 +493,8 @@ function SuperAdminPage() {
                                         <th className="px-3 py-2 font-medium">Admin email</th>
                                         <th className="px-3 py-2 font-medium">LMS</th>
                                         <th className="px-3 py-2 font-medium">CRT</th>
+                                        <th className="px-3 py-2 font-medium">Student limit</th>
+                                        <th className="px-3 py-2 font-medium">CRT limit</th>
                                         <th className="px-3 py-2 font-medium">Status</th>
                                         <th className="px-3 py-2 font-medium">Actions</th>
                                     </tr>
@@ -451,6 +511,8 @@ function SuperAdminPage() {
                                             <td className="px-3 py-2 text-gray-700">{row.collegeAdminEmail || "—"}</td>
                                             <td className="px-3 py-2">{row.moduleLms ? "Yes" : "—"}</td>
                                             <td className="px-3 py-2">{row.moduleCrt ? "Yes" : "—"}</td>
+                                            <td className="px-3 py-2">{row.studentLimit ?? "—"}</td>
+                                            <td className="px-3 py-2">{row.crtStudentLimit ?? "—"}</td>
                                             <td className="px-3 py-2">
                                                 <span
                                                     className={`rounded px-2 py-0.5 text-xs font-medium ${
