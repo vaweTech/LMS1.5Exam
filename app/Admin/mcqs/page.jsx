@@ -3,10 +3,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { auth, db } from "../../../lib/firebase";
-import {
-  onAuthStateChanged,
-  signOut
-} from "firebase/auth";
+import { signOut } from "firebase/auth";
 import {
   collection,
   addDoc,
@@ -16,7 +13,6 @@ import {
   deleteDoc,
   doc,
   updateDoc,
-  getDoc
 } from "firebase/firestore";
 import Papa from "papaparse";
 import readXlsxFile from "read-excel-file";
@@ -47,11 +43,16 @@ async function uploadToCloudinary(file) {
   }
 }
 import CheckDataEntryAuth from "@/lib/CheckDataEntryAuth";
+import { useAdminAccess } from "../AdminAccessContext";
 
 export default function ManageMCQs() {
-  const [user, setUser] = useState(null);
-  const [canManageMcqs, setCanManageMcqs] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const access = useAdminAccess();
+  const role = access.role;
+  const canManageMcqs =
+    role === "admin" ||
+    role === "superadmin" ||
+    role === "dataentry" ||
+    (role === "collegeAdmin" && access.moduleLms);
 
   const [question, setQuestion] = useState("");
   const [questionImage, setQuestionImage] = useState("");
@@ -115,35 +116,6 @@ export default function ManageMCQs() {
       loadChapters(uploadCourse);
     }
   }, [uploadCourse]);
-
-  // Auth check
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        // Check if user is admin or superadmin
-        const userRef = doc(db, "users", u.uid);
-        const userSnap = await getDoc(userRef);
-        const userRole = userSnap.exists()
-          ? (userSnap.data().role || userSnap.data().Role)
-          : null;
-        const d = userSnap.exists() ? userSnap.data() : {};
-        const allowedRole =
-          userRole === "admin" ||
-          userRole === "superadmin" ||
-          userRole === "dataentry" ||
-          (userRole === "collegeAdmin" && !!d.moduleLms);
-        setCanManageMcqs(allowedRole);
-        
-        if (courses.length > 0 && allowedRole) {
-          loadMCQs("all");
-        }
-      }
-      setLoading(false);
-    });
-    return () => unsub();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [courses]);
 
   // Load chapters for MCQ form
   async function loadChaptersForForm(courseId) {
@@ -248,6 +220,13 @@ export default function ManageMCQs() {
       alert("Failed to load MCQs. Please try again.");
     }
   }
+
+  useEffect(() => {
+    if (access.loading) return;
+    if (!canManageMcqs || courses.length === 0) return;
+    loadMCQs("all");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [access.loading, canManageMcqs, courses.length]);
 
   // Upload image to Cloudinary
   async function uploadImage(file) {
@@ -853,8 +832,8 @@ export default function ManageMCQs() {
     window.URL.revokeObjectURL(url);
   }
 
-  if (loading || loadingCourses) return <div className="flex items-center justify-center min-h-screen"><div>Loading...</div></div>;
-  if (!user || !canManageMcqs) return <div className="flex items-center justify-center min-h-screen"><div>Access Denied</div></div>;
+  if (access.loading || loadingCourses) return <div className="flex items-center justify-center min-h-screen"><div>Loading...</div></div>;
+  if (!access.user || !canManageMcqs) return <div className="flex items-center justify-center min-h-screen"><div>Access Denied</div></div>;
   if (courses.length === 0) return <div className="flex items-center justify-center min-h-screen"><div>No courses found. Please add courses first.</div></div>;
 
   return (

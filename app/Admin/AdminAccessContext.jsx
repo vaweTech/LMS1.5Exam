@@ -41,8 +41,8 @@ export function AdminAccessProvider({ children }) {
       const d = snap.exists() ? snap.data() : {};
       const role = d.role || d.Role;
       const isCollege = role === "collegeAdmin";
-      const moduleLms = isCollege ? !!d.moduleLms : true;
-      const moduleCrt = isCollege ? !!d.moduleCrt : true;
+      let moduleLms = isCollege ? !!d.moduleLms : true;
+      let moduleCrt = isCollege ? !!d.moduleCrt : true;
       const platformEmpty = isCollege && !!d.platformEmpty;
       let collegeSubdomain = (d.collegeSubdomain || d.subdomain || "").trim() || null;
       if (isCollege && !collegeSubdomain) {
@@ -50,6 +50,23 @@ export function AdminAccessProvider({ children }) {
         if (detailSnap.exists()) {
           const det = detailSnap.data() || {};
           collegeSubdomain = (det.subdomain || det.collegeSubdomain || "").trim() || null;
+        }
+      }
+      // Superadmin edits LMS/CRT on collegeHosts; keep client in sync if user doc lags.
+      if (isCollege && collegeSubdomain) {
+        try {
+          const hostSnap = await getDoc(doc(db, "collegeHosts", collegeSubdomain));
+          if (hostSnap.exists()) {
+            const h = hostSnap.data() || {};
+            if (Object.prototype.hasOwnProperty.call(h, "moduleLms")) {
+              moduleLms = !!h.moduleLms;
+            }
+            if (Object.prototype.hasOwnProperty.call(h, "moduleCrt")) {
+              moduleCrt = !!h.moduleCrt;
+            }
+          }
+        } catch (e) {
+          console.warn("AdminAccess: could not read collegeHosts for module flags:", e?.message || e);
         }
       }
       setState({
