@@ -3,8 +3,20 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
-import { computeAdminAccess } from "@/lib/collegeAdminAccess";
+import {
+  doc,
+  getDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  limit,
+} from "firebase/firestore";
+import {
+  computeAdminAccess,
+  canonicalAdminRole,
+  subdomainFromUserOrDetails,
+} from "@/lib/collegeAdminAccess";
 
 const AdminAccessContext = createContext(null);
 
@@ -39,30 +51,54 @@ export function AdminAccessProvider({ children }) {
       }
       const snap = await getDoc(doc(db, "users", u.uid));
       const d = snap.exists() ? snap.data() : {};
-      const role = d.role || d.Role;
+      const detailSnap = await getDoc(doc(db, "users", u.uid, "details", "profile"));
+      const det = detailSnap.exists() ? detailSnap.data() || {} : {};
+      const role = canonicalAdminRole(d) ?? canonicalAdminRole(det);
       const isCollege = role === "collegeAdmin";
-      let moduleLms = isCollege ? !!d.moduleLms : true;
-      let moduleCrt = isCollege ? !!d.moduleCrt : true;
-      const platformEmpty = isCollege && !!d.platformEmpty;
-      let collegeSubdomain = (d.collegeSubdomain || d.subdomain || "").trim() || null;
-      if (isCollege && !collegeSubdomain) {
-        const detailSnap = await getDoc(doc(db, "users", u.uid, "details", "profile"));
-        if (detailSnap.exists()) {
-          const det = detailSnap.data() || {};
-          collegeSubdomain = (det.subdomain || det.collegeSubdomain || "").trim() || null;
-        }
-      }
-      // Superadmin edits LMS/CRT on collegeHosts; keep client in sync if user doc lags.
-      if (isCollege && collegeSubdomain) {
+      let moduleLms = isCollege
+        ? !!(d.moduleLms ?? d.ModuleLms ?? det.moduleLms ?? det.ModuleLms)
+        : true;
+      let moduleCrt = isCollege
+        ? !!(d.moduleCrt ?? d.ModuleCrt ?? det.moduleCrt ?? det.ModuleCrt)
+        : true;
+      const platformEmpty = isCollege && !!(d.platformEmpty ?? det.platformEmpty);
+      let collegeSubdomain =
+        subdomainFromUserOrDetails(d) || subdomainFromUserOrDetails(det);
+      // Superadmin source of truth: collegeHosts (by subdomain doc id or collegeAdminUid).
+      if (isCollege) {
         try {
-          const hostSnap = await getDoc(doc(db, "collegeHosts", collegeSubdomain));
-          if (hostSnap.exists()) {
-            const h = hostSnap.data() || {};
+          let h = null;
+          if (collegeSubdomain) {
+            const hostSnap = await getDoc(doc(db, "collegeHosts", collegeSubdomain));
+            if (hostSnap.exists()) h = hostSnap.data() || {};
+          }
+          if (!h) {
+            const q = query(
+              collection(db, "collegeHosts"),
+              where("collegeAdminUid", "==", u.uid),
+              limit(3)
+            );
+            const qs = await getDocs(q);
+            if (!qs.empty) {
+              const docSnap = qs.docs[0];
+              h = docSnap.data() || {};
+              collegeSubdomain =
+                collegeSubdomain ||
+                docSnap.id ||
+                subdomainFromUserOrDetails(h) ||
+                (h.subdomain ? String(h.subdomain).trim() : null);
+            }
+          }
+          if (h) {
             if (Object.prototype.hasOwnProperty.call(h, "moduleLms")) {
               moduleLms = !!h.moduleLms;
+            } else if (Object.prototype.hasOwnProperty.call(h, "emptyLms")) {
+              moduleLms = !!h.emptyLms;
             }
             if (Object.prototype.hasOwnProperty.call(h, "moduleCrt")) {
               moduleCrt = !!h.moduleCrt;
+            } else if (Object.prototype.hasOwnProperty.call(h, "emptyCrt")) {
+              moduleCrt = !!h.emptyCrt;
             }
           }
         } catch (e) {
