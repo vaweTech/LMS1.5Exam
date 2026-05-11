@@ -1064,12 +1064,6 @@ export default function CRTPOAnalyticsDashboardPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
         <Card className="max-w-md w-full text-center p-10 shadow-xl">
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">
-            Firebase not configured
-          </h1>
-          <p className="text-slate-600 mb-8">
-            Add NEXT_PUBLIC_FIREBASE_* variables to .env.local to load CRT data.
-          </p>
           <button
             type="button"
             onClick={() => router.push("/")}

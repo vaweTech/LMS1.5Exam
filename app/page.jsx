@@ -186,10 +186,7 @@ export default function LoginPage() {
             </div>
 
             {!isFirebaseConfigured && (
-              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                <p className="font-medium">Firebase not configured</p>
-                <p className="mt-1">Add <code className="rounded bg-amber-100 px-1">NEXT_PUBLIC_FIREBASE_*</code> variables to <code className="rounded bg-amber-100 px-1">.env.local</code> (see <code className="rounded bg-amber-100 px-1">.env.example</code>), then restart the dev server. Login will not work until then.</p>
-              </div>
+              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"></div>
             )}
 
             <div className="mb-3 flex gap-2">
