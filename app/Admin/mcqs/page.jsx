@@ -47,12 +47,7 @@ import { useAdminAccess } from "../AdminAccessContext";
 
 export default function ManageMCQs() {
   const access = useAdminAccess();
-  const role = access.role;
-  const canManageMcqs =
-    role === "admin" ||
-    role === "superadmin" ||
-    role === "dataentry" ||
-    (role === "collegeAdmin" && access.moduleLms);
+  const canManageMcqs = access.hasLmsManagerAccess;
 
   const [question, setQuestion] = useState("");
   const [questionImage, setQuestionImage] = useState("");

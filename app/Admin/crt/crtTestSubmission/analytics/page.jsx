@@ -53,9 +53,10 @@ function ScoreBadge({ value, label }) {
 }
 
 export default function CRTTestAnalyticsPage() {
-  const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const access = useAdminAccess();
+  const user = access.user;
+  const loading = access.loading;
+  const isAdmin = access.hasCrtManagerAccess;
 
   const [crts, setCrts] = useState([]);
   const [selectedCrtId, setSelectedCrtId] = useState("");
@@ -63,7 +64,7 @@ export default function CRTTestAnalyticsPage() {
   const [loadingData, setLoadingData] = useState(false);
   const [sortBy, setSortBy] = useState("avgDesc");
   const [searchQuery, setSearchQuery] = useState("");
-  const [useDummyData, setUseDummyData] = useState(true);
+  const [useDummyData, setUseDummyData] = useState(false);
 
   const fetchCrts = useCallback(async () => {
     const snap = await firestoreHelpers.getDocs(
@@ -360,10 +361,6 @@ export default function CRTTestAnalyticsPage() {
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-12 text-center text-gray-500">
             Select a CRT program to view analytics, or enable &quot;Use demo data&quot; to see sample data.
           </div>
-        ) : studentStats.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-12 text-center text-gray-500">
-            No submissions for this CRT yet. Exams will appear here once students submit tests.
-          </div>
         ) : (
           <>
             {/* Summary cards */}
@@ -465,54 +462,62 @@ export default function CRTTestAnalyticsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredAndSorted.map((row, i) => (
-                      <tr
-                        key={row.userId}
-                        className="border-t border-gray-100 hover:bg-cyan-50/30 transition-colors"
-                      >
-                        <td className="px-4 py-3 text-gray-500 tabular-nums font-medium">
-                          {i + 1}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="font-medium text-gray-800">
-                            {row.userName || row.userId || "—"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-gray-600 text-sm">
-                          {row.batchName || "—"}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <span className="inline-flex items-center justify-center min-w-[2.5rem] px-2.5 py-1 rounded-full bg-slate-100 text-slate-800 font-semibold text-sm">
-                            {row.examsAttended}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <ScoreBadge value={row.avgScore} />
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <ScoreBadge value={row.maxPercent} />
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-500">
-                          {row.lastSubmittedAt
-                            ? new Date(row.lastSubmittedAt).toLocaleDateString(undefined, {
-                                day: "numeric",
-                                month: "short",
-                                year: "numeric",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })
-                            : "—"}
+                    {filteredAndSorted.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={7}
+                          className="px-4 py-12 text-center text-gray-500 text-sm"
+                        >
+                          {searchQuery.trim()
+                            ? `No students match "${searchQuery}".`
+                            : "No submissions for this CRT yet. Exams will appear here once students submit tests."}
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      filteredAndSorted.map((row, i) => (
+                        <tr
+                          key={row.userId}
+                          className="border-t border-gray-100 hover:bg-cyan-50/30 transition-colors"
+                        >
+                          <td className="px-4 py-3 text-gray-500 tabular-nums font-medium">
+                            {i + 1}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="font-medium text-gray-800">
+                              {row.userName || row.userId || "—"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-gray-600 text-sm">
+                            {row.batchName || "—"}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="inline-flex items-center justify-center min-w-[2.5rem] px-2.5 py-1 rounded-full bg-slate-100 text-slate-800 font-semibold text-sm">
+                              {row.examsAttended}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <ScoreBadge value={row.avgScore} />
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <ScoreBadge value={row.maxPercent} />
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500">
+                            {row.lastSubmittedAt
+                              ? new Date(row.lastSubmittedAt).toLocaleDateString(undefined, {
+                                  day: "numeric",
+                                  month: "short",
+                                  year: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })
+                              : "—"}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
-              {filteredAndSorted.length === 0 && searchQuery.trim() && (
-                <div className="p-8 text-center text-gray-500">
-                  No students match &quot;{searchQuery}&quot;.
-                </div>
-              )}
             </div>
           </>
         )}
