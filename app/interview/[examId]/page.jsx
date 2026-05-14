@@ -3,6 +3,43 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { auth, firebaseAuth, db, firestoreHelpers } from "../../../lib/firebase";
 
+/** Topic tags on MCQs: array or comma-separated string (matches admin exam editor). */
+function normalizeTopicsFromUnknown(raw) {
+  if (raw == null) return [];
+  const out = [];
+  const seen = new Set();
+  const push = (t) => {
+    const x = String(t || "").trim();
+    if (!x) return;
+    const k = x.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(x);
+  };
+  if (Array.isArray(raw)) {
+    raw.forEach(push);
+    return out;
+  }
+  String(raw)
+    .split(/[,;|\n/]+/)
+    .forEach(push);
+  return out;
+}
+
+/**
+ * Topic tag score % = (MCQs correct for this tag / MCQs that have this tag) × 100.
+ * `correct` and `total` are question counts, not points.
+ */
+function topicTagAccuracyPercent(correct, total) {
+  const c = Number(correct);
+  const t = Number(total);
+  if (!Number.isFinite(c) || !Number.isFinite(t) || t <= 0) return 0;
+  return Math.round((c / t) * 100);
+}
+
+/** Shown in-page (iframe) after the exam instead of leaving this tab. */
+const VAWE_INSTITUTE_HOME_URL = "https://www.vaweinstitute.com/";
+
 export default function TakeInterviewExamPage() {
   const router = useRouter();
   const { examId } = useParams();
@@ -18,6 +55,8 @@ export default function TakeInterviewExamPage() {
   const [showPanel, setShowPanel] = useState(false);
   const [section, setSection] = useState("mcq"); // mcq | descriptive | coding
   const [activeSection, setActiveSection] = useState("All");
+  /** Filter MCQs by topic tag (only when section === "mcq"). */
+  const [activeMcqTag, setActiveMcqTag] = useState("All");
   const [started, setStarted] = useState(false);
   const [acceptedRules, setAcceptedRules] = useState(false);
   const [userId, setUserId] = useState(null);
@@ -29,6 +68,8 @@ export default function TakeInterviewExamPage() {
   const timerRef = useRef(null);
   const [showResults, setShowResults] = useState(false);
   const [examResults, setExamResults] = useState(null);
+  /** When true, scorecard is replaced by an in-page embed of the institute site (same tab). */
+  const [embedInstituteSite, setEmbedInstituteSite] = useState(false);
   const resultsTimerRef = useRef(null);
   const countdownIntervalRef = useRef(null);
   const [countdown, setCountdown] = useState(10);
@@ -73,6 +114,10 @@ export default function TakeInterviewExamPage() {
       setUserId(user?.uid || null);
     });
   }, []);
+
+  useEffect(() => {
+    if (showResults) setEmbedInstituteSite(false);
+  }, [showResults]);
 
   const checkBlockStatus = useCallback(async (phoneDigits) => {
     if (!examId) return { blocked: false };
@@ -329,6 +374,35 @@ export default function TakeInterviewExamPage() {
             </div>
           </div>
           
+          ${examResults.mcqTopicScores && Object.keys(examResults.mcqTopicScores).length > 0 ? `
+          <div style="background: white; padding: 18px; border-radius: 12px; border: 2px solid #d1fae5; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); page-break-inside: avoid;">
+            <h3 style="color: #1e293b; font-size: 16px; margin: 0 0 6px 0; font-weight: bold;">Topic mastery</h3>
+            <p style="color: #64748b; font-size: 11px; margin: 0 0 16px 0;">% = (questions correct with tag ÷ questions with tag) × 100.</p>
+            ${Object.entries(examResults.mcqTopicScores)
+              .sort(([a], [b]) => String(a).localeCompare(String(b)))
+              .map(([topic, d]) => {
+                const pct = topicTagAccuracyPercent(d.correct, d.total);
+                const safeTopic = String(topic)
+                  .replace(/&/g, "&amp;")
+                  .replace(/</g, "&lt;")
+                  .replace(/>/g, "&gt;")
+                  .replace(/"/g, "&quot;");
+                return `
+              <div style="margin-bottom: 14px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <span style="font-weight: 600; color: #1e293b; font-size: 13px;">${safeTopic}</span>
+                  <span style="font-weight: 700; color: #047857; font-size: 13px;">${pct}%</span>
+                </div>
+                <div style="height: 8px; background: #f1f5f9; border-radius: 999px; overflow: hidden;">
+                  <div style="height: 100%; width: ${pct}%; background: linear-gradient(to right, #10b981, #059669); border-radius: 999px;"></div>
+                </div>
+                <p style="color: #94a3b8; font-size: 10px; margin: 4px 0 0 0;">${d.correct}/${d.total} correct</p>
+              </div>`;
+              })
+              .join("")}
+          </div>
+          ` : ''}
+          
           ${examResults.mcqSectionScores && Object.keys(examResults.mcqSectionScores).length > 0 ? `
           <div style="margin-bottom: 20px; page-break-inside: avoid;">
             <h3 style="color: #1e293b; font-size: 18px; margin-bottom: 15px; font-weight: bold;">MCQ Section - Section-wise Results</h3>
@@ -558,16 +632,34 @@ export default function TakeInterviewExamPage() {
     });
     return Array.from(set);
   }, [exam]);
+  const mcqTopicTagsList = useMemo(() => {
+    const set = new Set();
+    (exam?.questions || []).forEach((q) => {
+      if (q?.type !== "mcq") return;
+      normalizeTopicsFromUnknown(q?.topics ?? q?.topic).forEach((t) => set.add(t));
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [exam]);
   const activeSectionList =
     section === "mcq" ? mcqSections : section === "coding" ? codingSections : descSections;
   const filteredIndices = useMemo(() => {
     const base = section === "mcq" ? mcqIndices : section === "coding" ? codingIndices : descIndices;
-    if (activeSection === "All") return base;
-    return base.filter((i) => {
-      const q = (exam?.questions || [])[i];
-      return String(q?.section || "").trim() === activeSection;
-    });
-  }, [section, mcqIndices, descIndices, codingIndices, activeSection, exam]);
+    let list =
+      activeSection === "All"
+        ? base
+        : base.filter((i) => {
+            const q = (exam?.questions || [])[i];
+            return String(q?.section || "").trim() === activeSection;
+          });
+    if (section === "mcq" && activeMcqTag !== "All") {
+      list = list.filter((i) => {
+        const q = (exam?.questions || [])[i];
+        const tags = normalizeTopicsFromUnknown(q?.topics ?? q?.topic);
+        return tags.some((t) => t.toLowerCase() === String(activeMcqTag).toLowerCase());
+      });
+    }
+    return list;
+  }, [section, mcqIndices, descIndices, codingIndices, activeSection, activeMcqTag, exam]);
 
   const indicesForSection = useCallback((sectionName) => {
     const base = section === "mcq" ? mcqIndices : section === "coding" ? codingIndices : descIndices;
@@ -580,7 +672,12 @@ export default function TakeInterviewExamPage() {
 
   useEffect(() => {
     setActiveSection("All");
+    setActiveMcqTag("All");
   }, [section]);
+
+  useEffect(() => {
+    setActiveMcqTag("All");
+  }, [activeSection]);
 
   useEffect(() => {
     if (!filteredIndices.includes(activeIndex) && filteredIndices.length > 0) {
@@ -931,11 +1028,12 @@ export default function TakeInterviewExamPage() {
           return;
         }
       }
-      // MCQ score: 1 per correct answer + section-wise breakdown
+      // MCQ score: 1 per correct answer + section-wise breakdown + topic-tag breakdown
       let mcqCorrect = 0;
       let mcqTotal = 0;
       const mcqSectionScores = {}; // { sectionName: { correct, total, score } }
-      
+      const mcqTopicScores = {}; // { tag: { correct: MCQs right, total: MCQs with tag, score: same as correct } }
+
       (exam?.questions || []).forEach((q, i) => {
         if (!q || q.type !== "mcq") return;
         mcqTotal += 1;
@@ -943,7 +1041,7 @@ export default function TakeInterviewExamPage() {
         const ans = answers[i];
         const corrArr = Array.isArray(q.correctAnswers) ? q.correctAnswers : [];
         let isCorrect = false;
-        
+
         if (corrArr.length > 1) {
           const aSet = new Set(Array.isArray(ans) ? ans : []);
           const cSet = new Set(corrArr);
@@ -953,9 +1051,9 @@ export default function TakeInterviewExamPage() {
         } else if (typeof q.correctAnswer === "number") {
           if (ans === q.correctAnswer) isCorrect = true;
         }
-        
+
         if (isCorrect) mcqCorrect += 1;
-        
+
         // Track section-wise scores
         if (!mcqSectionScores[sectionName]) {
           mcqSectionScores[sectionName] = { correct: 0, total: 0, score: 0 };
@@ -965,9 +1063,27 @@ export default function TakeInterviewExamPage() {
           mcqSectionScores[sectionName].correct += 1;
           mcqSectionScores[sectionName].score += 1;
         }
+
+        const topicTags = normalizeTopicsFromUnknown(q?.topics ?? q?.topic);
+        topicTags.forEach((tag) => {
+          if (!mcqTopicScores[tag]) {
+            mcqTopicScores[tag] = { correct: 0, total: 0, score: 0 };
+          }
+          mcqTopicScores[tag].total += 1;
+          if (isCorrect) {
+            mcqTopicScores[tag].correct += 1;
+            mcqTopicScores[tag].score += 1;
+          }
+        });
       });
-      
-      const mcqScore = { correct: mcqCorrect, total: mcqTotal, score: mcqCorrect, sectionScores: mcqSectionScores };
+
+      const mcqScore = {
+        correct: mcqCorrect,
+        total: mcqTotal,
+        score: mcqCorrect,
+        sectionScores: mcqSectionScores,
+        topicScores: mcqTopicScores,
+      };
 
       // Coding score: for each question, maxScore * (passed / total test cases) + per-question details
       let codingScore = 0;
@@ -1042,6 +1158,7 @@ export default function TakeInterviewExamPage() {
         maxTotalScore,
         percentage,
         mcqSectionScores: mcqSectionScores,
+        mcqTopicScores,
         codingQuestionDetails: codingQuestionDetails,
       });
       setStarted(false);
@@ -1090,13 +1207,13 @@ export default function TakeInterviewExamPage() {
           });
         }, 1000);
         
-        // Auto-redirect after 5 minutes of showing results
+        // After 5 minutes on the scorecard, show the institute site in-page (same tab)
         resultsTimerRef.current = setTimeout(() => {
           if (countdownIntervalRef.current) {
             clearInterval(countdownIntervalRef.current);
             countdownIntervalRef.current = null;
           }
-          router.push("/interview");
+          setEmbedInstituteSite(true);
         }, 300000); // 5 minutes = 300000 milliseconds
       }, 10000);
     } finally {
@@ -1141,7 +1258,34 @@ export default function TakeInterviewExamPage() {
 
       {/* Results Screen */}
       {showResults && examResults && (
-        <div className="fixed inset-0 z-50 bg-gradient-to-b from-sky-50 to-cyan-50 overflow-y-auto">
+        <div
+          className={`fixed inset-0 z-50 bg-gradient-to-b from-sky-50 to-cyan-50 ${
+            embedInstituteSite ? "flex flex-col overflow-hidden" : "overflow-y-auto"
+          }`}
+        >
+          {embedInstituteSite ? (
+            <div className="flex flex-col flex-1 min-h-0 bg-white">
+              <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-gray-200 bg-white shadow-sm">
+                <span className="text-sm font-semibold text-gray-900">VAWE Institute</span>
+                <button
+                  type="button"
+                  onClick={() => setEmbedInstituteSite(false)}
+                  className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-800 hover:bg-gray-50"
+                >
+                  Back to scorecard
+                </button>
+              </div>
+              <iframe
+                title="VAWE Institute"
+                src={VAWE_INSTITUTE_HOME_URL}
+                className="w-full flex-1 min-h-0 border-0 bg-white"
+                style={{ height: "calc(100dvh - 52px)" }}
+              />
+              <p className="shrink-0 text-[11px] text-gray-500 px-4 py-2 border-t border-gray-100 bg-gray-50">
+                Same tab — the site loads here. If you only see a blank area, the site may block embedding (browser security); try refreshing or contact the institute.
+              </p>
+            </div>
+          ) : (
           <div className="min-h-screen flex items-center justify-center p-4 py-6">
             <div className="w-full max-w-2xl">
               {/* Header */}
@@ -1200,8 +1344,40 @@ export default function TakeInterviewExamPage() {
                 </div>
               </div>
 
+              {examResults.mcqTopicScores && Object.keys(examResults.mcqTopicScores).length > 0 && (
+                <div className="bg-white rounded-lg shadow-md p-4 sm:p-5 mb-4 border-2 border-emerald-100">
+                  <h3 className="text-base font-bold text-gray-900 mb-1">Topic mastery</h3>
+                  <div className="space-y-3">
+                    {Object.entries(examResults.mcqTopicScores)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([topic, d]) => {
+                        const pct = topicTagAccuracyPercent(d.correct, d.total);
+                        return (
+                          <div key={topic}>
+                            <div className="flex items-center justify-between gap-3 text-xs sm:text-sm mb-1">
+                              <span className="font-medium text-gray-800 truncate" title={topic}>
+                                {topic}
+                              </span>
+                              <span className="shrink-0 font-semibold text-emerald-700 tabular-nums">{pct}%</span>
+                            </div>
+                            <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-600 transition-all duration-500"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                              {d.correct}/{d.total} correct
+                            </p>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
               {/* Detailed Section-wise Results (Collapsible) */}
-              {(examResults.mcqSectionScores && Object.keys(examResults.mcqSectionScores).length > 0) || 
+              {(examResults.mcqSectionScores && Object.keys(examResults.mcqSectionScores).length > 0) ||
                (examResults.codingQuestionDetails && examResults.codingQuestionDetails.length > 0) ? (
                 <details className="mb-4">
                   <summary className="cursor-pointer bg-white rounded-lg shadow-md p-3 text-center text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
@@ -1292,6 +1468,7 @@ export default function TakeInterviewExamPage() {
                     Download Scorecard
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
                       if (resultsTimerRef.current) {
                         clearTimeout(resultsTimerRef.current);
@@ -1301,19 +1478,27 @@ export default function TakeInterviewExamPage() {
                         clearInterval(countdownIntervalRef.current);
                         countdownIntervalRef.current = null;
                       }
-                      router.push("/interview");
+                      setEmbedInstituteSite(true);
                     }}
                     className="px-5 py-2 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg font-medium transition-colors text-xs sm:text-sm"
                   >
-                    Go to Interview Page Now
+                    View VAWE Institute
                   </button>
                 </div>
                 <p className="text-xs text-gray-600">
-                  Redirecting to interview page in <span className="font-semibold text-cyan-600 text-sm">{formatCountdown(countdown)}</span> ({Math.floor(countdown / 60)} {Math.floor(countdown / 60) === 1 ? 'minute' : 'minutes'}{countdown % 60 > 0 ? ` and ${countdown % 60} ${countdown % 60 === 1 ? 'second' : 'seconds'}` : ''})...
+                  The institute site will open{" "}
+                  <span className="font-medium text-gray-800">on this same page</span> in{" "}
+                  <span className="font-semibold text-cyan-600 text-sm">{formatCountdown(countdown)}</span>{" "}
+                  ({Math.floor(countdown / 60)} {Math.floor(countdown / 60) === 1 ? "minute" : "minutes"}
+                  {countdown % 60 > 0
+                    ? ` and ${countdown % 60} ${countdown % 60 === 1 ? "second" : "seconds"}`
+                    : ""}
+                  ) unless you open it sooner with the button above.
                 </p>
               </div>
             </div>
           </div>
+          )}
         </div>
       )}
 
@@ -1497,7 +1682,7 @@ export default function TakeInterviewExamPage() {
         {started && (
           <div className="bg-white rounded-xl shadow p-3 sm:p-4 mb-4">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm text-gray-700 mr-2">Sections:</span>
+              <span className="text-sm text-gray-700 mr-2">Exam part:</span>
               {mcqIndices.length > 0 && (
                 <button
                   type="button"
@@ -1534,7 +1719,7 @@ export default function TakeInterviewExamPage() {
             </div>
             {activeSectionList.length > 0 && (
               <div className="mt-3 flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-gray-600 mr-1">Topics:</span>
+                <span className="text-xs text-gray-600 mr-1">Within:</span>
                 <button
                   type="button"
                   onClick={() => setActiveSection("All")}
@@ -1558,6 +1743,36 @@ export default function TakeInterviewExamPage() {
                     }`}
                   >
                     {s}
+                  </button>
+                ))}
+              </div>
+            )}
+            {section === "mcq" && mcqTopicTagsList.length > 0 && (
+              <div className="mt-3 flex items-center gap-2 flex-wrap border-t border-gray-100 pt-3">
+                <span className="text-xs text-gray-600 mr-1 shrink-0">Topic tags:</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveMcqTag("All")}
+                  className={`px-3 py-1 rounded-full text-xs border ${
+                    activeMcqTag === "All"
+                      ? "bg-gray-900 text-white border-gray-900"
+                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  All tags
+                </button>
+                {mcqTopicTagsList.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => setActiveMcqTag(tag)}
+                    className={`px-3 py-1 rounded-full text-xs border ${
+                      activeMcqTag === tag
+                        ? "bg-emerald-600 text-white border-emerald-600"
+                        : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                    }`}
+                  >
+                    {tag}
                   </button>
                 ))}
               </div>
@@ -1597,6 +1812,7 @@ export default function TakeInterviewExamPage() {
                 multiFromCorrectAnswers ||
                 multiFromCorrectAnswer
             );
+            const mcqTags = q.type === "mcq" ? normalizeTopicsFromUnknown(q?.topics ?? q?.topic) : [];
             return (
               <div className="">
                 <div className="flex items-start justify-between gap-3 mb-3">
@@ -1605,6 +1821,19 @@ export default function TakeInterviewExamPage() {
                   </p>
                 </div>
                 <div className="text-gray-800 mb-4 whitespace-pre-wrap">{q.question}</div>
+                {mcqTags.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 mb-3">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tags</span>
+                    {mcqTags.map((tg) => (
+                      <span
+                        key={tg}
+                        className="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-900 border border-emerald-200/90"
+                      >
+                        {tg}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {q.type === "coding" && (
                   <div className="mb-3 text-xs text-gray-600">
                     Level:{" "}

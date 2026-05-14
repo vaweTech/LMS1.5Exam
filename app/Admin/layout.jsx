@@ -37,7 +37,7 @@ const SIDEBAR_LINKS = [
   { href: "/Admin/programs", icon: Layers, label: "Programs" },
   { href: "/Admin/internships", icon: Briefcase, label: "Internships" },
   { href: "/Admin/crt", icon: Cpu, label: "Manage CRT" },
-  { href: "/Admin/interview", icon: FileQuestion, label: "Exams" },
+  { href: "/Admin/interview", icon: FileQuestion, label: "JSET" },
   { href: "/Admin/whatsapp", icon: MessageCircle, label: "WhatsApp" },
 ];
 

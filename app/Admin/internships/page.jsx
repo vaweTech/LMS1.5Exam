@@ -76,7 +76,7 @@ export default function InternshipManager() {
     if (!selectedInternshipId && list.length > 0) {
       setSelectedInternshipId(list[0].id);
     }
-  }, [selectedInternshipId]);
+  }, [selectedInternshipId, collegeSubdomain]);
 
   const fetchCourses = useCallback(async function fetchCourses() {
     const snap = await firestoreHelpers.getDocs(
@@ -84,7 +84,7 @@ export default function InternshipManager() {
     );
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setCourses(list);
-  }, []);
+  }, [collegeSubdomain]);
 
   useEffect(() => {
     if (!user) return;
@@ -92,9 +92,9 @@ export default function InternshipManager() {
     fetchCourses();
   }, [user, fetchInternships, fetchCourses]);
 
-useEffect(() => {
-  setSelectedStudentToAssign("");
-}, [selectedInternshipId]);
+  useEffect(() => {
+    setSelectedStudentToAssign("");
+  }, [selectedInternshipId]);
 
   async function deleteCourseFromInternship(courseId) {
     if (!selectedInternshipId || !courseId) return;

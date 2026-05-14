@@ -110,7 +110,7 @@ export default function CRTTestSubmissionPage() {
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     setTests(list);
     setSelectedTestId(list.length > 0 ? list[0].id : "");
-  }, [selectedCrtId, collegeSubdomain]);
+  }, [collegeSubdomain]);
 
   useEffect(() => {
     if (!selectedCrtId) {

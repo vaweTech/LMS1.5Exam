@@ -85,7 +85,7 @@ export default function CRTProgramDetailPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [slug]);
+  }, [slug, collegeSubdomain]);
 
   const [imageError, setImageError] = useState(false);
   const [attendanceStats, setAttendanceStats] = useState({ total: 0, present: 0, percent: 0 });
@@ -136,7 +136,7 @@ export default function CRTProgramDetailPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [program?.id]);
+  }, [program?.id, collegeSubdomain]);
 
   useEffect(() => {
     if (!slug || !program || !user?.uid) {
@@ -231,7 +231,7 @@ export default function CRTProgramDetailPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [slug, program?.title, program, user?.uid]);
+  }, [slug, program?.title, program, user?.uid, collegeSubdomain]);
 
   // Fetch CRT full-length tests from Firestore crt/{crtId}/tests
   useEffect(() => {
@@ -315,7 +315,7 @@ export default function CRTProgramDetailPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [slug, program?.title, program, user?.uid]);
+  }, [slug, program?.title, program, user?.uid, collegeSubdomain]);
 
   if (programLoading || (!program && slug)) {
     return (

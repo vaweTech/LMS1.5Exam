@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   collection,
   getDocs,
@@ -57,14 +57,27 @@ export default function UserManagerPage() {
   const [editStudent, setEditStudent] = useState(null);
   const collegeSubdomain = getClientCollegeSubdomain();
 
-  
+  const fetchClasses = useCallback(async () => {
+    const snap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "classes")));
+    setClasses(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  }, [collegeSubdomain]);
+
+  const fetchStudents = useCallback(async () => {
+    const snap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "students")));
+    setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  }, [collegeSubdomain]);
+
+  const fetchCourses = useCallback(async () => {
+    const snap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "courses")));
+    setCourses(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  }, [collegeSubdomain]);
 
   // Fetch Data
   useEffect(() => {
     fetchClasses();
     fetchStudents();
     fetchCourses();
-  }, []);
+  }, [fetchClasses, fetchStudents, fetchCourses]);
 
   // Fetch current user role
   useEffect(() => {
@@ -92,23 +105,6 @@ export default function UserManagerPage() {
     setNewClass({ name: "" });
     fetchClasses();
   }
-
-  async function fetchClasses() {
-    const snap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "classes")));
-    setClasses(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-  }
-
-  async function fetchStudents() {
-    const snap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "students")));
-    setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-  }
-
-  async function fetchCourses() {
-    const snap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "courses")));
-    setCourses(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-  }
-
-  
 
   // Edit Class helpers
   function openEditClass(c) {

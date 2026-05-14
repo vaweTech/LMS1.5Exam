@@ -73,7 +73,7 @@ export default function CRTPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [collegeSubdomain]);
 
   const programs = useMemo(() => crts, [crts]);
 

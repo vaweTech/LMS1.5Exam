@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { db } from "../../../lib/firebase";
 import {
   collection,
@@ -61,11 +61,6 @@ export default function ProgramsPage() {
   });
   const [allCourses, setAllCourses] = useState([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
-
-  useEffect(() => {
-    fetchPrograms();
-    fetchClasses();
-  }, []);
 
   // Fetch students from a class to get allocated student names
   const fetchStudentsFromClass = async (classId) => {
@@ -167,7 +162,7 @@ export default function ProgramsPage() {
     }
   };
 
-  const fetchPrograms = async () => {
+  const fetchPrograms = useCallback(async () => {
     setLoading(true);
     try {
       const programsRef = collection(db, ...tenantSegments(collegeSubdomain, "programs"));
@@ -183,9 +178,9 @@ export default function ProgramsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [collegeSubdomain]);
 
-  const fetchClasses = async () => {
+  const fetchClasses = useCallback(async () => {
     setLoadingClasses(true);
     try {
       const classesRef = collection(db, ...tenantSegments(collegeSubdomain, "classes"));
@@ -201,7 +196,12 @@ export default function ProgramsPage() {
     } finally {
       setLoadingClasses(false);
     }
-  };
+  }, [collegeSubdomain]);
+
+  useEffect(() => {
+    fetchPrograms();
+    fetchClasses();
+  }, [fetchPrograms, fetchClasses]);
 
   const handleCreateProgram = async (e) => {
     e.preventDefault();

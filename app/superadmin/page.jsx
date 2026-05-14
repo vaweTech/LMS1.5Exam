@@ -117,7 +117,7 @@ function SuperAdminPage() {
                             : Math.max(0, Number.parseInt(crtStudentLimit, 10) || 0),
                     host,
                     rootDomain: ROOT_DOMAIN,
-                }), // eslint-disable-line comma-dangle                 
+                }),
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {

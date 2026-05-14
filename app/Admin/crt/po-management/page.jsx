@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { db, firestoreHelpers } from "../../../../lib/firebase";
 import { useAdminAccess } from "../../AdminAccessContext";
@@ -45,21 +45,10 @@ export default function POManagementPage() {
   const [selectedPoId, setSelectedPoId] = useState("");
   const [assigningPo, setAssigningPo] = useState(false);
 
-  useEffect(() => {
-    if (!user || !isAdmin) return;
-    fetchPos();
-    fetchCrtPrograms();
-  }, [user, isAdmin, collegeSubdomain]);
-
-  useEffect(() => {
-    fetchCrtBatches(selectedProgramId);
-  }, [selectedProgramId]);
-
-  async function fetchPos() {
+  const fetchPos = useCallback(async () => {
     if (!db) return;
     setLoadingPos(true);
     try {
-      // Load POs from central document path: users/crtPO/po/{poId}
       const poCol = firestoreHelpers.collection(db, ...crtPoCollectionSegments(collegeSubdomain));
       const poSnap = await firestoreHelpers.getDocs(poCol);
 
@@ -81,9 +70,9 @@ export default function POManagementPage() {
     } finally {
       setLoadingPos(false);
     }
-  }
+  }, [collegeSubdomain]);
 
-  async function fetchCrtPrograms() {
+  const fetchCrtPrograms = useCallback(async () => {
     if (!db) return;
     try {
       const snap = await firestoreHelpers.getDocs(
@@ -99,9 +88,9 @@ export default function POManagementPage() {
     } catch (err) {
       console.error("Failed to load CRT programs", err);
     }
-  }
+  }, [collegeSubdomain]);
 
-  async function fetchCrtBatches(programId) {
+  const fetchCrtBatches = useCallback(async (programId) => {
     if (!db || !programId) {
       setCrtBatches([]);
       setSelectedBatchId("");
@@ -126,7 +115,17 @@ export default function POManagementPage() {
     } catch (err) {
       console.error("Failed to load CRT batches", err);
     }
-  }
+  }, [collegeSubdomain]);
+
+  useEffect(() => {
+    if (!user || !isAdmin) return;
+    fetchPos();
+    fetchCrtPrograms();
+  }, [user, isAdmin, collegeSubdomain, fetchPos, fetchCrtPrograms]);
+
+  useEffect(() => {
+    fetchCrtBatches(selectedProgramId);
+  }, [selectedProgramId, fetchCrtBatches]);
 
   const filteredPos = pos.filter((po) => {
     const term = filterText.trim().toLowerCase();

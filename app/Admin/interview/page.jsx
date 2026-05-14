@@ -1,10 +1,111 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  ArrowLeft,
+  BarChart3,
+  ClipboardList,
+  FileQuestion,
+  FolderOpen,
+  ShieldAlert,
+} from "lucide-react";
 import CheckAuth from "../../../lib/CheckAuth";
 import { auth, db, firestoreHelpers } from "../../../lib/firebase";
 import readXlsxFile from "read-excel-file";
 import ExcelJS from "exceljs";
+
+/** Normalize topic tags from Firestore/Excel/UI (comma-separated string or array). */
+function normalizeTopicsFromUnknown(raw) {
+  if (raw == null) return [];
+  const out = [];
+  const seen = new Set();
+  const push = (t) => {
+    const x = String(t || "").trim();
+    if (!x) return;
+    const k = x.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(x);
+  };
+  if (Array.isArray(raw)) {
+    raw.forEach(push);
+    return out;
+  }
+  String(raw)
+    .split(/[,;|\n/]+/)
+    .forEach(push);
+  return out;
+}
+
+function McqTopicTagsField({ questionId, topics, updateQuestion }) {
+  const [draft, setDraft] = useState("");
+  const list = normalizeTopicsFromUnknown(topics);
+
+  const commit = () => {
+    const t = draft.trim();
+    if (!t) return;
+    const exists = list.some((x) => x.toLowerCase() === t.toLowerCase());
+    if (!exists) updateQuestion(questionId, { topics: [...list, t] });
+    setDraft("");
+  };
+
+  const remove = (tag) => {
+    updateQuestion(questionId, { topics: list.filter((x) => x !== tag) });
+  };
+
+  return (
+    <div className="mb-3">
+      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+        Topic tags
+      </label>
+      <div className="flex flex-wrap gap-2 mb-2 min-h-[32px]">
+        {list.length === 0 ? (
+          <span className="text-xs text-gray-400 italic">No tags yet</span>
+        ) : (
+          list.map((t) => (
+            <span
+              key={t}
+              className="inline-flex items-center gap-1 rounded-full bg-[#00448a]/10 text-[#00448a] border border-[#00448a]/20 px-2.5 py-1 text-xs font-medium"
+            >
+              {t}
+              <button
+                type="button"
+                onClick={() => remove(t)}
+                className="rounded-full p-0.5 hover:bg-[#00448a]/20 text-[#00448a] leading-none"
+                aria-label={`Remove tag ${t}`}
+              >
+                ×
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            }
+          }}
+          placeholder="Type a topic, then Enter or Add"
+          className="flex-1 min-w-[160px] border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#00448a]/20 focus:border-[#00448a] outline-none"
+        />
+        <button
+          type="button"
+          onClick={commit}
+          className="px-3 py-2 text-sm font-semibold rounded-xl border border-gray-200 bg-white text-gray-800 hover:border-[#00448a]/40 hover:text-[#00448a] transition-colors shrink-0"
+        >
+          Add
+        </button>
+      </div>
+      <p className="text-[11px] text-gray-500 mt-1">Use several tags to group or filter questions by theme (optional).</p>
+    </div>
+  );
+}
 
 export default function AdminInterviewExamsPage() {
   const router = useRouter();
@@ -63,6 +164,7 @@ export default function AdminInterviewExamsPage() {
   const [blocksPage, setBlocksPage] = useState(1);
   const [blocksPerPage, setBlocksPerPage] = useState(20);
   const [isLocalhost, setIsLocalhost] = useState(false);
+  const [activePanel, setActivePanel] = useState("compose");
 
   const computeMcqScore = (exam, submission) => {
     let correct = 0;
@@ -408,6 +510,7 @@ export default function AdminInterviewExamsPage() {
         options: ["", "", "", ""],
         correctAnswers: [],
         section: "",
+        topics: [],
       },
     ]);
   };
@@ -425,6 +528,7 @@ export default function AdminInterviewExamsPage() {
         options: ["", "", "", ""],
         correctAnswers: [],
         section: sectionForNew,
+        topics: [],
       },
     ]);
   };
@@ -480,6 +584,7 @@ export default function AdminInterviewExamsPage() {
               ? q.correctAnswers
               : [],
             section: String(q.section || "").trim(),
+            topics: normalizeTopicsFromUnknown(q.topics ?? q.topic),
           };
         }
         if (q.type === "coding") {
@@ -579,6 +684,7 @@ export default function AdminInterviewExamsPage() {
               options: (Array.isArray(q?.options) ? q.options : ["", "", "", ""]).map((o) => String(o || "")),
               correctAnswers: Array.isArray(q?.correctAnswers) ? q.correctAnswers : [],
               section: String(q?.section || "").trim(),
+              topics: normalizeTopicsFromUnknown(q?.topics ?? q?.topic),
             };
           }
           
@@ -617,6 +723,7 @@ export default function AdminInterviewExamsPage() {
           );
     setSections(incomingSections);
     setActiveMcqScope(SCOPE_ALL);
+    setActivePanel("compose");
     window?.scrollTo?.({ top: 0, behavior: "smooth" });
   };
 
@@ -670,67 +777,125 @@ export default function AdminInterviewExamsPage() {
 
   return (
     <CheckAuth>
-      <div className="min-h-screen bg-gradient-to-b from-sky-50 to-cyan-50 p-4 sm:p-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Exams</h1>
-              <p className="text-gray-600">Create and manage exams (MCQ +Coding + Descriptive).</p>
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-cyan-50/40 p-4 sm:p-6 pb-16">
+        <div className="max-w-6xl mx-auto">
+          <header className="mb-8 rounded-2xl border border-gray-200/90 bg-white p-5 sm:p-6 shadow-sm overflow-hidden relative">
+            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-[#00448a] to-[#f56c53]" aria-hidden />
+            <div className="pl-4 sm:pl-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex gap-4 min-w-0">
+                <div className="hidden sm:flex w-12 h-12 shrink-0 rounded-2xl bg-gradient-to-br from-cyan-500 to-[#00448a] items-center justify-center shadow-lg shadow-cyan-900/10">
+                  <FileQuestion className="w-6 h-6 text-white" strokeWidth={2} />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">JSET exams</h1>
+                  <p className="mt-1 text-sm text-gray-600 max-w-xl leading-relaxed">
+                    Build interview exams with MCQs, coding, and descriptive questions. Review submissions and blocked attempts from the tabs below.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => router.push("/Admin")}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-800 hover:bg-gray-50 hover:border-[#00448a]/30 transition-colors shrink-0"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Admin home
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => router.push("/Admin")}
-              className="px-4 py-2 rounded-lg border bg-blue-600 text-white hover:bg-blue-700"
-            >
-              Back to Admin
-            </button>
-          </div>
+          </header>
 
-          <div className="bg-white rounded-xl shadow p-4 sm:p-6 mb-8">
-            <h2 className="text-lg font-semibold mb-4">Create New Exam</h2>
+          <nav
+            className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-gray-200/90 bg-white/90 p-2 shadow-sm"
+            aria-label="Interview admin sections"
+          >
+            {[
+              { id: "compose", label: "Compose", icon: ClipboardList },
+              { id: "library", label: "Your exams", icon: FolderOpen },
+              { id: "results", label: "Results", icon: BarChart3 },
+              { id: "security", label: "Blocked", icon: ShieldAlert },
+            ].map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setActivePanel(id)}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all ${
+                  activePanel === id
+                    ? "bg-[#00448a] text-white shadow-md shadow-[#00448a]/25"
+                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                <Icon className="w-4 h-4 shrink-0" strokeWidth={2} />
+                {label}
+              </button>
+            ))}
+          </nav>
+
+          {activePanel === "compose" && (
+          <div className="bg-white rounded-2xl border border-gray-200/90 shadow-sm p-4 sm:p-6 mb-8">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-4 border-b border-gray-100">
+              <h2 className="text-lg font-semibold text-gray-900">Create or edit an exam</h2>
+              <span className="text-xs font-medium text-gray-500">MCQ · Coding · Descriptive</span>
+            </div>
             {editingId && (
-              <div className="mb-4 p-3 rounded-lg border border-amber-300 bg-amber-50 flex items-center justify-between">
-                <span className="text-sm text-amber-800">Editing exam...</span>
-                <button onClick={cancelEdit} className="px-3 py-1.5 text-sm rounded border border-amber-400 text-amber-800 hover:bg-amber-100">
-                  Cancel
+              <div className="mb-6 p-4 rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50/80 flex flex-wrap items-center justify-between gap-3">
+                <span className="text-sm font-medium text-amber-900">You are editing an existing exam — save to apply changes.</span>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="px-4 py-2 text-sm font-semibold rounded-xl border border-amber-300 text-amber-900 bg-white/80 hover:bg-white transition-colors"
+                >
+                  Cancel edit
                 </button>
               </div>
             )}
             <div className="grid gap-4 sm:grid-cols-2">
-              <input
-                type="text"
-                placeholder="Exam Title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-cyan-500"
-              />
-              <input
-                type="number"
-                min={1}
-                placeholder="Duration (minutes)"
-                value={durationMinutes}
-                onChange={(e) => setDurationMinutes(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-cyan-500"
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Title</label>
+                <input
+                  type="text"
+                  placeholder="Exam title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-[#00448a]/20 focus:border-[#00448a] outline-none transition-shadow"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Duration</label>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="Minutes"
+                  value={durationMinutes}
+                  onChange={(e) => setDurationMinutes(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-[#00448a]/20 focus:border-[#00448a] outline-none transition-shadow"
+                />
+              </div>
+            </div>
+            <div className="mt-4">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Description</label>
+              <textarea
+                placeholder="Optional — shown to candidates if you use it in the exam UI"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm min-h-[88px] bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-[#00448a]/20 focus:border-[#00448a] outline-none transition-shadow"
               />
             </div>
-            <textarea
-              placeholder="Description (optional)"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 mt-4 focus:ring-2 focus:ring-cyan-500"
-            />
 
             {/* Excel Upload for MCQs */}
-            <div className="mt-6 border rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
+            <div className="mt-8 rounded-2xl border border-gray-200 bg-gradient-to-br from-slate-50/80 to-cyan-50/30 p-4 sm:p-5">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
                 <div>
-                  <p className="font-medium text-gray-800">Bulk add MCQs from Excel</p>
-                  <p className="text-xs text-gray-600">
-                    Accepted headers (case-insensitive): <strong>Question No. (optional), Question, Option A, Option B, Option C, Option D, Correct Answer, Section (optional)</strong>.
-                    Also supported: <strong>option1..4</strong> and <strong>correct</strong>. The <strong>Correct Answer</strong> can be numbers (1-4) or letters (A-D), comma-separated for multiple answers. Use <strong>Section</strong> to group MCQs.
+                  <p className="font-semibold text-gray-900">Bulk import MCQs</p>
+                  <p className="text-xs text-gray-600 mt-1 leading-relaxed max-w-3xl">
+                    Accepted headers (case-insensitive): <strong>Question No. (optional), Question, Option A–D, Correct Answer, Section (optional), Topics / Tags (optional)</strong>.
+                    Also supported: <strong>option1..4</strong> and <strong>correct</strong>. The <strong>Correct Answer</strong> can be numbers (1-4) or letters (A-D), comma-separated for multiple answers. Use <strong>Section</strong> to group MCQs. Use <strong>Topics</strong>, <strong>Tags</strong>, or <strong>Topic tags</strong> for multiple topic labels separated by commas, semicolons, or new lines.
                   </p>
                 </div>
-                {uploadInfo && <span className="text-xs text-cyan-700">{uploadInfo}</span>}
+                {uploadInfo && (
+                  <span className="shrink-0 inline-flex items-center rounded-lg bg-white/90 border border-[#00448a]/20 px-3 py-1.5 text-xs font-medium text-[#00448a]">
+                    {uploadInfo}
+                  </span>
+                )}
               </div>
               <input
                 type="file"
@@ -762,7 +927,15 @@ export default function AdminInterviewExamsPage() {
                     const idx3 = colIndex(["option3", "opt3", "c", "option c"]);
                     const idx4 = colIndex(["option4", "opt4", "d", "option d"]);
                     const idxC = colIndex(["correct answer", "correct", "answer", "answers", "right answer"]);
-                    const idxS = colIndex(["section", "topic", "category"]);
+                    const idxS = colIndex(["section", "category", "paper", "group"]);
+                    const idxTopics = colIndex([
+                      "topics",
+                      "tags",
+                      "topic tags",
+                      "topic tag",
+                      "keywords",
+                      "labels",
+                    ]);
 
                     const mapCorrect = (cell) => { 
                       if (cell == null) return [];
@@ -795,6 +968,7 @@ export default function AdminInterviewExamsPage() {
                       const o4 = idx4 >= 0 ? row[idx4] : "";
                       const corr = idxC >= 0 ? row[idxC] : "";
                       let sec = idxS >= 0 ? row[idxS] : "";
+                      const topicCell = idxTopics >= 0 ? row[idxTopics] : "";
                       if (!(idxS >= 0)) {
                         // Default to active scope when no Section column provided
                         sec =
@@ -811,6 +985,7 @@ export default function AdminInterviewExamsPage() {
                         options: [o1, o2, o3, o4].map((x) => String(x ?? "")),
                         correctAnswers: Array.from(new Set(mapCorrect(corr))),
                         section: String(sec || "").trim(),
+                        topics: normalizeTopicsFromUnknown(topicCell),
                       });
                     }
 
@@ -828,23 +1003,25 @@ export default function AdminInterviewExamsPage() {
                     e.target.value = "";
                   }
                 }}
-                className="block w-full text-sm file:mr-4 file:rounded-md file:border-0 file:bg-cyan-600 file:px-4 file:py-2 file:text-white hover:file:bg-cyan-700"
+                className="block w-full text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-[#00448a] file:px-4 file:py-2.5 file:text-white file:font-semibold hover:file:bg-[#003a76] file:cursor-pointer cursor-pointer"
                 disabled={uploading}
               />
             </div>
 
-            <div className="mt-6">
-              <div className="flex items-center gap-3 mb-4">
+            <div className="mt-8 pt-6 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Questions</p>
+              <div className="flex flex-wrap items-center gap-3 mb-4">
                 <select
                   value={questionType}
                   onChange={(e) => setQuestionType(e.target.value)}
-                  className="border rounded-lg px-3 py-2"
+                  className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-[#00448a]/20 focus:border-[#00448a] outline-none"
                 >
                   <option value="mcq">MCQ</option>
                   <option value="descriptive">Descriptive</option>
                   <option value="coding">Coding</option>
                 </select>
                 <button
+                  type="button"
                   onClick={() => (
                     questionType === "mcq"
                       ? addMcqToCurrentScope()
@@ -852,9 +1029,9 @@ export default function AdminInterviewExamsPage() {
                       ? addCodingQuestion()
                       : addDescriptiveQuestion()
                   )}
-                  className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700"
+                  className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-[#00448a] text-white hover:bg-[#003a76] shadow-sm transition-colors"
                 >
-                  Add Question
+                  Add question
                 </button>
               </div>
               {/* Section manager and scope tabs for MCQs */}
@@ -863,7 +1040,7 @@ export default function AdminInterviewExamsPage() {
                   <button
                     type="button"
                     onClick={() => setActiveMcqScope(SCOPE_ALL)}
-                    className={`px-3 py-1.5 text-xs rounded-full border ${activeMcqScope === SCOPE_ALL ? "bg-cyan-600 text-white border-cyan-600" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"}`}
+                    className={`px-3 py-2 text-xs font-medium rounded-xl border transition-all ${activeMcqScope === SCOPE_ALL ? "bg-[#00448a] text-white border-[#00448a] shadow-sm" : "bg-white text-gray-700 border-gray-200 hover:border-[#00448a]/30 hover:bg-gray-50"}`}
                   >
                     All MCQs
                   </button>
@@ -872,7 +1049,7 @@ export default function AdminInterviewExamsPage() {
                       key={name}
                       type="button"
                       onClick={() => setActiveMcqScope(name)}
-                      className={`px-3 py-1.5 text-xs rounded-full border ${activeMcqScope === name ? "bg-cyan-600 text-white border-cyan-600" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"}`}
+                      className={`px-3 py-2 text-xs font-medium rounded-xl border transition-all ${activeMcqScope === name ? "bg-[#00448a] text-white border-[#00448a] shadow-sm" : "bg-white text-gray-700 border-gray-200 hover:border-[#00448a]/30 hover:bg-gray-50"}`}
                       title={`View MCQs in ${name}`}
                     >
                       {name}
@@ -881,19 +1058,19 @@ export default function AdminInterviewExamsPage() {
                   <button
                     type="button"
                     onClick={() => setActiveMcqScope(SCOPE_UNASSIGNED)}
-                    className={`px-3 py-1.5 text-xs rounded-full border ${activeMcqScope === SCOPE_UNASSIGNED ? "bg-cyan-600 text-white border-cyan-600" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"}`}
+                    className={`px-3 py-2 text-xs font-medium rounded-xl border transition-all ${activeMcqScope === SCOPE_UNASSIGNED ? "bg-[#00448a] text-white border-[#00448a] shadow-sm" : "bg-white text-gray-700 border-gray-200 hover:border-[#00448a]/30 hover:bg-gray-50"}`}
                     title="View MCQs with no section"
                   >
                     Unassigned
                   </button>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <input
                     type="text"
                     value={newSectionName}
                     onChange={(e) => setNewSectionName(e.target.value)}
                     placeholder="New section name"
-                    className="border rounded-lg px-3 py-2 text-sm"
+                    className="border border-gray-200 rounded-xl px-3 py-2 text-sm flex-1 min-w-[140px] bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-[#00448a]/20 focus:border-[#00448a] outline-none"
                   />
                   <button
                     type="button"
@@ -904,9 +1081,9 @@ export default function AdminInterviewExamsPage() {
                       setNewSectionName("");
                       setActiveMcqScope(n);
                     }}
-                    className="px-3 py-2 text-sm bg-gray-800 text-white rounded-lg hover:bg-gray-900"
+                    className="px-4 py-2 text-sm font-semibold rounded-xl bg-gray-900 text-white hover:bg-gray-800 transition-colors"
                   >
-                    Add Section
+                    Add section
                   </button>
                 </div>
               </div>
@@ -926,7 +1103,7 @@ export default function AdminInterviewExamsPage() {
                   </div>
                   <div className="space-y-4">
                     {visibleMcqs.map((q, idx) => (
-                      <div key={q.id} className="border rounded-lg p-4">
+                      <div key={q.id} className="rounded-2xl border border-gray-200 bg-gray-50/30 p-4 sm:p-5 shadow-sm hover:border-[#00448a]/20 transition-colors">
                         <div className="flex items-center justify-between mb-3">
                           <span className="text-sm font-medium text-gray-700">
                             {idx + 1}. MCQ
@@ -959,6 +1136,7 @@ export default function AdminInterviewExamsPage() {
                           onChange={(e) => updateQuestion(q.id, { question: e.target.value })}
                           className="w-full border rounded-lg px-3 py-2 mb-3 min-h-[90px]"
                         />
+                        <McqTopicTagsField questionId={q.id} topics={q.topics} updateQuestion={updateQuestion} />
                         <div className="grid sm:grid-cols-2 gap-3">
                           {(q.options || []).map((opt, i) => (
                             <div key={i} className="flex items-start gap-2">
@@ -1006,7 +1184,7 @@ export default function AdminInterviewExamsPage() {
                   </div>
                   <div className="space-y-4">
                     {descList.map((q, idx) => (
-                      <div key={q.id} className="border rounded-lg p-4">
+                      <div key={q.id} className="rounded-2xl border border-gray-200 bg-gray-50/30 p-4 sm:p-5 shadow-sm hover:border-[#00448a]/20 transition-colors">
                         <div className="flex items-center justify-between mb-3">
                           <span className="text-sm font-medium text-gray-700">
                             {idx + 1}. Descriptive
@@ -1050,7 +1228,7 @@ export default function AdminInterviewExamsPage() {
                   </div>
                   <div className="space-y-4">
                     {codingList.map((q, idx) => (
-                      <div key={q.id} className="border rounded-lg p-4">
+                      <div key={q.id} className="rounded-2xl border border-gray-200 bg-gray-50/30 p-4 sm:p-5 shadow-sm hover:border-[#00448a]/20 transition-colors">
                         <div className="flex items-center justify-between mb-3">
                           <span className="text-sm font-medium text-gray-700">
                             {idx + 1}. Coding
@@ -1180,78 +1358,94 @@ Examples:
 
               {/* Fallback when no questions */}
               {questions.length === 0 && (
-                <div className="border rounded-lg p-4">
-                  <p className="text-sm text-gray-600">No questions added yet. Choose a type above and click “Add Question”.</p>
+                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 py-10 px-4 text-center">
+                  <p className="text-sm text-gray-600">No questions yet. Pick a type above and click <strong className="text-gray-800">Add question</strong>.</p>
                 </div>
               )}
             </div>
 
-            {error && <p className="text-red-600 mt-4 text-sm">{error}</p>}
-            <div className="mt-6">
+            {error && (
+              <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{error}</p>
+            )}
+            <div className="mt-8 flex flex-wrap items-center gap-3 pt-6 border-t border-gray-100">
               <button
+                type="button"
                 onClick={handleSave}
                 disabled={saving}
-                className="px-5 py-2 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg disabled:opacity-60"
+                className="px-6 py-3 text-sm font-semibold bg-[#00448a] hover:bg-[#003a76] text-white rounded-xl disabled:opacity-60 shadow-sm transition-colors"
               >
                 {saving ? (editingId ? "Updating..." : "Saving...") : editingId ? "Update Exam" : "Save Exam"}
               </button>
             </div>
           </div>
+          )}
 
-          <div className="bg-white rounded-xl shadow p-4 sm:p-6">
-            <h2 className="text-lg font-semibold mb-4">Existing Exams</h2>
+          {activePanel === "library" && (
+          <div className="bg-white rounded-2xl border border-gray-200/90 shadow-sm p-4 sm:p-6 mb-8">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-4 border-b border-gray-100">
+              <h2 className="text-lg font-semibold text-gray-900">Your exams</h2>
+              <span className="text-xs font-medium text-gray-500">{exams.length} total</span>
+            </div>
             {exams.length === 0 ? (
-              <p className="text-gray-600 text-sm">No interview exams yet.</p>
+              <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/80 py-12 px-4 text-center">
+                <p className="text-gray-600 text-sm">No interview exams yet. Use <strong className="text-gray-800">Compose</strong> to create your first one.</p>
+              </div>
             ) : (
-              <div className="divide-y">
+              <ul className="space-y-3">
                 {exams.map((ex) => (
-                  <div key={ex.id} className="py-3 flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-gray-900">{ex.title}</p>
-                      <p className="text-xs text-gray-600">
-                        {ex.questions?.length || 0} questions • {ex.durationMinutes} min
+                  <li
+                    key={ex.id}
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/40 hover:bg-white hover:border-[#00448a]/15 hover:shadow-sm px-4 py-3 transition-all"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900 truncate">{ex.title}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {ex.questions?.length || 0} questions · {ex.durationMinutes} min
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
                       <button
+                        type="button"
                         onClick={() => startEdit(ex)}
-                        className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50"
+                        className="px-3 py-2 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-800 hover:border-[#00448a]/40 hover:text-[#00448a] transition-colors"
                         title="Edit"
                       >
                         Edit
                       </button>
                       <button
+                        type="button"
                         onClick={() => router.push(`/interview/${ex.id}`)}
-                        className="px-3 py-1.5 text-sm bg-cyan-600 hover:bg-cyan-700 text-white rounded"
-                        title="Open as Test"
+                        className="px-3 py-2 text-sm font-semibold rounded-lg bg-[#00448a] text-white hover:bg-[#003a76] transition-colors"
+                        title="Open as test"
                       >
-                        View
+                        Open test
                       </button>
                       <button
+                        type="button"
                         onClick={() => handleDelete(ex.id)}
-                        className="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white rounded"
+                        className="px-3 py-2 text-sm font-semibold rounded-lg border border-red-200 text-red-700 bg-white hover:bg-red-50 transition-colors"
                         title="Delete"
                       >
                         Delete
                       </button>
                     </div>
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </div>
+          )}
 
-          {/* Results */}
-          <div className="bg-white rounded-xl shadow p-4 sm:p-6 mt-6">
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-900">Results</h2>
-                  <p className="text-xs text-gray-600">
-                    {resultsLoading ? "Loading results..." : `${displayedResults.length} / ${results.length} shown`}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
+          {activePanel === "results" && (
+          <div className="bg-white rounded-2xl border border-gray-200/90 shadow-sm p-4 sm:p-6 mb-8">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-4 mb-4 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Submission results</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {resultsLoading ? "Loading results…" : `${displayedResults.length} of ${results.length} shown after filters`}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={downloadResultsExcel}
@@ -1269,7 +1463,7 @@ Examples:
                     Delete All Results
                   </button>
                   <div className="flex items-center gap-2 text-xs">
-                    <span className="px-2 py-1 rounded-full bg-cyan-50 text-cyan-700 border border-cyan-200">
+                    <span className="px-2 py-1 rounded-full bg-[#00448a]/10 text-[#00448a] border border-[#00448a]/20">
                       Sorted by total (MCQ + Coding)
                     </span>
                     <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-700 border border-gray-200">
@@ -1277,9 +1471,9 @@ Examples:
                     </span>
                   </div>
                 </div>
-              </div>
+            </div>
 
-              <div className="border rounded-xl p-3 sm:p-4 bg-gradient-to-b from-gray-50 to-white">
+              <div className="border border-gray-200 rounded-xl p-3 sm:p-4 bg-gradient-to-b from-gray-50 to-white">
                 <div className="grid sm:grid-cols-12 gap-3 items-end">
                   <div className="sm:col-span-3">
                     <label className="block text-xs text-gray-600 mb-1">Exam</label>
@@ -1339,7 +1533,6 @@ Examples:
                   </div>
                 </div>
               </div>
-            </div>
 
             {/* Pagination Controls */}
             {displayedResults.length > 0 && (
@@ -1488,21 +1681,22 @@ Examples:
               </div>
             )}
           </div>
+          )}
 
-          {/* Blocked Exams */}
-          <div className="bg-white rounded-xl shadow p-4 sm:p-6 mt-6">
-            <div className="flex items-center justify-between mb-4">
+          {activePanel === "security" && (
+          <div className="bg-white rounded-2xl border border-gray-200/90 shadow-sm p-4 sm:p-6 mb-8">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-4 mb-4 border-b border-gray-100">
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">Blocked Exams</h2>
-                <p className="text-xs text-gray-600">
-                  {blocksLoading ? "Loading..." : `${blockedExams.length} blocked exam(s)`}
+                <h2 className="text-lg font-semibold text-gray-900">Blocked exams</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {blocksLoading ? "Loading…" : `${blockedExams.length} blocked attempt(s)`}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={fetchBlockedExams}
                 disabled={blocksLoading}
-                className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                className="px-4 py-2.5 text-sm font-semibold rounded-xl border border-gray-200 bg-white text-gray-800 hover:border-[#00448a]/30 hover:text-[#00448a] disabled:opacity-50 transition-colors shrink-0"
               >
                 Refresh
               </button>
@@ -1633,6 +1827,7 @@ Examples:
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
     </CheckAuth>

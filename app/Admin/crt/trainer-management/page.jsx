@@ -184,7 +184,7 @@ export default function CRTTrainerManagementPage() {
       setCrtCourses([]);
       setSelectedSubjectIds([]);
     }
-  }, []);
+  }, [collegeSubdomain]);
 
   useEffect(() => {
     fetchCrtCourses(selectedProgramId);
