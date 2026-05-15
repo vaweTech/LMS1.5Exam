@@ -37,6 +37,37 @@ function normalizeTopicsFromUnknown(raw) {
   return out;
 }
 
+async function uploadToCloudinary(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append(
+    "upload_preset",
+    process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || "ml_default"
+  );
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload`,
+    { method: "POST", body: formData }
+  );
+  if (!response.ok) throw new Error("Upload failed");
+  const data = await response.json();
+  return data.secure_url;
+}
+
+async function uploadInterviewMcqImage(file) {
+  if (!file) return "";
+  if (!process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME) {
+    alert("Cloudinary configuration missing. Please check environment variables.");
+    return "";
+  }
+  try {
+    return await uploadToCloudinary(file);
+  } catch (e) {
+    console.error(e);
+    alert("Failed to upload image. Please try again.");
+    return "";
+  }
+}
+
 function McqTopicTagsField({ questionId, topics, updateQuestion }) {
   const [draft, setDraft] = useState("");
   const list = normalizeTopicsFromUnknown(topics);
@@ -119,6 +150,7 @@ export default function AdminInterviewExamsPage() {
   const [questionType, setQuestionType] = useState("mcq");
   const [uploading, setUploading] = useState(false);
   const [uploadInfo, setUploadInfo] = useState("");
+  const [mcqImageUploadKey, setMcqImageUploadKey] = useState("");
   const [editingId, setEditingId] = useState(null);
 
   const mcqList = useMemo(() => questions.filter((q) => q.type === "mcq"), [questions]);
@@ -507,7 +539,9 @@ export default function AdminInterviewExamsPage() {
         id: crypto.randomUUID(),
         type: "mcq",
         question: "",
+        questionImage: "",
         options: ["", "", "", ""],
+        optionImages: ["", "", "", ""],
         correctAnswers: [],
         section: "",
         topics: [],
@@ -525,7 +559,9 @@ export default function AdminInterviewExamsPage() {
         id: crypto.randomUUID(),
         type: "mcq",
         question: "",
+        questionImage: "",
         options: ["", "", "", ""],
+        optionImages: ["", "", "", ""],
         correctAnswers: [],
         section: sectionForNew,
         topics: [],
@@ -564,6 +600,28 @@ export default function AdminInterviewExamsPage() {
     );
   };
 
+  const runMcqImageUpload = async (file, qid, mode, optIndex) => {
+    const key = mode === "question" ? `${qid}:q` : `${qid}:o${optIndex}`;
+    setMcqImageUploadKey(key);
+    const url = await uploadInterviewMcqImage(file);
+    setMcqImageUploadKey("");
+    if (!url) return;
+    if (mode === "question") {
+      updateQuestion(qid, { questionImage: url });
+      return;
+    }
+    setQuestions((prev) =>
+      prev.map((q) => {
+        if (q.id !== qid) return q;
+        const opts = Array.isArray(q.options) ? q.options : ["", "", "", ""];
+        const imgs = Array.isArray(q.optionImages) ? [...q.optionImages] : [];
+        while (imgs.length < opts.length) imgs.push("");
+        imgs[optIndex] = url;
+        return { ...q, optionImages: imgs };
+      })
+    );
+  };
+
   const removeQuestion = (qid) => {
     setQuestions((prev) => prev.filter((q) => q.id !== qid));
   };
@@ -574,12 +632,30 @@ export default function AdminInterviewExamsPage() {
     try {
       const cleanQuestions = questions.map((q) => {
         if (q.type === "mcq") {
+          const optionTexts = Array.isArray(q.options)
+            ? q.options.map((o) =>
+                typeof o === "string" ? String(o || "") : String(o?.text || "")
+              )
+            : ["", "", "", ""];
+          const fromParallel = Array.isArray(q.optionImages)
+            ? q.optionImages.map((u) => String(u || "").trim())
+            : [];
+          const fromObjects = Array.isArray(q.options)
+            ? q.options.map((o) =>
+                typeof o === "object" && o != null && o.image
+                  ? String(o.image || "").trim()
+                  : ""
+              )
+            : [];
+          const optionImages = optionTexts.map((_, i) =>
+            String(fromParallel[i] || fromObjects[i] || "").trim()
+          );
           return {
             type: "mcq",
             question: String(q.question || "").trim(),
-            options: Array.isArray(q.options)
-              ? q.options.map((o) => String(o || ""))
-              : ["", "", "", ""],
+            questionImage: String(q.questionImage || "").trim(),
+            options: optionTexts,
+            optionImages,
             correctAnswers: Array.isArray(q.correctAnswers)
               ? q.correctAnswers
               : [],
@@ -679,9 +755,22 @@ export default function AdminInterviewExamsPage() {
           };
           
           if (q?.type === "mcq") {
+            const rawOpts = Array.isArray(q?.options) ? q.options : ["", "", "", ""];
+            const optionTexts = rawOpts.map((o) =>
+              typeof o === "string" ? String(o || "") : String(o?.text || "")
+            );
+            const fromParallel = Array.isArray(q?.optionImages)
+              ? q.optionImages.map((u) => String(u || ""))
+              : [];
+            const fromObjects = rawOpts.map((o) =>
+              typeof o === "object" && o != null && o.image ? String(o.image || "") : ""
+            );
+            const optionImages = optionTexts.map((_, i) => fromParallel[i] || fromObjects[i] || "");
             return {
               ...base,
-              options: (Array.isArray(q?.options) ? q.options : ["", "", "", ""]).map((o) => String(o || "")),
+              questionImage: String(q?.questionImage || "").trim(),
+              options: optionTexts,
+              optionImages,
               correctAnswers: Array.isArray(q?.correctAnswers) ? q.correctAnswers : [],
               section: String(q?.section || "").trim(),
               topics: normalizeTopicsFromUnknown(q?.topics ?? q?.topic),
@@ -982,7 +1071,9 @@ export default function AdminInterviewExamsPage() {
                         id: crypto.randomUUID(),
                         type: "mcq",
                         question: questionText,
+                        questionImage: "",
                         options: [o1, o2, o3, o4].map((x) => String(x ?? "")),
+                        optionImages: ["", "", "", ""],
                         correctAnswers: Array.from(new Set(mapCorrect(corr))),
                         section: String(sec || "").trim(),
                         topics: normalizeTopicsFromUnknown(topicCell),
@@ -1134,17 +1225,65 @@ export default function AdminInterviewExamsPage() {
                           placeholder="Question (multi-line supported)"
                           value={q.question || ""}
                           onChange={(e) => updateQuestion(q.id, { question: e.target.value })}
-                          className="w-full border rounded-lg px-3 py-2 mb-3 min-h-[90px]"
+                          className="w-full border rounded-lg px-3 py-2 mb-2 min-h-[90px]"
                         />
+                        <div className="mb-3 rounded-lg border border-gray-200 bg-white/80 px-3 py-2">
+                          <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                            Question image (optional)
+                          </label>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              disabled={Boolean(mcqImageUploadKey && mcqImageUploadKey.startsWith(q.id))}
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                e.target.value = "";
+                                if (f) runMcqImageUpload(f, q.id, "question");
+                              }}
+                              className="text-xs w-full sm:w-auto max-w-[220px] border rounded-lg px-2 py-1.5 bg-white"
+                            />
+                            {mcqImageUploadKey === `${q.id}:q` ? (
+                              <span className="text-xs text-gray-500">Uploading…</span>
+                            ) : null}
+                            {q.questionImage ? (
+                              <button
+                                type="button"
+                                onClick={() => updateQuestion(q.id, { questionImage: "" })}
+                                className="text-xs font-medium text-red-600 hover:text-red-700"
+                              >
+                                Remove image
+                              </button>
+                            ) : null}
+                          </div>
+                          {q.questionImage ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={q.questionImage}
+                              alt=""
+                              className="mt-2 max-h-44 w-full max-w-md rounded-lg border border-gray-200 object-contain bg-white"
+                            />
+                          ) : null}
+                        </div>
                         <McqTopicTagsField questionId={q.id} topics={q.topics} updateQuestion={updateQuestion} />
                         <div className="grid sm:grid-cols-2 gap-3">
-                          {(q.options || []).map((opt, i) => (
-                            <div key={i} className="flex items-start gap-2">
+                          {(q.options || []).map((opt, i) => {
+                            const optStr = typeof opt === "string" ? opt : String(opt?.text ?? "");
+                            const optImgs = Array.isArray(q.optionImages) ? q.optionImages : [];
+                            const optImg = String(optImgs[i] || "").trim();
+                            return (
+                            <div key={i} className="rounded-lg border border-gray-200 bg-white/60 p-2 space-y-2">
+                              <div className="flex items-start gap-2">
                               <textarea
-                                value={opt}
+                                value={optStr}
                                 onChange={(e) => {
-                                  const newOptions = [...(q.options || ["", "", "", ""])];
-                                  newOptions[i] = e.target.value;
+                                  const newOptions = [...(q.options || ["", "", "", ""])].map((o, j) =>
+                                    j === i
+                                      ? e.target.value
+                                      : typeof o === "string"
+                                        ? o
+                                        : String(o?.text ?? "")
+                                  );
                                   updateQuestion(q.id, { options: newOptions });
                                 }}
                                 placeholder={`Option ${i + 1} (multi-line supported)`}
@@ -1166,8 +1305,49 @@ export default function AdminInterviewExamsPage() {
                                 />
                                 <label className="text-xs text-gray-500">Correct</label>
                               </div>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 pl-0.5">
+                                <span className="text-[11px] font-medium text-gray-500">Option image</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  disabled={Boolean(mcqImageUploadKey && mcqImageUploadKey.startsWith(q.id))}
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    e.target.value = "";
+                                    if (f) runMcqImageUpload(f, q.id, "option", i);
+                                  }}
+                                  className="text-[11px] max-w-[200px] border rounded px-1.5 py-1 bg-white"
+                                />
+                                {mcqImageUploadKey === `${q.id}:o${i}` ? (
+                                  <span className="text-[11px] text-gray-500">Uploading…</span>
+                                ) : null}
+                                {optImg ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const imgs = [...(Array.isArray(q.optionImages) ? q.optionImages : ["", "", "", ""])];
+                                      while (imgs.length <= i) imgs.push("");
+                                      imgs[i] = "";
+                                      updateQuestion(q.id, { optionImages: imgs });
+                                    }}
+                                    className="text-[11px] font-medium text-red-600 hover:text-red-700"
+                                  >
+                                    Remove
+                                  </button>
+                                ) : null}
+                              </div>
+                              {optImg ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={optImg}
+                                  alt=""
+                                  className="max-h-32 w-full rounded border border-gray-200 object-contain bg-white"
+                                />
+                              ) : null}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ))}

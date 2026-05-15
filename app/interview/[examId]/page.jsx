@@ -1983,6 +1983,16 @@ export default function TakeInterviewExamPage() {
                   </p>
                 </div>
                 <div className="text-gray-800 mb-4 whitespace-pre-wrap">{q.question}</div>
+                {q.type === "mcq" && q.questionImage ? (
+                  <div className="mb-4">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={q.questionImage}
+                      alt=""
+                      className="max-w-full max-h-72 rounded-lg border border-gray-200 object-contain bg-gray-50"
+                    />
+                  </div>
+                ) : null}
                 {mcqTags.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2 mb-3">
                     <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tags</span>
@@ -2007,6 +2017,17 @@ export default function TakeInterviewExamPage() {
                 {q.type === "mcq" ? (
                   <div className="grid sm:grid-cols-2 gap-3">
                     {(q.options || []).map((opt, oIndex) => {
+                      const optText =
+                        typeof opt === "string" ? opt : String(opt?.text ?? "");
+                      const fromParallel =
+                        Array.isArray(q.optionImages) && q.optionImages[oIndex]
+                          ? String(q.optionImages[oIndex]).trim()
+                          : "";
+                      const fromObject =
+                        typeof opt === "object" && opt != null && opt.image
+                          ? String(opt.image).trim()
+                          : "";
+                      const optImg = fromParallel || fromObject;
                       const selected = multiple
                         ? Array.isArray(answers[activeIndex]) && answers[activeIndex].includes(oIndex)
                         : answers[activeIndex] === oIndex;
@@ -2015,14 +2036,24 @@ export default function TakeInterviewExamPage() {
                           key={oIndex}
                           type="button"
                           onClick={() => handleMcq(activeIndex, oIndex, multiple)}
-                          className={`text-left px-3 py-2 rounded-lg border transition ${
+                          className={`text-left px-3 py-2 rounded-lg border transition flex flex-col gap-2 ${
                             selected
                               ? "border-cyan-600 bg-cyan-50 text-cyan-900"
                               : "border-gray-300 hover:border-cyan-300 hover:bg-gray-50"
                           }`}
                         >
-                          <span className="font-medium mr-2">{String.fromCharCode(65 + oIndex)}.</span>
-                          <span className="whitespace-pre-wrap">{opt}</span>
+                          <div>
+                            <span className="font-medium mr-2">{String.fromCharCode(65 + oIndex)}.</span>
+                            <span className="whitespace-pre-wrap">{optText}</span>
+                          </div>
+                          {optImg ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={optImg}
+                              alt=""
+                              className="w-full max-h-40 rounded-md border border-gray-200/80 object-contain bg-white/80"
+                            />
+                          ) : null}
                         </button>
                       );
                     })}
