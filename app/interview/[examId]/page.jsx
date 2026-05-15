@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { jsPDF } from "jspdf";
+import { requestWhatsAppOtp, verifyWhatsAppOtp } from "@/lib/whatsappOtpClient";
 import { auth, firebaseAuth, db, firestoreHelpers } from "../../../lib/firebase";
 
 /** Topic tags on MCQs: array or comma-separated string (matches admin exam editor). */
@@ -50,6 +52,13 @@ export default function TakeInterviewExamPage() {
   const [timeLeftMs, setTimeLeftMs] = useState(null);
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [phoneOtpSent, setPhoneOtpSent] = useState(false);
+  const [phoneOtpValue, setPhoneOtpValue] = useState("");
+  const [otpPhoneSent, setOtpPhoneSent] = useState("");
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
+  const [otpSendError, setOtpSendError] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [reviewMap, setReviewMap] = useState({});
   const [showPanel, setShowPanel] = useState(false);
@@ -81,6 +90,8 @@ export default function TakeInterviewExamPage() {
   const [blockReason, setBlockReason] = useState("");
   const visibilityChangeRef = useRef(null);
   const tabSwitchCountRef = useRef(0);
+  /** Ignore spurious visibility "hidden" blips during fullscreen transitions (often double-counts as tab switches). */
+  const suppressVisibilityViolationsUntilRef = useRef(0);
   const [showTabWarning, setShowTabWarning] = useState(false);
   const fullscreenReenterRef = useRef(null);
   const [showSectionTransition, setShowSectionTransition] = useState(false);
@@ -141,6 +152,15 @@ export default function TakeInterviewExamPage() {
     }
   }, [examId]);
 
+  // Reset WhatsApp OTP when mobile number changes
+  useEffect(() => {
+    setPhoneVerified(false);
+    setPhoneOtpSent(false);
+    setPhoneOtpValue("");
+    setOtpPhoneSent("");
+    setOtpSendError("");
+  }, [phone]);
+
   // Check block status when phone number is entered
   useEffect(() => {
     async function checkBlock() {
@@ -183,290 +203,211 @@ export default function TakeInterviewExamPage() {
   };
 
   const downloadScorecard = () => {
-    if (!examResults) return;
-    
-    // Create a printable HTML content for the scorecard
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Exam Scorecard - ${exam?.title || 'Interview Exam'}</title>
-          <style>
-            @media print {
-              body { margin: 0; padding: 20px; }
+    if (!examResults || typeof window === "undefined") return;
+
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const margin = 14;
+    const maxW = pageW - margin * 2;
+    let y = margin;
+
+    const ensureSpace = (neededMm) => {
+      if (y + neededMm > pageH - margin) {
+        doc.addPage();
+        y = margin;
+      }
+    };
+
+    const writeLines = (lines, fontSize = 10, lineHeightMm = 5) => {
+      doc.setFontSize(fontSize);
+      const arr = Array.isArray(lines) ? lines : [lines];
+      arr.forEach((ln) => {
+        const wrapped = doc.splitTextToSize(String(ln), maxW);
+        wrapped.forEach((w) => {
+          ensureSpace(lineHeightMm + 1);
+          doc.text(w, margin, y);
+          y += lineHeightMm;
+        });
+      });
+    };
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.setTextColor(12, 74, 110);
+    const title = String(exam?.title || "Interview Exam");
+    writeLines(doc.splitTextToSize(title, maxW), 16, 6);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(100, 116, 139);
+    writeLines("Scorecard", 11, 5);
+    y += 3;
+
+    doc.setTextColor(71, 85, 105);
+    doc.setFontSize(10);
+    writeLines(`Name: ${fullName || "N/A"}`);
+    writeLines(`Phone: ${phone || "N/A"}`);
+    writeLines(`Date: ${new Date().toLocaleString()}`);
+    y += 4;
+
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 41, 59);
+    writeLines("Total Score", 11, 5);
+    doc.setFont("helvetica", "normal");
+    writeLines(
+      `${examResults.totalScore.toFixed(1)} / ${examResults.maxTotalScore} (${examResults.percentage}%)`,
+      11,
+      5
+    );
+    y += 4;
+
+    doc.setFont("helvetica", "bold");
+    writeLines("MCQ Section", 11, 5);
+    doc.setFont("helvetica", "normal");
+    writeLines(
+      `${examResults.mcqScore.score} / ${examResults.mcqScore.total} (${examResults.mcqScore.correct} correct out of ${examResults.mcqScore.total})`,
+      10,
+      5
+    );
+    y += 2;
+
+    doc.setFont("helvetica", "bold");
+    writeLines("Coding Section", 11, 5);
+    doc.setFont("helvetica", "normal");
+    writeLines(
+      `${examResults.codingScore.toFixed(1)} / ${examResults.maxCodingScore} (test cases)`,
+      10,
+      5
+    );
+    y += 6;
+
+    if (examResults.mcqSectionScores && Object.keys(examResults.mcqSectionScores).length > 0) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(30, 41, 59);
+      writeLines("MCQ Section - Section-wise Results", 12, 6);
+      y += 1;
+      Object.entries(examResults.mcqSectionScores).forEach(([sectionName, sectionData]) => {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(30, 41, 59);
+        const nameLines = doc.splitTextToSize(String(sectionName), maxW - 40);
+        ensureSpace(nameLines.length * 5 + 14);
+        nameLines.forEach((nl, i) => {
+          doc.text(nl, margin, y);
+          if (i === 0) {
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(100, 116, 139);
+            doc.text(
+              `${sectionData.correct}/${sectionData.total} correct`,
+              pageW - margin,
+              y,
+              { align: "right" }
+            );
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(30, 41, 59);
+          }
+          y += 5;
+        });
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(4, 120, 87);
+        doc.text(`${sectionData.score} / ${sectionData.total}`, margin, y);
+        y += 8;
+        doc.setFontSize(10);
+      });
+      y += 2;
+    }
+
+    if (examResults.mcqTopicScores && Object.keys(examResults.mcqTopicScores).length > 0) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(30, 41, 59);
+      writeLines("Topic-wise results", 12, 6);
+      doc.setFontSize(10);
+      Object.entries(examResults.mcqTopicScores)
+        .sort(([a], [b]) => String(a).localeCompare(String(b)))
+        .forEach(([topic, d]) => {
+          const pct = topicTagAccuracyPercent(d.correct, d.total);
+          const topicLines = doc.splitTextToSize(String(topic), maxW - 22);
+          ensureSpace(topicLines.length * 5 + 10);
+          topicLines.forEach((tl, i) => {
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(30, 41, 59);
+            doc.text(tl, margin, y);
+            if (i === 0) {
+              doc.setTextColor(4, 120, 87);
+              doc.text(`${pct}%`, pageW - margin, y, { align: "right" });
             }
-            body {
-              font-family: Arial, sans-serif;
-              max-width: 700px;
-              margin: 0 auto;
-              padding: 20px;
-              background: linear-gradient(to bottom, #f0f9ff, #e0f2fe);
-              min-height: 100vh;
-            }
-            .header {
-              text-align: center;
-              margin-bottom: 20px;
-            }
-            .header h1 {
-              color: #0c4a6e;
-              margin: 0;
-              font-size: 24px;
-              font-weight: bold;
-            }
-            .header p {
-              color: #64748b;
-              margin: 3px 0;
-              font-size: 14px;
-            }
-            .score-card {
-              background: linear-gradient(to right, #06b6d4 0%, #3b82f6 100%);
-              color: white;
-              padding: 25px;
-              border-radius: 12px;
-              text-align: center;
-              margin-bottom: 20px;
-              box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-            }
-            .score-card h2 {
-              margin: 0 0 10px 0;
-              font-size: 12px;
-              opacity: 0.9;
-              font-weight: 500;
-            }
-            .score-card .total-score {
-              font-size: 48px;
-              font-weight: bold;
-              margin: 10px 0 5px 0;
-            }
-            .score-card .max-score {
-              font-size: 24px;
-              opacity: 0.8;
-              font-weight: 600;
-            }
-            .score-card .percentage {
-              display: inline-block;
-              background: rgba(255,255,255,0.2);
-              padding: 8px 16px;
-              border-radius: 20px;
-              margin-top: 15px;
-              font-size: 18px;
-              font-weight: bold;
-            }
-            .breakdown {
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 15px;
-              margin-bottom: 20px;
-            }
-            @media (max-width: 640px) {
-              .breakdown {
-                grid-template-columns: 1fr;
-                gap: 12px;
-              }
-            }
-            .section-card {
-              background: white;
-              padding: 18px;
-              border-radius: 10px;
-              border: 2px solid #e2e8f0;
-              box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            }
-            .section-card.mcq {
-              border-color: #10b981;
-            }
-            .section-card.coding {
-              border-color: #3b82f6;
-            }
-            .section-card h3 {
-              margin: 0 0 12px 0;
-              color: #1e293b;
-              font-size: 14px;
-              font-weight: bold;
-            }
-            .section-card .score {
-              font-size: 32px;
-              font-weight: bold;
-              color: #0f172a;
-              margin-bottom: 5px;
-            }
-            .section-card .max {
-              color: #64748b;
-              font-size: 16px;
-            }
-            .section-card .details {
-              color: #64748b;
-              font-size: 12px;
-              margin-top: 8px;
-            }
-            .performance {
-              background: white;
-              padding: 14px 16px;
-              border-radius: 10px;
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              margin-bottom: 20px;
-              border-top: 2px solid #e2e8f0;
-              box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            }
-            .performance-label {
-              color: #475569;
-              font-weight: 500;
-              font-size: 13px;
-            }
-            .performance-value {
-              font-weight: bold;
-              font-size: 14px;
-            }
-            .footer {
-              text-align: center;
-              color: #64748b;
-              font-size: 11px;
-              margin-top: 20px;
-              padding-top: 15px;
-              border-top: 1px solid #e2e8f0;
-            }
-            .candidate-info {
-              background: white;
-              padding: 15px;
-              border-radius: 10px;
-              margin-bottom: 20px;
-              box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            }
-            .candidate-info p {
-              margin: 4px 0;
-              color: #475569;
-              font-size: 12px;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>${exam?.title || 'Interview Exam'}</h1>
-            <p>Scorecard</p>
-          </div>
-          
-          <div class="candidate-info">
-            <p><strong>Name:</strong> ${fullName || 'N/A'}</p>
-            <p><strong>Phone:</strong> ${phone || 'N/A'}</p>
-            <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
-          </div>
-          
-          <div class="score-card">
-            <h2>Total Score</h2>
-            <div class="total-score">${examResults.totalScore.toFixed(1)}</div>
-            <div class="max-score">/ ${examResults.maxTotalScore}</div>
-            <div class="percentage">${examResults.percentage}%</div>
-          </div>
-          
-          <div class="breakdown">
-            <div class="section-card mcq">
-              <h3>MCQ Section</h3>
-              <div class="score">${examResults.mcqScore.score}</div>
-              <div class="max">/ ${examResults.mcqScore.total}</div>
-              <div class="details">${examResults.mcqScore.correct} correct out of ${examResults.mcqScore.total} questions</div>
-            </div>
-            <div class="section-card coding">
-              <h3>Coding Section</h3>
-              <div class="score">${examResults.codingScore.toFixed(1)}</div>
-              <div class="max">/ ${examResults.maxCodingScore}</div>
-              <div class="details">Based on test case results</div>
-            </div>
-          </div>
-          
-          ${examResults.mcqTopicScores && Object.keys(examResults.mcqTopicScores).length > 0 ? `
-          <div style="background: white; padding: 18px; border-radius: 12px; border: 2px solid #d1fae5; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); page-break-inside: avoid;">
-            <h3 style="color: #1e293b; font-size: 16px; margin: 0 0 6px 0; font-weight: bold;">Topic mastery</h3>
-            <p style="color: #64748b; font-size: 11px; margin: 0 0 16px 0;">% = (questions correct with tag ÷ questions with tag) × 100.</p>
-            ${Object.entries(examResults.mcqTopicScores)
-              .sort(([a], [b]) => String(a).localeCompare(String(b)))
-              .map(([topic, d]) => {
-                const pct = topicTagAccuracyPercent(d.correct, d.total);
-                const safeTopic = String(topic)
-                  .replace(/&/g, "&amp;")
-                  .replace(/</g, "&lt;")
-                  .replace(/>/g, "&gt;")
-                  .replace(/"/g, "&quot;");
-                return `
-              <div style="margin-bottom: 14px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                  <span style="font-weight: 600; color: #1e293b; font-size: 13px;">${safeTopic}</span>
-                  <span style="font-weight: 700; color: #047857; font-size: 13px;">${pct}%</span>
-                </div>
-                <div style="height: 8px; background: #f1f5f9; border-radius: 999px; overflow: hidden;">
-                  <div style="height: 100%; width: ${pct}%; background: linear-gradient(to right, #10b981, #059669); border-radius: 999px;"></div>
-                </div>
-                <p style="color: #94a3b8; font-size: 10px; margin: 4px 0 0 0;">${d.correct}/${d.total} correct</p>
-              </div>`;
-              })
-              .join("")}
-          </div>
-          ` : ''}
-          
-          ${examResults.mcqSectionScores && Object.keys(examResults.mcqSectionScores).length > 0 ? `
-          <div style="margin-bottom: 20px; page-break-inside: avoid;">
-            <h3 style="color: #1e293b; font-size: 18px; margin-bottom: 15px; font-weight: bold;">MCQ Section - Section-wise Results</h3>
-            ${Object.entries(examResults.mcqSectionScores).map(([sectionName, sectionData]) => `
-              <div style="background: white; padding: 15px; border-radius: 12px; border: 2px solid #10b981; margin-bottom: 10px;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                  <strong style="color: #1e293b;">${sectionName}</strong>
-                  <span style="color: #64748b; font-size: 14px;">${sectionData.correct}/${sectionData.total} correct</span>
-                </div>
-                <div style="font-size: 24px; font-weight: bold; color: #10b981;">${sectionData.score} / ${sectionData.total}</div>
-              </div>
-            `).join('')}
-          </div>
-          ` : ''}
-          
-          ${examResults.codingQuestionDetails && examResults.codingQuestionDetails.length > 0 ? `
-          <div style="margin-bottom: 20px; page-break-inside: avoid;">
-            <h3 style="color: #1e293b; font-size: 18px; margin-bottom: 15px; font-weight: bold;">Coding Section - Test Case Results</h3>
-            ${examResults.codingQuestionDetails.map((qDetail) => `
-              <div style="background: white; padding: 15px; border-radius: 12px; border: 2px solid #3b82f6; margin-bottom: 10px;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                  <strong style="color: #1e293b;">Question ${qDetail.questionNumber}</strong>
-                  <span style="color: ${qDetail.totalTests > 0 && qDetail.passCount === qDetail.totalTests ? '#10b981' : qDetail.totalTests > 0 && qDetail.passCount > 0 ? '#f59e0b' : '#ef4444'}; font-size: 14px; font-weight: bold;">
-                    ${qDetail.passCount}/${qDetail.totalTests} test cases passed
-                  </span>
-                </div>
-                <div style="font-size: 24px; font-weight: bold; color: #3b82f6;">${qDetail.score.toFixed(1)} / ${qDetail.maxScore}</div>
-              </div>
-            `).join('')}
-          </div>
-          ` : ''}
-          
-          <div class="performance">
-            <span class="performance-label">Performance</span>
-            <span class="performance-value" style="color: ${
-              examResults.percentage >= 80 ? '#10b981' :
-              examResults.percentage >= 60 ? '#f59e0b' :
-              examResults.percentage >= 40 ? '#f97316' :
-              '#ef4444'
-            };">
-              ${examResults.percentage >= 80 ? 'Excellent' :
-                examResults.percentage >= 60 ? 'Good' :
-                examResults.percentage >= 40 ? 'Average' :
-                'Needs Improvement'}
-            </span>
-          </div>
-          
-          <div class="footer">
-            <p>Generated on ${new Date().toLocaleString()}</p>
-          </div>
-        </body>
-      </html>
-    `;
-    
-    // Create a blob and download
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `scorecard-${exam?.title?.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'exam'}-${new Date().toISOString().slice(0, 10)}.html`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+            y += 5;
+          });
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(148, 163, 184);
+          doc.setFontSize(9);
+          writeLines(`${d.correct}/${d.total} correct`, 9, 4);
+          y += 2;
+        });
+      y += 2;
+    }
+
+    if (examResults.codingQuestionDetails && examResults.codingQuestionDetails.length > 0) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(30, 41, 59);
+      writeLines("Coding Section - Test Case Results", 12, 6);
+      examResults.codingQuestionDetails.forEach((qDetail) => {
+        ensureSpace(16);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(30, 41, 59);
+        doc.text(`Question ${qDetail.questionNumber}`, margin, y);
+        doc.setFont("helvetica", "normal");
+        const passColor =
+          qDetail.totalTests > 0 && qDetail.passCount === qDetail.totalTests
+            ? [16, 185, 129]
+            : qDetail.totalTests > 0 && qDetail.passCount > 0
+              ? [245, 158, 11]
+              : [239, 68, 68];
+        doc.setTextColor(passColor[0], passColor[1], passColor[2]);
+        doc.text(
+          `${qDetail.passCount}/${qDetail.totalTests} tests passed`,
+          pageW - margin,
+          y,
+          { align: "right" }
+        );
+        y += 6;
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(29, 78, 216);
+        doc.setFontSize(11);
+        doc.text(`${qDetail.score.toFixed(1)} / ${qDetail.maxScore}`, margin, y);
+        y += 10;
+      });
+      y += 2;
+    }
+
+    const perfLabel =
+      examResults.percentage >= 80
+        ? "Excellent"
+        : examResults.percentage >= 60
+          ? "Good"
+          : examResults.percentage >= 40
+            ? "Average"
+            : "Needs Improvement";
+    ensureSpace(14);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(30, 41, 59);
+    doc.text("Performance", margin, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(perfLabel, pageW - margin, y, { align: "right" });
+    y += 10;
+
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    writeLines(`Generated on ${new Date().toLocaleString()}`, 9, 4);
+
+    const base = `scorecard-${exam?.title?.replace(/[^a-z0-9]/gi, "-").toLowerCase() || "exam"}-${new Date().toISOString().slice(0, 10)}`;
+    doc.save(`${base}.pdf`);
   };
 
   const judgeLanguages = {
@@ -632,14 +573,41 @@ export default function TakeInterviewExamPage() {
     });
     return Array.from(set);
   }, [exam]);
+  /**
+   * Topic chips only list tags used in MCQs of the selected category.
+   * Several categories + Category "All": no list until a category is chosen.
+   * No named MCQ sections in the exam: one pool (all MCQs).
+   * One named MCQ section: always scoped to that bucket.
+   */
+  const mcqTopicScope = useMemo(() => {
+    const named = mcqSections;
+    if (named.length === 0) return { kind: "all_mcqs" };
+    if (named.length === 1) return { kind: "section", name: named[0] };
+    if (activeSection === "All") return { kind: "need_category" };
+    return { kind: "section", name: activeSection };
+  }, [mcqSections, activeSection]);
+
   const mcqTopicTagsList = useMemo(() => {
+    if (mcqTopicScope.kind === "need_category") return [];
     const set = new Set();
     (exam?.questions || []).forEach((q) => {
       if (q?.type !== "mcq") return;
+      if (mcqTopicScope.kind === "section") {
+        const s = String(q?.section || "").trim();
+        if (s !== mcqTopicScope.name) return;
+      }
       normalizeTopicsFromUnknown(q?.topics ?? q?.topic).forEach((t) => set.add(t));
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [exam]);
+  }, [exam, mcqTopicScope]);
+
+  const filteredMcqTopicTags = useMemo(() => {
+    let list = [...mcqTopicTagsList];
+    if (activeMcqTag !== "All" && mcqTopicTagsList.includes(activeMcqTag) && !list.some((t) => t === activeMcqTag)) {
+      list = [...list, activeMcqTag].sort((a, b) => String(a).localeCompare(String(b)));
+    }
+    return list;
+  }, [mcqTopicTagsList, activeMcqTag]);
   const activeSectionList =
     section === "mcq" ? mcqSections : section === "coding" ? codingSections : descSections;
   const filteredIndices = useMemo(() => {
@@ -705,8 +673,9 @@ export default function TakeInterviewExamPage() {
     if (typeof document === "undefined") return;
     const el = document.documentElement;
     if (document.fullscreenElement || !el?.requestFullscreen) return;
+    suppressVisibilityViolationsUntilRef.current = Date.now() + 4000;
     el.requestFullscreen().catch(() => {
-      // Ignore if browser blocks without user gesture.
+      alert("Please allow fullscreen to continue the exam.");
     });
   };
 
@@ -794,11 +763,6 @@ export default function TakeInterviewExamPage() {
         ? "Exam blocked due to exiting fullscreen 3 times"
         : "Exam blocked due to 3 tab switches/window exits";
       await blockExamForPhone(reason, newCount);
-    } else {
-      const warningMsg = violationType === "fullscreen"
-        ? `Warning: You have exited fullscreen ${newCount} time(s). Exam will be blocked after 3 exits.`
-        : `Warning: You have switched tabs/windows ${newCount} time(s). Exam will be blocked after 3 switches.`;
-      alert(warningMsg);
     }
   }, [started, blockExamForPhone]);
 
@@ -806,6 +770,10 @@ export default function TakeInterviewExamPage() {
     if (typeof document === "undefined") return undefined;
     
     const handleFullscreenChange = () => {
+      // Entering fullscreen triggers brief visibility quirks in several browsers — ignore tab counts for a few seconds after.
+      if (document.fullscreenElement) {
+        suppressVisibilityViolationsUntilRef.current = Date.now() + 3500;
+      }
       if (pendingStart && document.fullscreenElement) {
         setPendingStart(false);
         setStarted(true);
@@ -826,8 +794,9 @@ export default function TakeInterviewExamPage() {
           if (started && !isBlocked && typeof document !== "undefined") {
             const el = document.documentElement;
             if (el?.requestFullscreen) {
+              suppressVisibilityViolationsUntilRef.current = Date.now() + 4000;
               el.requestFullscreen().catch(() => {
-                // If re-entry fails, count as violation
+                // If re-entry fails, user can use the on-screen button.
               });
             }
           }
@@ -849,18 +818,15 @@ export default function TakeInterviewExamPage() {
     if (!started) return;
     
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        // Tab switched or window lost focus
-        setShowTabWarning(true);
-        handleViolation("tab");
-        
-        // Hide warning after 3 seconds
-        setTimeout(() => {
-          setShowTabWarning(false);
-        }, 3000);
-      } else {
+      if (!document.hidden) {
         setShowTabWarning(false);
+        return;
       }
+      if (Date.now() < suppressVisibilityViolationsUntilRef.current) {
+        return;
+      }
+      setShowTabWarning(true);
+      handleViolation("tab");
     };
     
     // Also prevent keyboard shortcuts for tab switching
@@ -953,6 +919,75 @@ export default function TakeInterviewExamPage() {
     return { blocked: false, remainingMs };
   }, [exam, examId, checkBlockStatus]);
 
+  const handleSendWhatsappOtp = async () => {
+    const phoneDigits = phone.replace(/\D/g, "");
+    if (phoneDigits.length < 10) {
+      alert("Enter a valid 10-digit mobile number before requesting OTP.");
+      return;
+    }
+    setOtpSending(true);
+    setOtpSendError("");
+    setPhoneVerified(false);
+    setPhoneOtpValue("");
+    try {
+      const res = await requestWhatsAppOtp(phone);
+      if (!res.ok) {
+        const msg =
+          res.error ||
+          (typeof res.details === "string" ? res.details : null) ||
+          "Failed to send OTP. Please try again.";
+        setOtpSendError(msg);
+        return;
+      }
+      setPhoneOtpSent(true);
+      setOtpPhoneSent(phone);
+      if (process.env.NODE_ENV !== "production" && res.debugOtp) {
+        console.info("[dev] WhatsApp OTP:", res.debugOtp);
+      }
+    } catch (e) {
+      setOtpSendError(e?.message || "Failed to send OTP.");
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
+  const handleVerifyWhatsappOtp = async () => {
+    const code = String(phoneOtpValue || "").trim().replace(/\D/g, "");
+    if (code.length < 4) {
+      alert("Enter the OTP you received on WhatsApp.");
+      return;
+    }
+    setOtpVerifying(true);
+    setOtpSendError("");
+    try {
+      const res = await verifyWhatsAppOtp(otpPhoneSent || phone, code);
+      if (res.ok) {
+        setPhoneVerified(true);
+        setPhoneOtpSent(false);
+        setPhoneOtpValue("");
+        setOtpSendError("");
+        return;
+      }
+      const reason = res.reason;
+      let msg = "Invalid OTP. Please try again.";
+      if (reason === "expired") msg = "OTP expired. Click Send OTP to get a new code.";
+      else if (reason === "locked_out" || reason === "too_many_attempts") {
+        msg =
+          res.remainingMinutes != null
+            ? `Too many attempts. Try again in about ${res.remainingMinutes} minute(s).`
+            : "Too many attempts. Try again later.";
+      } else if (reason === "mismatch" && res.attemptsLeft != null) {
+        msg = `Incorrect OTP. ${res.attemptsLeft} attempt(s) remaining.`;
+      } else if (reason === "not_found") msg = "No OTP found for this number. Request a new code.";
+      else if (res.error) msg = res.error;
+      setOtpSendError(msg);
+    } catch (e) {
+      setOtpSendError(e?.message || "Verification failed.");
+    } finally {
+      setOtpVerifying(false);
+    }
+  };
+
   const startExam = async () => {
     // Validate before starting
     const phoneDigits = phone.replace(/\D/g, "");
@@ -966,6 +1001,10 @@ export default function TakeInterviewExamPage() {
     }
     if (phoneDigits.length < 10) {
       alert("Please enter a valid phone number (10+ digits).");
+      return;
+    }
+    if (!phoneVerified) {
+      alert("Please verify your mobile number with the WhatsApp OTP before starting the exam.");
       return;
     }
     if (!acceptedRules) {
@@ -1344,98 +1383,98 @@ export default function TakeInterviewExamPage() {
                 </div>
               </div>
 
-              {examResults.mcqTopicScores && Object.keys(examResults.mcqTopicScores).length > 0 && (
+              {/* MCQ Section-wise results first (always visible when present) */}
+              {examResults.mcqSectionScores && Object.keys(examResults.mcqSectionScores).length > 0 && (
                 <div className="bg-white rounded-lg shadow-md p-4 sm:p-5 mb-4 border-2 border-emerald-100">
-                  <h3 className="text-base font-bold text-gray-900 mb-1">Topic mastery</h3>
-                  <div className="space-y-3">
-                    {Object.entries(examResults.mcqTopicScores)
-                      .sort(([a], [b]) => a.localeCompare(b))
-                      .map(([topic, d]) => {
-                        const pct = topicTagAccuracyPercent(d.correct, d.total);
-                        return (
-                          <div key={topic}>
-                            <div className="flex items-center justify-between gap-3 text-xs sm:text-sm mb-1">
-                              <span className="font-medium text-gray-800 truncate" title={topic}>
-                                {topic}
-                              </span>
-                              <span className="shrink-0 font-semibold text-emerald-700 tabular-nums">{pct}%</span>
-                            </div>
-                            <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                              <div
-                                className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-600 transition-all duration-500"
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                            <p className="text-[10px] text-gray-400 mt-0.5">
-                              {d.correct}/{d.total} correct
-                            </p>
-                          </div>
-                        );
-                      })}
+                  <h3 className="text-base font-bold text-gray-900 mb-3">MCQ Section — Section-wise results</h3>
+                  <div className="space-y-2">
+                    {Object.entries(examResults.mcqSectionScores).map(([sectionName, sectionData]) => (
+                      <div key={sectionName} className="bg-emerald-50 border-2 border-emerald-200 rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-1.5 gap-2">
+                          <span className="font-semibold text-gray-900 text-xs sm:text-sm">{sectionName}</span>
+                          <span className="text-xs sm:text-sm text-gray-600 shrink-0">
+                            {sectionData.correct}/{sectionData.total} correct
+                          </span>
+                        </div>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-xl sm:text-2xl font-bold text-emerald-700">{sectionData.score}</span>
+                          <span className="text-sm sm:text-base text-gray-600">/ {sectionData.total}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
 
-              {/* Detailed Section-wise Results (Collapsible) */}
-              {(examResults.mcqSectionScores && Object.keys(examResults.mcqSectionScores).length > 0) ||
-               (examResults.codingQuestionDetails && examResults.codingQuestionDetails.length > 0) ? (
+              {/* Topic-wise: expand on click */}
+              {examResults.mcqTopicScores && Object.keys(examResults.mcqTopicScores).length > 0 && (
                 <details className="mb-4">
-                  <summary className="cursor-pointer bg-white rounded-lg shadow-md p-3 text-center text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
-                    View Detailed Breakdown
+                  <summary className="cursor-pointer list-none bg-white rounded-lg shadow-md p-3 sm:p-4 text-sm font-semibold text-gray-800 hover:bg-gray-50 transition-colors border-2 border-emerald-100 [&::-webkit-details-marker]:hidden flex items-center justify-center gap-2">
+                    <span>Topic-wise results</span>
+                    <span className="text-emerald-600 text-xs font-normal">(tap to expand)</span>
                   </summary>
-                  <div className="mt-3 space-y-3">
-                    {/* MCQ Section-wise Results */}
-                    {examResults.mcqSectionScores && Object.keys(examResults.mcqSectionScores).length > 0 && (
-                      <div className="bg-white rounded-lg shadow-md p-4">
-                        <h4 className="text-sm sm:text-base font-bold text-gray-900 mb-3">MCQ Section - Section-wise Results</h4>
-                        <div className="space-y-2">
-                          {Object.entries(examResults.mcqSectionScores).map(([sectionName, sectionData]) => (
-                            <div key={sectionName} className="bg-emerald-50 border-2 border-emerald-200 rounded-lg p-3">
-                              <div className="flex items-center justify-between mb-1.5">
-                                <span className="font-semibold text-gray-900 text-xs sm:text-sm">{sectionName}</span>
-                                <span className="text-xs sm:text-sm text-gray-600">
-                                  {sectionData.correct}/{sectionData.total} correct
+                  <div className="mt-3 bg-white rounded-lg shadow-md p-4 sm:p-5 border-2 border-emerald-100">
+                    <div className="space-y-3">
+                      {Object.entries(examResults.mcqTopicScores)
+                        .sort(([a], [b]) => a.localeCompare(b))
+                        .map(([topic, d]) => {
+                          const pct = topicTagAccuracyPercent(d.correct, d.total);
+                          return (
+                            <div key={topic}>
+                              <div className="flex items-center justify-between gap-3 text-xs sm:text-sm mb-1">
+                                <span className="font-medium text-gray-800 truncate" title={topic}>
+                                  {topic}
                                 </span>
+                                <span className="shrink-0 font-semibold text-emerald-700 tabular-nums">{pct}%</span>
                               </div>
-                              <div className="flex items-baseline gap-1.5">
-                                <span className="text-xl sm:text-2xl font-bold text-emerald-700">{sectionData.score}</span>
-                                <span className="text-sm sm:text-base text-gray-600">/ {sectionData.total}</span>
+                              <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-600 transition-all duration-500"
+                                  style={{ width: `${pct}%` }}
+                                />
                               </div>
+                              <p className="text-[10px] text-gray-400 mt-0.5">
+                                {d.correct}/{d.total} correct
+                              </p>
                             </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Coding Section - Per Question Results */}
-                    {examResults.codingQuestionDetails && examResults.codingQuestionDetails.length > 0 && (
-                      <div className="bg-white rounded-lg shadow-md p-4">
-                        <h4 className="text-sm sm:text-base font-bold text-gray-900 mb-3">Coding Section - Test Case Results</h4>
-                        <div className="space-y-2">
-                          {examResults.codingQuestionDetails.map((qDetail) => (
-                            <div key={qDetail.questionIndex} className="bg-blue-50 border-2 border-blue-200 rounded-lg p-3">
-                              <div className="flex items-center justify-between mb-1.5">
-                                <span className="font-semibold text-gray-900 text-xs sm:text-sm">Question {qDetail.questionNumber}</span>
-                                <span className={`text-xs sm:text-sm font-medium ${
-                                  qDetail.totalTests > 0 && qDetail.passCount === qDetail.totalTests ? 'text-green-600' :
-                                  qDetail.totalTests > 0 && qDetail.passCount > 0 ? 'text-yellow-600' :
-                                  'text-red-600'
-                                }`}>
-                                  {qDetail.passCount}/{qDetail.totalTests} test cases passed
-                                </span>
-                              </div>
-                              <div className="flex items-baseline gap-1.5">
-                                <span className="text-xl sm:text-2xl font-bold text-blue-700">{qDetail.score.toFixed(1)}</span>
-                                <span className="text-sm sm:text-base text-gray-600">/ {qDetail.maxScore}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                          );
+                        })}
+                    </div>
                   </div>
                 </details>
-              ) : null}
+              )}
+
+              {/* Coding per-question breakdown */}
+              {examResults.codingQuestionDetails && examResults.codingQuestionDetails.length > 0 && (
+                <details className="mb-4">
+                  <summary className="cursor-pointer bg-white rounded-lg shadow-md p-3 text-center text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
+                    Coding section — test case breakdown
+                  </summary>
+                  <div className="mt-3 bg-white rounded-lg shadow-md p-4">
+                    <h4 className="text-sm sm:text-base font-bold text-gray-900 mb-3">Coding Section - Test Case Results</h4>
+                    <div className="space-y-2">
+                      {examResults.codingQuestionDetails.map((qDetail) => (
+                        <div key={qDetail.questionIndex} className="bg-blue-50 border-2 border-blue-200 rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="font-semibold text-gray-900 text-xs sm:text-sm">Question {qDetail.questionNumber}</span>
+                            <span className={`text-xs sm:text-sm font-medium ${
+                              qDetail.totalTests > 0 && qDetail.passCount === qDetail.totalTests ? 'text-green-600' :
+                              qDetail.totalTests > 0 && qDetail.passCount > 0 ? 'text-yellow-600' :
+                              'text-red-600'
+                            }`}>
+                              {qDetail.passCount}/{qDetail.totalTests} test cases passed
+                            </span>
+                          </div>
+                          <div className="flex items-baseline gap-1.5">
+                            <span className="text-xl sm:text-2xl font-bold text-blue-700">{qDetail.score.toFixed(1)}</span>
+                            <span className="text-sm sm:text-base text-gray-600">/ {qDetail.maxScore}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </details>
+              )}
 
               {/* Performance Indicator */}
               <div className="bg-white rounded-lg shadow-md p-4 mb-4 border-t-2 border-gray-200">
@@ -1465,7 +1504,7 @@ export default function TakeInterviewExamPage() {
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
-                    Download Scorecard
+                    Download Scorecard (PDF)
                   </button>
                   <button
                     type="button"
@@ -1489,11 +1528,6 @@ export default function TakeInterviewExamPage() {
                   The institute site will open{" "}
                   <span className="font-medium text-gray-800">on this same page</span> in{" "}
                   <span className="font-semibold text-cyan-600 text-sm">{formatCountdown(countdown)}</span>{" "}
-                  ({Math.floor(countdown / 60)} {Math.floor(countdown / 60) === 1 ? "minute" : "minutes"}
-                  {countdown % 60 > 0
-                    ? ` and ${countdown % 60} ${countdown % 60 === 1 ? "second" : "seconds"}`
-                    : ""}
-                  ) unless you open it sooner with the button above.
                 </p>
               </div>
             </div>
@@ -1507,7 +1541,7 @@ export default function TakeInterviewExamPage() {
         <>
           {/* Fullscreen Required Overlay */}
           {started && typeof document !== "undefined" && !document.fullscreenElement && !isBlocked && (
-            <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[102] bg-black/90 flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center">
                 <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-yellow-100 mb-6">
                   <svg className="w-10 h-10 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1519,16 +1553,7 @@ export default function TakeInterviewExamPage() {
                   The exam must be taken in fullscreen mode. Please enter fullscreen to continue.
                 </p>
                 <button
-                  onClick={() => {
-                    if (typeof document !== "undefined") {
-                      const el = document.documentElement;
-                      if (el?.requestFullscreen) {
-                        el.requestFullscreen().catch(() => {
-                          alert("Please allow fullscreen to continue the exam.");
-                        });
-                      }
-                    }
-                  }}
+                  onClick={() => requestFullscreen()}
                   className="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-medium transition-colors"
                 >
                   Enter Fullscreen
@@ -1539,20 +1564,30 @@ export default function TakeInterviewExamPage() {
 
           {/* Tab Switch Warning Overlay */}
           {showTabWarning && started && (
-            <div className="fixed inset-0 z-[100] bg-red-600 flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[101] bg-red-600 flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center">
                 <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-red-100 mb-6">
                   <svg className="w-10 h-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                   </svg>
                 </div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">Warning: Tab Switch Detected!</h2>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Warning: Tab switch detected</h2>
                 <p className="text-sm text-gray-600 mb-4">
-                  You have switched tabs/windows {tabSwitchCount} time(s). Exam will be blocked after 3 switches.
+                  You have switched tabs or left this window <span className="font-semibold text-gray-800">{tabSwitchCount}</span> time(s). The exam will be blocked after 3 switches.
                 </p>
-                <p className="text-xs text-red-600 font-semibold">
-                  Please return to the exam window immediately!
+                <p className="text-xs text-red-600 font-semibold mb-6">
+                  Return to this tab and click Continue — then enter fullscreen if prompted.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    suppressVisibilityViolationsUntilRef.current = Date.now() + 800;
+                    setShowTabWarning(false);
+                  }}
+                  className="w-full sm:w-auto min-w-[180px] px-6 py-2.5 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg font-medium transition-colors"
+                >
+                  Continue exam
+                </button>
               </div>
             </div>
           )}
@@ -1621,13 +1656,70 @@ export default function TakeInterviewExamPage() {
                 onChange={(e) => setFullName(e.target.value)}
                 className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-cyan-500"
               />
-              <input
-                type="tel"
-                placeholder="Phone Number"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-cyan-500"
-              />
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Mobile number (WhatsApp verification required)
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="tel"
+                    placeholder="10-digit mobile number"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                    disabled={phoneVerified}
+                    className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-cyan-500 disabled:bg-gray-50 disabled:text-gray-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSendWhatsappOtp}
+                    disabled={phoneVerified || otpSending || phone.replace(/\D/g, "").length < 10}
+                    className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-sm font-medium whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {otpSending ? "Sending…" : phoneOtpSent && !phoneVerified ? "Resend OTP" : "Send WhatsApp OTP"}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  A 6-digit code will be sent to this number on WhatsApp.
+                </p>
+                {otpSendError && (
+                  <p className="text-xs text-red-600 mt-2 rounded-lg bg-red-50 border border-red-100 px-3 py-2">
+                    {otpSendError}
+                  </p>
+                )}
+                {phoneOtpSent && !phoneVerified && (
+                  <div className="mt-3 flex flex-col sm:flex-row sm:items-end gap-2 rounded-lg bg-amber-50 border border-amber-200 p-3">
+                    <div className="flex-1 min-w-[140px]">
+                      <label className="mb-1 block text-xs font-medium text-amber-800">Enter OTP</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        value={phoneOtpValue}
+                        onChange={(e) => setPhoneOtpValue(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        placeholder="6-digit code"
+                        maxLength={6}
+                        className="w-full border rounded-lg px-3 py-2 text-center tracking-widest focus:ring-2 focus:ring-cyan-500"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleVerifyWhatsappOtp}
+                      disabled={otpVerifying || phoneOtpValue.replace(/\D/g, "").length < 4}
+                      className="px-4 py-2 rounded-lg bg-[#00448a] text-white text-sm font-medium hover:bg-[#003a76] disabled:opacity-60"
+                    >
+                      {otpVerifying ? "Verifying…" : "Verify OTP"}
+                    </button>
+                  </div>
+                )}
+                {phoneVerified && (
+                  <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-emerald-800 text-sm">
+                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Mobile number verified via WhatsApp
+                  </div>
+                )}
+              </div>
             </div>
             
             {/* Block Status Message */}
@@ -1668,114 +1760,184 @@ export default function TakeInterviewExamPage() {
                 <button
                   type="button"
                   onClick={startExam}
-                  disabled={isBlocked}
+                  disabled={isBlocked || !phoneVerified}
                   className="px-5 py-2 bg-[#00448a] hover:bg-[#003a76] text-white rounded-lg disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {isBlocked ? "Exam Blocked - Contact Admin" : "Proceed to Test"}
+                  {isBlocked
+                    ? "Exam Blocked - Contact Admin"
+                    : !phoneVerified
+                      ? "Verify mobile to proceed"
+                      : "Proceed to Test"}
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Section Selector (only after start) */}
+        {/* Section navigator (only after start) */}
         {started && (
-          <div className="bg-white rounded-xl shadow p-3 sm:p-4 mb-4">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm text-gray-700 mr-2">Exam part:</span>
-              {mcqIndices.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setSection("mcq")}
-                  className={`px-3 py-1.5 rounded-full text-sm border ${
-                    section === "mcq" ? "bg-cyan-600 text-white border-cyan-600" : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
-                  }`}
-                >
-                  MCQ ({mcqIndices.length})
-                </button>
-              )}
-              {descIndices.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setSection("descriptive")}
-                  className={`px-3 py-1.5 rounded-full text-sm border ${
-                    section === "descriptive" ? "bg-cyan-600 text-white border-cyan-600" : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
-                  }`}
-                >
-                  Descriptive ({descIndices.length})
-                </button>
-              )}
-              {codingIndices.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setSection("coding")}
-                  className={`px-3 py-1.5 rounded-full text-sm border ${
-                    section === "coding" ? "bg-cyan-600 text-white border-cyan-600" : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
-                  }`}
-                >
-                  Coding ({codingIndices.length})
-                </button>
-              )}
-            </div>
-            {activeSectionList.length > 0 && (
-              <div className="mt-3 flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-gray-600 mr-1">Within:</span>
-                <button
-                  type="button"
-                  onClick={() => setActiveSection("All")}
-                  className={`px-3 py-1 rounded-full text-xs border ${
-                    activeSection === "All"
-                      ? "bg-gray-900 text-white border-gray-900"
-                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-                  }`}
-                >
-                  All
-                </button>
-                {activeSectionList.map((s) => (
+          <div className="bg-white rounded-xl shadow-md border border-gray-100/80 mb-4 overflow-hidden">
+            {/* Exam part */}
+            <div className="px-4 py-3.5 bg-gradient-to-br from-slate-50 via-white to-cyan-50/40 border-b border-gray-100">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Exam part</span>
+                <span className="text-[10px] text-gray-400 hidden sm:inline">Choose question type</span>
+              </div>
+              <div className="flex flex-wrap gap-2" role="tablist" aria-label="Exam part">
+                {mcqIndices.length > 0 && (
                   <button
-                    key={s}
                     type="button"
-                    onClick={() => setActiveSection(s)}
-                    className={`px-3 py-1 rounded-full text-xs border ${
-                      activeSection === s
-                        ? "bg-cyan-600 text-white border-cyan-600"
-                        : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                    role="tab"
+                    aria-selected={section === "mcq"}
+                    onClick={() => setSection("mcq")}
+                    className={`min-h-[2.75rem] px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                      section === "mcq"
+                        ? "bg-cyan-600 text-white border-cyan-600 shadow-md shadow-cyan-600/20"
+                        : "bg-white text-gray-800 border-gray-200 hover:border-cyan-300 hover:bg-cyan-50/50"
                     }`}
                   >
-                    {s}
+                    MCQ
+                    <span className={`ml-1.5 tabular-nums text-xs ${section === "mcq" ? "text-cyan-100" : "text-gray-500"}`}>
+                      ({mcqIndices.length})
+                    </span>
                   </button>
-                ))}
+                )}
+                {descIndices.length > 0 && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={section === "descriptive"}
+                    onClick={() => setSection("descriptive")}
+                    className={`min-h-[2.75rem] px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                      section === "descriptive"
+                        ? "bg-cyan-600 text-white border-cyan-600 shadow-md shadow-cyan-600/20"
+                        : "bg-white text-gray-800 border-gray-200 hover:border-cyan-300 hover:bg-cyan-50/50"
+                    }`}
+                  >
+                    Descriptive
+                    <span className={`ml-1.5 tabular-nums text-xs ${section === "descriptive" ? "text-cyan-100" : "text-gray-500"}`}>
+                      ({descIndices.length})
+                    </span>
+                  </button>
+                )}
+                {codingIndices.length > 0 && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={section === "coding"}
+                    onClick={() => setSection("coding")}
+                    className={`min-h-[2.75rem] px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                      section === "coding"
+                        ? "bg-cyan-600 text-white border-cyan-600 shadow-md shadow-cyan-600/20"
+                        : "bg-white text-gray-800 border-gray-200 hover:border-cyan-300 hover:bg-cyan-50/50"
+                    }`}
+                  >
+                    Coding
+                    <span className={`ml-1.5 tabular-nums text-xs ${section === "coding" ? "text-cyan-100" : "text-gray-500"}`}>
+                      ({codingIndices.length})
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Category (section within part) */}
+            {activeSectionList.length > 0 && (
+              <div className="px-4 py-3 border-b border-gray-100">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Category</p>
+                <div
+                  className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 touch-pan-x [scrollbar-width:thin]"
+                  role="tablist"
+                  aria-label="Question category"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection("All")}
+                    className={`shrink-0 min-h-[2.5rem] px-3.5 py-2 rounded-lg text-xs sm:text-sm font-medium border transition-colors ${
+                      activeSection === "All"
+                        ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                        : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                    }`}
+                  >
+                    All
+                  </button>
+                  {activeSectionList.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setActiveSection(s)}
+                      className={`shrink-0 min-h-[2.5rem] max-w-[min(100%,14rem)] px-3.5 py-2 rounded-lg text-xs sm:text-sm font-medium border transition-colors truncate ${
+                        activeSection === s
+                          ? "bg-cyan-600 text-white border-cyan-600 shadow-sm"
+                          : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                      }`}
+                      title={s}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
-            {section === "mcq" && mcqTopicTagsList.length > 0 && (
-              <div className="mt-3 flex items-center gap-2 flex-wrap border-t border-gray-100 pt-3">
-                <span className="text-xs text-gray-600 mr-1 shrink-0">Topic tags:</span>
-                <button
-                  type="button"
-                  onClick={() => setActiveMcqTag("All")}
-                  className={`px-3 py-1 rounded-full text-xs border ${
-                    activeMcqTag === "All"
-                      ? "bg-gray-900 text-white border-gray-900"
-                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-                  }`}
-                >
-                  All tags
-                </button>
-                {mcqTopicTagsList.map((tag) => (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() => setActiveMcqTag(tag)}
-                    className={`px-3 py-1 rounded-full text-xs border ${
-                      activeMcqTag === tag
-                        ? "bg-emerald-600 text-white border-emerald-600"
-                        : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-                    }`}
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
+
+            {/* Topic tags: scoped to selected category — compact */}
+            {section === "mcq" && (
+              <>
+                {mcqTopicScope.kind === "need_category" ? (
+                  <div className="px-3 py-2 border-t border-gray-100 bg-amber-50/40">
+                    <p className="text-[11px] text-amber-900/85 leading-snug">
+                      Select a <span className="font-semibold">category</span> above to see topic tags for that section only.
+                    </p>
+                  </div>
+                ) : mcqTopicTagsList.length === 0 ? (
+                  <div className="px-3 py-1.5 border-t border-gray-100">
+                    <p className="text-[11px] text-gray-500">No topic tags in this category.</p>
+                  </div>
+                ) : (
+                  <div className="px-3 py-2 border-t border-gray-100 bg-slate-50/50">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Topics</span>
+                      <span className="text-[10px] text-gray-500">
+                        {mcqTopicScope.kind === "section" ? (
+                          <>
+                            {mcqTopicTagsList.length} in <span className="font-medium text-gray-700">{mcqTopicScope.name}</span>
+                          </>
+                        ) : (
+                          <>{mcqTopicTagsList.length} topics</>
+                        )}
+                      </span>
+                    </div>
+                    <div className="max-h-[4.75rem] overflow-y-auto overflow-x-hidden flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setActiveMcqTag("All")}
+                        className={`shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
+                          activeMcqTag === "All"
+                            ? "bg-slate-900 text-white border-slate-900"
+                            : "bg-white text-gray-800 border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        All
+                      </button>
+                      {filteredMcqTopicTags.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => setActiveMcqTag(tag)}
+                          className={`shrink-0 max-w-[10rem] px-2 py-0.5 rounded-md text-[11px] font-medium border truncate ${
+                            activeMcqTag === tag
+                              ? "bg-emerald-600 text-white border-emerald-600"
+                              : "bg-white text-gray-700 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/50"
+                          }`}
+                          title={tag}
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
