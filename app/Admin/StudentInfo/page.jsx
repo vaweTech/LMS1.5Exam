@@ -8,7 +8,14 @@ import CheckAdminAuth from "@/lib/CheckAdminAuth";
 import { useRouter } from "next/navigation";
 import { CreditCard, DollarSign, CheckCircle, AlertCircle, MessageCircle } from "lucide-react";
 import { makeAuthenticatedRequest, handleAuthError } from "@/lib/authUtils";
-import { isCrtStudentRole, matchesStudentRoleFilter } from "@/lib/studentRole";
+import {
+  isCrtStudentRole,
+  isScopedInternshipRole,
+  matchesStudentRoleFilter,
+  inferStudentRole,
+  formatStudentRoleLabel,
+  normalizeStudentsForAdmin,
+} from "@/lib/studentRole";
 
 export default function StudentListPage() {
       const router = useRouter();
@@ -245,13 +252,13 @@ export default function StudentListPage() {
   async function fetchStudents() {
     setLoading(true);
     const snap = await getDocs(collection(db, "students"));
-    setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    setStudents(
+      normalizeStudentsForAdmin(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    );
     setLoading(false);
   }
 
-  // Effective role: from doc.role or inferred from isCrt / isInternship
-  const getStudentRole = (s) =>
-    s.role || (s.isCrt ? "crtStudent" : s.isInternship ? "internship" : "student");
+  const getStudentRole = (s) => inferStudentRole(s);
 
   const departments = Array.from(
     new Set(
@@ -1022,11 +1029,11 @@ export default function StudentListPage() {
                     <td className="border p-2">
                       <span className={`text-xs px-2 py-0.5 rounded ${
                         isCrtStudentRole(getStudentRole(s)) ? "bg-blue-100 text-blue-700" :
-                        getStudentRole(s) === "internship" ? "bg-emerald-100 text-emerald-700" :
+                        isScopedInternshipRole(getStudentRole(s)) ? "bg-emerald-100 text-emerald-700" :
                         "bg-gray-100 text-gray-700"
                       }`}>
                         {isCrtStudentRole(getStudentRole(s)) ? getStudentRole(s) :
-                         getStudentRole(s) === "internship" ? "Internship" : "Student"}
+                         formatStudentRoleLabel(getStudentRole(s))}
                       </span>
                     </td>
                     <td className="border p-2">{s.password || "-"}</td>

@@ -10,6 +10,14 @@ import { ArrowLeft, GraduationCap, Search, RefreshCw, UserPlus, X, Phone, CheckC
 import { makeAuthenticatedRequest, handleAuthError } from "@/lib/authUtils";
 import { requestWhatsAppOtp, verifyWhatsAppOtp } from "@/lib/whatsappOtpClient";
 import { crtStudentRosterCollectionSegments, crtStudentRosterDocSegments } from "@/lib/collegeTenantFirestore";
+import {
+  getScopedCrtStudentRole,
+  getScopedStudentRole,
+  getScopedInternshipRole,
+  resolveCollegeSubdomain,
+  coerceStudentRoleForSave,
+  isScopedInternshipRole,
+} from "@/lib/studentRole";
 
 /** HTML date inputs require YYYY-MM-DD. Accepts Firestore Timestamp, ISO, or dd-mm-yyyy / dd/mm/yyyy. */
 function toDateInputString(value) {
@@ -46,11 +54,6 @@ function getCrtStudentRole(s, defaultRole) {
   return r;
 }
 
-function getScopedCrtStudentRole(collegeSubdomain) {
-  const sub = String(collegeSubdomain || "").trim().toLowerCase();
-  return sub ? `${sub}CrtStudent` : "";
-}
-
 const INITIAL_ADMISSION_FORM = {
   regNo: "",
   studentName: "",
@@ -80,6 +83,18 @@ const INITIAL_ADMISSION_FORM = {
 export default function CRTStudentUserManagementPage() {
   const router = useRouter();
   const { user, loading, hasCrtManagerAccess: isAdmin, collegeSubdomain } = useAdminAccess();
+  const tenantSubdomain = useMemo(
+    () => resolveCollegeSubdomain(collegeSubdomain),
+    [collegeSubdomain]
+  );
+  const scopedStudentRole = useMemo(
+    () => getScopedStudentRole(tenantSubdomain),
+    [tenantSubdomain]
+  );
+  const scopedInternshipRole = useMemo(
+    () => getScopedInternshipRole(tenantSubdomain),
+    [tenantSubdomain]
+  );
   const scopedCrtStudentRole = useMemo(
     () => getScopedCrtStudentRole(collegeSubdomain),
     [collegeSubdomain]
@@ -360,11 +375,17 @@ export default function CRTStudentUserManagementPage() {
         db,
         ...crtStudentRosterDocSegments(collegeSubdomain, student.id)
       );
+      const savedRole =
+        coerceStudentRoleForSave(
+          (editForm.role || "").trim() || scopedCrtStudentRole,
+          tenantSubdomain
+        );
       const updatePayload = {
         name: editForm.name.trim(),
         email: editForm.email.trim().toLowerCase(),
         emailNormalized: editForm.email.trim().toLowerCase(),
-        role: (editForm.role || "").trim() || scopedCrtStudentRole,
+        role: savedRole,
+        isInternship: isScopedInternshipRole(savedRole),
         password: editForm.password,
         phone1: editForm.phone,
         phone: editForm.phone,
@@ -845,8 +866,8 @@ export default function CRTStudentUserManagementPage() {
                                   {scopedCrtStudentRole && (
                                     <option value={scopedCrtStudentRole}>{scopedCrtStudentRole}</option>
                                   )}
-                                  <option value="student">student</option>
-                                  <option value="internship">internship</option>
+                                  <option value={scopedStudentRole}>{scopedStudentRole}</option>
+                                  <option value={scopedInternshipRole}>{scopedInternshipRole}</option>
                                 </select>
                               ) : (
                                 role

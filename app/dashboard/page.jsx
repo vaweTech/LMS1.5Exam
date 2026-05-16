@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import CheckAuth from "../../lib/CheckAuth";
+import { isScopedInternshipRole } from "@/lib/studentRole";
 import { makeAuthenticatedRequest } from "@/lib/authUtils";
 import { createCourseUrl } from "../../lib/urlUtils";
 import EnquiryManager from "../../components/EnquiryManager";
@@ -168,7 +169,9 @@ export default function DashboardPage() {
         setDisplayName(studentData.name || u.email);
 
         // Mark internship students so we can show internships instead of programs
-        setIsInternshipStudent(!!studentData.isInternship);
+        setIsInternshipStudent(
+          !!studentData.isInternship || isScopedInternshipRole(studentData.role)
+        );
         setIsCrtStudent(!!studentData.isCrt);
 
         const titles = Array.isArray(studentData.coursesTitle)

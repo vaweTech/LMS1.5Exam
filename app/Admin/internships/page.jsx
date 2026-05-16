@@ -14,6 +14,11 @@ import {
 import { signOut } from "firebase/auth";
 import { useAdminAccess } from "../AdminAccessContext";
 import { tenantSegments } from "@/lib/tenantPath";
+import {
+  getInternshipRoleQueryValues,
+  normalizeStudentsForAdmin,
+  resolveCollegeSubdomain,
+} from "@/lib/studentRole";
 
 export default function InternshipManager() {
   const router = useRouter();
@@ -162,20 +167,33 @@ export default function InternshipManager() {
   const fetchInternshipStudents = useCallback(async function fetchInternshipStudents() {
     try {
       const studentsRef = firestoreHelpers.collection(db, ...tenantSegments(collegeSubdomain, "students"));
-      const q = firestoreHelpers.query(
-        studentsRef,
-        firestoreHelpers.where("isInternship", "==", true)
-      );
-      const snap = await firestoreHelpers.getDocs(q);
-      const list = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .sort((a, b) =>
-          (a.name || a.studentName || "").localeCompare(
-            b.name || b.studentName || "",
-            undefined,
-            { sensitivity: "base" }
+      const tenantSub = resolveCollegeSubdomain(collegeSubdomain);
+      const roleValues = getInternshipRoleQueryValues(tenantSub);
+      const [flagSnap, roleSnap] = await Promise.all([
+        firestoreHelpers.getDocs(
+          firestoreHelpers.query(
+            studentsRef,
+            firestoreHelpers.where("isInternship", "==", true)
           )
-        );
+        ),
+        firestoreHelpers.getDocs(
+          firestoreHelpers.query(
+            studentsRef,
+            firestoreHelpers.where("role", "in", roleValues)
+          )
+        ),
+      ]);
+      const byId = new Map();
+      [...flagSnap.docs, ...roleSnap.docs].forEach((d) => {
+        byId.set(d.id, { id: d.id, ...d.data() });
+      });
+      const list = normalizeStudentsForAdmin([...byId.values()]).sort((a, b) =>
+        (a.name || a.studentName || "").localeCompare(
+          b.name || b.studentName || "",
+          undefined,
+          { sensitivity: "base" }
+        )
+      );
       setInternshipStudents(list);
     } catch (e) {
       console.error("Failed to fetch internship students", e);

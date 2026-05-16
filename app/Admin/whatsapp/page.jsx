@@ -6,7 +6,12 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import { makeAuthenticatedRequest } from "@/lib/authUtils";
-import { isCrtStudentRole } from "@/lib/studentRole";
+import {
+  isCrtStudentRole,
+  inferStudentRole,
+  formatStudentRoleLabel,
+  normalizeStudentsForAdmin,
+} from "@/lib/studentRole";
 
 export default function WhatsAppMessagingPage() {
   const router = useRouter();
@@ -24,8 +29,9 @@ export default function WhatsAppMessagingPage() {
     (async () => {
       setLoading(true);
       const snap = await getDocs(collection(db, "students"));
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setStudents(list);
+      setStudents(
+        normalizeStudentsForAdmin(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      );
       setLoading(false);
     })();
   }, []);
@@ -309,9 +315,7 @@ export default function WhatsAppMessagingPage() {
                         <tr key={s.id} className="hover:bg-gray-50">
                           <td className="border p-2">{s.name || '-'}</td>
                           <td className="border p-2">
-                            {isCrtStudentRole(s.role)
-                              ? s.role
-                              : (s.role || (s.isCrt ? "crtStudent" : s.isInternship ? "internship" : "student"))}
+                            {formatStudentRoleLabel(inferStudentRole(s))}
                           </td>
                           <td className="border p-2">{s.phone1 || s.phone || '-'}</td>
                           <td className="border p-2">{s.classId || '-'}</td>

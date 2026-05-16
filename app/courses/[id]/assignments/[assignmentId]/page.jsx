@@ -20,7 +20,7 @@
   import CheckAuth from "../../../../../lib/CheckAuth";
   import dynamic from "next/dynamic";
   import { parseCourseUrl, createSlug } from "../../../../../lib/urlUtils";
-  import { isCrtStudentRole } from "../../../../../lib/studentRole";
+  import { isCrtStudentRole, isScopedInternshipRole } from "../../../../../lib/studentRole";
 
   const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -230,8 +230,8 @@
         const studentRole = studentData?.role;
         const isSuperAdmin = userRole === "superadmin";
         const isInternshipRole =
-          userRole === "internship" ||
-          studentRole === "internship" ||
+          isScopedInternshipRole(userRole) ||
+          isScopedInternshipRole(studentRole) ||
           studentData?.isInternship === true;
         const isCrtRole =
           isCrtStudentRole(userRole) ||

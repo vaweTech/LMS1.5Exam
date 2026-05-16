@@ -17,6 +17,7 @@ import {
   canonicalAdminRole,
   subdomainFromUserOrDetails,
 } from "@/lib/collegeAdminAccess";
+import { resolveCollegeSubdomain } from "@/lib/studentRole";
 
 const AdminAccessContext = createContext(null);
 
@@ -28,6 +29,7 @@ const emptyAccess = {
   moduleCrt: true,
   platformEmpty: false,
   collegeSubdomain: null,
+  tenantSubdomain: resolveCollegeSubdomain(null),
   ...computeAdminAccess(null, true, true),
 };
 
@@ -45,6 +47,7 @@ export function AdminAccessProvider({ children }) {
           moduleCrt: true,
           platformEmpty: false,
           collegeSubdomain: null,
+          tenantSubdomain: resolveCollegeSubdomain(null),
           ...computeAdminAccess(null, true, true),
         });
         return;
@@ -113,6 +116,7 @@ export function AdminAccessProvider({ children }) {
         moduleCrt,
         platformEmpty,
         collegeSubdomain,
+        tenantSubdomain: resolveCollegeSubdomain(collegeSubdomain),
         ...computeAdminAccess(role, moduleLms, moduleCrt),
       });
     });

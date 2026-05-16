@@ -19,7 +19,14 @@ import { useRouter } from "next/navigation";
 import CheckAdminAuth from "@/lib/CheckAdminAuth";
 import AdmissionForm from "@/components/AdmissionForm";
 import { getClientCollegeSubdomain, tenantSegments } from "@/lib/tenantPath";
-import { isCrtStudentRole, matchesStudentRoleFilter } from "@/lib/studentRole";
+import {
+  isCrtStudentRole,
+  isScopedInternshipRole,
+  matchesStudentRoleFilter,
+  inferStudentRole,
+  formatStudentRoleLabel,
+  normalizeStudentsForAdmin,
+} from "@/lib/studentRole";
 
 export default function UserManagerPage() {
   const router = useRouter();
@@ -64,7 +71,9 @@ export default function UserManagerPage() {
 
   const fetchStudents = useCallback(async () => {
     const snap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "students")));
-    setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    setStudents(
+      normalizeStudentsForAdmin(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    );
   }, [collegeSubdomain]);
 
   const fetchCourses = useCallback(async () => {
@@ -454,9 +463,7 @@ export default function UserManagerPage() {
     return emailMatch;
   });
 
-  // Effective role: from doc.role or inferred from isCrt / isInternship
-  const getStudentRole = (s) =>
-    s.role || (s.isCrt ? "crtStudent" : s.isInternship ? "internship" : "student");
+  const getStudentRole = (s) => inferStudentRole(s);
 
   // Students filtered by role (for Students list section)
   const roleFilteredStudents = roleFilter
@@ -1054,11 +1061,11 @@ export default function UserManagerPage() {
                       <td className="border p-2">
                         <span className={`text-xs px-2 py-0.5 rounded ${
                           isCrtStudentRole(getStudentRole(s)) ? "bg-blue-100 text-blue-700" :
-                          getStudentRole(s) === "internship" ? "bg-emerald-100 text-emerald-700" :
+                          isScopedInternshipRole(getStudentRole(s)) ? "bg-emerald-100 text-emerald-700" :
                           "bg-gray-100 text-gray-700"
                         }`}>
                           {isCrtStudentRole(getStudentRole(s)) ? getStudentRole(s) :
-                           getStudentRole(s) === "internship" ? "Internship" : "Student"}
+                           formatStudentRoleLabel(getStudentRole(s))}
                         </span>
                       </td>
                       <td className="border p-2">

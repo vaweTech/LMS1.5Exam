@@ -6,7 +6,18 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { getScopedCrtStudentRole, isCrtStudentRole } from "@/lib/studentRole";
+import {
+  getScopedCrtStudentRole,
+  getScopedInternshipRole,
+  getScopedStudentRole,
+  isCrtStudentRole,
+  isScopedInternshipRole,
+  isScopedStudentRole,
+  isLegacyInternshipRole,
+  isLegacyStudentRole,
+  resolveCollegeSubdomain,
+  getStudentLimitRoles,
+} from "@/lib/studentRole";
 
 let cachedServiceAccount = null;
 
@@ -147,18 +158,49 @@ const DEFAULT_STUDENT_PASSWORD = 'Vawe@2026';
 
 function deriveStudentRole(body, reqUser) {
   const incomingRole = String(body.role || "").trim();
+  const targetSubdomain = resolveCollegeSubdomain(
+    body.collegeSubdomain || reqUser?.collegeSubdomain
+  );
+
   if (body.isCrt) {
-    // Allow superadmin/central flows to explicitly set target tenant subdomain.
-    const targetSubdomain = body.collegeSubdomain || reqUser?.collegeSubdomain;
-    if (!targetSubdomain) {
+    if (!body.collegeSubdomain && !reqUser?.collegeSubdomain) {
       throw new Error("collegeSubdomain is required for CRT student role.");
     }
-    const scopedRole = getScopedCrtStudentRole(targetSubdomain);
+    const scopedRole = getScopedCrtStudentRole(
+      body.collegeSubdomain || reqUser?.collegeSubdomain
+    );
     if (!incomingRole || isCrtStudentRole(incomingRole)) return scopedRole;
     return incomingRole;
   }
-  if (incomingRole) return incomingRole;
-  return body.isInternship ? "internship" : "student";
+
+  if (incomingRole) {
+    if (isScopedInternshipRole(incomingRole) || isLegacyInternshipRole(incomingRole)) {
+      return getScopedInternshipRole(targetSubdomain);
+    }
+    if (isScopedStudentRole(incomingRole) || isLegacyStudentRole(incomingRole)) {
+      return getScopedStudentRole(targetSubdomain);
+    }
+    return incomingRole;
+  }
+
+  return body.isInternship
+    ? getScopedInternshipRole(targetSubdomain)
+    : getScopedStudentRole(targetSubdomain);
+}
+
+async function countCollegeStudentsByRoles(subdomain, roles) {
+  const counts = await Promise.all(
+    roles.map((role) =>
+      adminDb
+        .collection("students")
+        .where("collegeSubdomain", "==", subdomain)
+        .where("role", "==", role)
+        .count()
+        .get()
+        .then((snap) => snap.data().count || 0)
+    )
+  );
+  return counts.reduce((sum, n) => sum + n, 0);
 }
 
 function parseLimitNumber(value) {
@@ -194,23 +236,19 @@ async function createStudentHandler(req) {
   const defaultPassword = DEFAULT_STUDENT_PASSWORD;
 
   try {
+    const targetSubdomain = resolveCollegeSubdomain(
+      body?.collegeSubdomain || req?.user?.collegeSubdomain
+    );
     const derivedRole = deriveStudentRole(body, req.user);
-    const targetSubdomain = String(
-      body?.collegeSubdomain || req?.user?.collegeSubdomain || ""
-    )
-      .trim()
-      .toLowerCase();
 
-    if (targetSubdomain && (derivedRole === "student" || isCrtStudentRole(derivedRole))) {
+    if (isScopedStudentRole(derivedRole) || isCrtStudentRole(derivedRole)) {
       const { studentLimit, crtStudentLimit } = await getCollegeStudentLimits(targetSubdomain);
-      if (derivedRole === "student" && studentLimit !== null) {
-        const existingStudentsSnap = await adminDb
-          .collection("students")
-          .where("collegeSubdomain", "==", targetSubdomain)
-          .where("role", "==", "student")
-          .count()
-          .get();
-        const existingStudentsCount = existingStudentsSnap.data().count || 0;
+      if (isScopedStudentRole(derivedRole) && studentLimit !== null) {
+        const limitRoles = getStudentLimitRoles(targetSubdomain);
+        const existingStudentsCount = await countCollegeStudentsByRoles(
+          targetSubdomain,
+          limitRoles
+        );
         if (existingStudentsCount >= studentLimit) {
           return new Response(
             JSON.stringify({
