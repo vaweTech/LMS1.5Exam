@@ -1224,7 +1224,7 @@ export default function AdminInterviewExamsPage() {
                         </div>
                         <MathQuestionField
                           className="mb-2"
-                          placeholder="Question — use toolbar for √, x², α, β, etc."
+                          placeholder="Question — type or paste text (math symbols supported)"
                           value={q.question || ""}
                           onChange={(text) => updateQuestion(q.id, { question: text })}
                           minRows={4}
@@ -1278,7 +1278,6 @@ export default function AdminInterviewExamsPage() {
                               <div className="flex items-start gap-2">
                               <MathQuestionField
                                 className="flex-1 min-w-0"
-                                showPreview={false}
                                 minRows={2}
                                 value={optStr}
                                 onChange={(text) => {
@@ -1292,7 +1291,6 @@ export default function AdminInterviewExamsPage() {
                                   updateQuestion(q.id, { options: newOptions });
                                 }}
                                 placeholder={`Option ${i + 1}`}
-                                hint=""
                               />
                               <div className="flex flex-col items-center gap-1 pt-2">
                                 <input
