@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { formatMathNotation } from "@/lib/formatMathNotation";
 
 export const MATH_TEXT_CLASS =
   "font-normal text-[15px] leading-relaxed whitespace-pre-wrap break-words " +
@@ -12,7 +13,7 @@ export const MATH_TEXT_CLASS =
 export default function MathQuestionField({
   value = "",
   onChange,
-  placeholder = "Enter or paste question text…",
+  placeholder = "Type x^2 for x², x^3 for x³, sqrt(16), \\alpha — converts when you leave the field",
   label,
   minRows = 3,
   className = "",
@@ -30,9 +31,9 @@ export default function MathQuestionField({
         ref={textareaRef}
         value={value}
         onChange={(e) => onChange?.(e.target.value)}
-        onPaste={(e) => {
-          // Accept pasted text as-is (Word, PDF, web, etc.)
-          e.stopPropagation();
+        onBlur={(e) => {
+          const formatted = formatMathNotation(e.target.value);
+          if (formatted !== e.target.value) onChange?.(formatted);
         }}
         placeholder={placeholder}
         rows={minRows}

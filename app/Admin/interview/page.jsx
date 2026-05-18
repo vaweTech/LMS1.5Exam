@@ -14,6 +14,7 @@ import { auth, db, firestoreHelpers } from "../../../lib/firebase";
 import readXlsxFile from "read-excel-file";
 import ExcelJS from "exceljs";
 import MathQuestionField from "@/components/MathQuestionField";
+import { formatMathNotation } from "@/lib/formatMathNotation";
 
 /** Normalize topic tags from Firestore/Excel/UI (comma-separated string or array). */
 function normalizeTopicsFromUnknown(raw) {
@@ -635,7 +636,9 @@ export default function AdminInterviewExamsPage() {
         if (q.type === "mcq") {
           const optionTexts = Array.isArray(q.options)
             ? q.options.map((o) =>
-                typeof o === "string" ? String(o || "") : String(o?.text || "")
+                formatMathNotation(
+                  typeof o === "string" ? String(o || "") : String(o?.text || "")
+                )
               )
             : ["", "", "", ""];
           const fromParallel = Array.isArray(q.optionImages)
@@ -653,7 +656,7 @@ export default function AdminInterviewExamsPage() {
           );
           return {
             type: "mcq",
-            question: String(q.question || "").trim(),
+            question: formatMathNotation(String(q.question || "").trim()),
             questionImage: String(q.questionImage || "").trim(),
             options: optionTexts,
             optionImages,
@@ -667,7 +670,7 @@ export default function AdminInterviewExamsPage() {
         if (q.type === "coding") {
           return {
             type: "coding",
-            question: String(q.question || "").trim(),
+            question: formatMathNotation(String(q.question || "").trim()),
             section: String(q.section || "easy").trim(),
             testCases: Array.isArray(q.testCases)
               ? q.testCases
@@ -682,7 +685,7 @@ export default function AdminInterviewExamsPage() {
         }
         return {
           type: "descriptive",
-          question: String(q.question || "").trim(),
+          question: formatMathNotation(String(q.question || "").trim()),
           maxScore: Number.isFinite(Number(q.maxScore)) ? Number(q.maxScore) : 10,
         };
       });
