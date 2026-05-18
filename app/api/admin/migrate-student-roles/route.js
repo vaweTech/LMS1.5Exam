@@ -1,5 +1,5 @@
 import { adminDb } from "@/lib/firebaseAdmin";
-import { withSuperAdminAuth } from "@/lib/apiAuth";
+import { withAdminAuth } from "@/lib/apiAuth";
 import {
   DEFAULT_COLLEGE_SUBDOMAIN,
   getScopedInternshipRole,
@@ -72,7 +72,21 @@ async function migrateRoleBatch({
   return { updated, skipped, samples, fetched: snap.size, hasMore: snap.size >= limit };
 }
 
+function assertInstituteAdmin(req) {
+  const role = req.user?.role;
+  if (role !== "admin" && role !== "superadmin") {
+    return new Response(
+      JSON.stringify({ error: "Admin or superadmin access required." }),
+      { status: 403, headers: { "Content-Type": "application/json" } }
+    );
+  }
+  return null;
+}
+
 async function migrateHandler(req) {
+  const denied = assertInstituteAdmin(req);
+  if (denied) return denied;
+
   try {
     const body = await req.json().catch(() => ({}));
     const collegeSubdomain = resolveCollegeSubdomain(
@@ -139,11 +153,14 @@ async function migrateHandler(req) {
 }
 
 export async function POST(req) {
-  return withSuperAdminAuth(req, migrateHandler);
+  return withAdminAuth(req, migrateHandler);
 }
 
 export async function GET(req) {
-  return withSuperAdminAuth(req, async () => {
+  return withAdminAuth(req, async (authReq) => {
+    const denied = assertInstituteAdmin(authReq);
+    if (denied) return denied;
+
     const pendingStudents = await countByRole(DEFAULT_COLLEGE_SUBDOMAIN, "student");
     const pendingInternships = await countByRole(DEFAULT_COLLEGE_SUBDOMAIN, "internship");
     return new Response(

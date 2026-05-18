@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   collection,
   getDocs,
@@ -22,10 +22,17 @@ import { getClientCollegeSubdomain, tenantSegments } from "@/lib/tenantPath";
 import {
   isCrtStudentRole,
   isScopedInternshipRole,
-  matchesStudentRoleFilter,
+  isScopedStudentRole,
+  isInternshipStudentDoc,
+  isRegularStudentDoc,
+  isLmsStudentDoc,
   inferStudentRole,
   formatStudentRoleLabel,
   normalizeStudentsForAdmin,
+  belongsToCollegeTenant,
+  resolveCollegeSubdomain,
+  getScopedStudentRole,
+  getScopedInternshipRole,
 } from "@/lib/studentRole";
 
 export default function UserManagerPage() {
@@ -63,6 +70,10 @@ export default function UserManagerPage() {
   const [showEditStudentModal, setShowEditStudentModal] = useState(false);
   const [editStudent, setEditStudent] = useState(null);
   const collegeSubdomain = getClientCollegeSubdomain();
+  const tenantSubdomain = useMemo(
+    () => resolveCollegeSubdomain(collegeSubdomain),
+    [collegeSubdomain]
+  );
 
   const fetchClasses = useCallback(async () => {
     const snap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "classes")));
@@ -70,11 +81,13 @@ export default function UserManagerPage() {
   }, [collegeSubdomain]);
 
   const fetchStudents = useCallback(async () => {
-    const snap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "students")));
-    setStudents(
-      normalizeStudentsForAdmin(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    );
-  }, [collegeSubdomain]);
+    // Student admissions are stored in the root `students` collection (with collegeSubdomain field).
+    const snap = await getDocs(collection(db, "students"));
+    const list = normalizeStudentsForAdmin(
+      snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    ).filter((s) => belongsToCollegeTenant(s, tenantSubdomain));
+    setStudents(list);
+  }, [tenantSubdomain]);
 
   const fetchCourses = useCallback(async () => {
     const snap = await getDocs(collection(db, ...tenantSegments(collegeSubdomain, "courses")));
@@ -457,21 +470,39 @@ export default function UserManagerPage() {
     setChapters(sortedChapters);
   }
 
-  // 🔎 Helpers for filtering and selection
-  const filteredStudents = students.filter((s) => {
-    const emailMatch = !searchEmail.trim() || (s.email || "").toLowerCase().includes(searchEmail.trim().toLowerCase());
-    return emailMatch;
-  });
-
   const getStudentRole = (s) => inferStudentRole(s);
 
-  // Students filtered by role (for Students list section)
-  const roleFilteredStudents = roleFilter
-    ? students.filter((s) => matchesStudentRoleFilter(getStudentRole(s), roleFilter))
-    : students;
+  /** LMS pool: vaweStudent / vaweInternship (and legacy student / internship). */
+  const lmsStudents = useMemo(
+    () => students.filter((s) => isLmsStudentDoc(s)),
+    [students]
+  );
 
-  // Sort students based on selected option (after role filter)
-  const sortedStudents = [...roleFilteredStudents].sort((a, b) => {
+  /** Students table + counts — respects role filter; CRT only when that filter is chosen. */
+  const studentsForTable = useMemo(() => {
+    if (roleFilter === "crtStudent") {
+      return students.filter(
+        (s) => isCrtStudentRole(getStudentRole(s)) || s.isCrt
+      );
+    }
+    if (roleFilter === "student") {
+      return lmsStudents.filter((s) => isRegularStudentDoc(s));
+    }
+    if (roleFilter === "internship") {
+      return lmsStudents.filter((s) => isInternshipStudentDoc(s));
+    }
+    return lmsStudents;
+  }, [students, lmsStudents, roleFilter]);
+
+  const filteredStudents = useMemo(() => {
+    const q = searchEmail.trim().toLowerCase();
+    return lmsStudents.filter((s) => {
+      if (!q) return true;
+      return (s.email || "").toLowerCase().includes(q);
+    });
+  }, [lmsStudents, searchEmail]);
+
+  const sortedStudents = useMemo(() => [...studentsForTable].sort((a, b) => {
     if (sortBy === "regNo") {
       const regNoA = a.registrationNumber || a.regdNo || a.regNo || a.regnNo || "";
       const regNoB = b.registrationNumber || b.regdNo || b.regNo || b.regnNo || "";
@@ -493,7 +524,17 @@ export default function UserManagerPage() {
       const nameB = (b.name || "").toLowerCase();
       return nameA.localeCompare(nameB);
     }
-  });
+  }), [studentsForTable, sortBy]);
+
+  const roleCounts = useMemo(
+    () => ({
+      all: lmsStudents.length,
+      student: lmsStudents.filter((s) => isRegularStudentDoc(s)).length,
+      internship: lmsStudents.filter((s) => isInternshipStudentDoc(s)).length,
+      crt: students.filter((s) => isCrtStudentRole(getStudentRole(s)) || s.isCrt).length,
+    }),
+    [students, lmsStudents]
+  );
 
   function toggleSelectOne(studentId) {
     setSelectedStudentIds((prev) =>
@@ -504,7 +545,7 @@ export default function UserManagerPage() {
   }
 
   function handleSelectAllStudents() {
-    setSelectedStudentIds(students.map((s) => s.id));
+    setSelectedStudentIds(lmsStudents.map((s) => s.id));
   }
 
   function handleSelectAllFiltered() {
@@ -808,7 +849,7 @@ export default function UserManagerPage() {
                   Clear
                 </button>
                 <span className="text-sm text-gray-600">
-                  Selected: {selectedStudentIds.length} / {students.length}
+                  Selected: {selectedStudentIds.length} / {lmsStudents.length}
                 </span>
               </div>
               {filteredStudents.length === 0 ? (
@@ -1014,10 +1055,14 @@ export default function UserManagerPage() {
                 onChange={(e) => setRoleFilter(e.target.value)}
                 className="border p-2 rounded text-sm"
               >
-                <option value="">All roles</option>
-                <option value="student">Student</option>
-                <option value="internship">Internship</option>
-                <option value="crtStudent">CRT Student</option>
+                <option value="">All LMS ({roleCounts.all})</option>
+                <option value="student">
+                  Student — {getScopedStudentRole(tenantSubdomain)} ({roleCounts.student})
+                </option>
+                <option value="internship">
+                  Internship — {getScopedInternshipRole(tenantSubdomain)} ({roleCounts.internship})
+                </option>
+                <option value="crtStudent">CRT Student ({roleCounts.crt})</option>
               </select>
               <label className="text-sm text-gray-600">Sort by:</label>
               <select
@@ -1029,12 +1074,16 @@ export default function UserManagerPage() {
                 <option value="regNo">Regd. No. (Numerically 1-2-3)</option>
               </select>
               <span className="text-sm text-gray-500">
-                {roleFilter ? `${sortedStudents.length} / ${students.length}` : `Total: ${students.length}`}
+                {roleFilter
+                  ? `Showing ${sortedStudents.length}`
+                  : `LMS: ${roleCounts.all} · CRT: ${roleCounts.crt}`}
               </span>
             </div>
           </div>
           {students.length === 0 ? (
-            <p className="text-gray-500">No students yet.</p>
+            <p className="text-gray-500">
+              No students for tenant &quot;{tenantSubdomain}&quot; yet.
+            </p>
           ) : sortedStudents.length === 0 ? (
             <p className="text-gray-500">No students match the selected role filter.</p>
           ) : (
@@ -1062,10 +1111,13 @@ export default function UserManagerPage() {
                         <span className={`text-xs px-2 py-0.5 rounded ${
                           isCrtStudentRole(getStudentRole(s)) ? "bg-blue-100 text-blue-700" :
                           isScopedInternshipRole(getStudentRole(s)) ? "bg-emerald-100 text-emerald-700" :
-                          "bg-gray-100 text-gray-700"
+                          isScopedStudentRole(getStudentRole(s)) ? "bg-gray-100 text-gray-700" :
+                          "bg-amber-100 text-amber-800"
                         }`}>
-                          {isCrtStudentRole(getStudentRole(s)) ? getStudentRole(s) :
-                           formatStudentRoleLabel(getStudentRole(s))}
+                          {getStudentRole(s)}
+                          <span className="text-gray-500 ml-1">
+                            ({formatStudentRoleLabel(getStudentRole(s))})
+                          </span>
                         </span>
                       </td>
                       <td className="border p-2">

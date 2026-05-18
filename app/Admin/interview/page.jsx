@@ -13,6 +13,7 @@ import CheckAuth from "../../../lib/CheckAuth";
 import { auth, db, firestoreHelpers } from "../../../lib/firebase";
 import readXlsxFile from "read-excel-file";
 import ExcelJS from "exceljs";
+import MathQuestionField from "@/components/MathQuestionField";
 
 /** Normalize topic tags from Firestore/Excel/UI (comma-separated string or array). */
 function normalizeTopicsFromUnknown(raw) {
@@ -1221,11 +1222,12 @@ export default function AdminInterviewExamsPage() {
                             </button>
                           </div>
                         </div>
-                        <textarea
-                          placeholder="Question (multi-line supported)"
+                        <MathQuestionField
+                          className="mb-2"
+                          placeholder="Question — use toolbar for √, x², α, β, etc."
                           value={q.question || ""}
-                          onChange={(e) => updateQuestion(q.id, { question: e.target.value })}
-                          className="w-full border rounded-lg px-3 py-2 mb-2 min-h-[90px]"
+                          onChange={(text) => updateQuestion(q.id, { question: text })}
+                          minRows={4}
                         />
                         <div className="mb-3 rounded-lg border border-gray-200 bg-white/80 px-3 py-2">
                           <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
@@ -1274,20 +1276,23 @@ export default function AdminInterviewExamsPage() {
                             return (
                             <div key={i} className="rounded-lg border border-gray-200 bg-white/60 p-2 space-y-2">
                               <div className="flex items-start gap-2">
-                              <textarea
+                              <MathQuestionField
+                                className="flex-1 min-w-0"
+                                showPreview={false}
+                                minRows={2}
                                 value={optStr}
-                                onChange={(e) => {
+                                onChange={(text) => {
                                   const newOptions = [...(q.options || ["", "", "", ""])].map((o, j) =>
                                     j === i
-                                      ? e.target.value
+                                      ? text
                                       : typeof o === "string"
                                         ? o
                                         : String(o?.text ?? "")
                                   );
                                   updateQuestion(q.id, { options: newOptions });
                                 }}
-                                placeholder={`Option ${i + 1} (multi-line supported)`}
-                                className="flex-1 border rounded-lg px-3 py-2 min-h-[60px]"
+                                placeholder={`Option ${i + 1}`}
+                                hint=""
                               />
                               <div className="flex flex-col items-center gap-1 pt-2">
                                 <input
@@ -1376,12 +1381,12 @@ export default function AdminInterviewExamsPage() {
                             Remove
                           </button>
                         </div>
-                        <input
-                          type="text"
-                          placeholder="Question"
+                        <MathQuestionField
+                          className="mb-3"
+                          placeholder="Descriptive question — math symbols supported"
                           value={q.question || ""}
-                          onChange={(e) => updateQuestion(q.id, { question: e.target.value })}
-                          className="w-full border rounded-lg px-3 py-2 mb-3"
+                          onChange={(text) => updateQuestion(q.id, { question: text })}
+                          minRows={4}
                         />
                         <div className="flex items-center gap-3">
                           <label className="text-sm text-gray-700">Max Score</label>
@@ -1444,11 +1449,12 @@ export default function AdminInterviewExamsPage() {
                             />
                           </div>
                         </div>
-                        <textarea
-                          placeholder="Coding question"
+                        <MathQuestionField
+                          className="mb-3"
+                          placeholder="Coding problem statement — math symbols supported"
                           value={q.question || ""}
-                          onChange={(e) => updateQuestion(q.id, { question: e.target.value })}
-                          className="w-full border rounded-lg px-3 py-2 mb-3 min-h-[90px]"
+                          onChange={(text) => updateQuestion(q.id, { question: text })}
+                          minRows={4}
                         />
                         <div className="space-y-3">
                           {(q.testCases || []).map((tc, tIdx) => (

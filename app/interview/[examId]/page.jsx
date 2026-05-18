@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { jsPDF } from "jspdf";
 import { requestWhatsAppOtp, verifyWhatsAppOtp } from "@/lib/whatsappOtpClient";
+import MathTextDisplay from "@/components/MathTextDisplay";
 import { auth, firebaseAuth, db, firestoreHelpers } from "../../../lib/firebase";
 
 /** Topic tags on MCQs: array or comma-separated string (matches admin exam editor). */
@@ -1982,7 +1983,7 @@ export default function TakeInterviewExamPage() {
                     Question {currentPos + 1} of {totalInSection}
                   </p>
                 </div>
-                <div className="text-gray-800 mb-4 whitespace-pre-wrap">{q.question}</div>
+                <MathTextDisplay className="mb-4">{q.question}</MathTextDisplay>
                 {q.type === "mcq" && q.questionImage ? (
                   <div className="mb-4">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2044,7 +2045,7 @@ export default function TakeInterviewExamPage() {
                         >
                           <div>
                             <span className="font-medium mr-2">{String.fromCharCode(65 + oIndex)}.</span>
-                            <span className="whitespace-pre-wrap">{optText}</span>
+                            <MathTextDisplay inline>{optText}</MathTextDisplay>
                           </div>
                           {optImg ? (
                             // eslint-disable-next-line @next/next/no-img-element
