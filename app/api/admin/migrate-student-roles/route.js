@@ -9,13 +9,53 @@ import {
 
 const BATCH_LIMIT = 500;
 
-async function countByRole(subdomain, legacyRole) {
-  const snap = await adminDb
-    .collection("students")
-    .where("role", "==", legacyRole)
-    .count()
-    .get();
-  return snap.data().count || 0;
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function isRetryableNetworkError(e) {
+  const msg = `${e?.message || ""} ${e?.code || ""}`;
+  return /socket hang up|ECONNRESET|ETIMEDOUT|EPIPE|ECONNREFUSED|fetch failed|ENOTFOUND/i.test(
+    msg
+  );
+}
+
+async function withFirestoreRetry(fn, maxAttempts = 4) {
+  const backoffMs = [300, 800, 1500, 3000];
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (attempt < maxAttempts && isRetryableNetworkError(e)) {
+        await sleep(backoffMs[attempt - 1] ?? 3000);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
+}
+
+async function countByRole(legacyRole) {
+  return withFirestoreRetry(async () => {
+    const snap = await adminDb
+      .collection("students")
+      .where("role", "==", legacyRole)
+      .count()
+      .get();
+    return snap.data().count || 0;
+  });
+}
+
+async function safeCountByRole(legacyRole) {
+  try {
+    return await countByRole(legacyRole);
+  } catch (e) {
+    console.warn(`countByRole(${legacyRole}) failed:`, e?.message || e);
+    return null;
+  }
 }
 
 async function migrateRoleBatch({
@@ -28,7 +68,7 @@ async function migrateRoleBatch({
 }) {
   let query = adminDb.collection("students").where("role", "==", legacyRole).limit(limit);
 
-  const snap = await query.get();
+  const snap = await withFirestoreRetry(() => query.get());
   const batch = adminDb.batch();
   let updated = 0;
   let skipped = 0;
@@ -100,8 +140,8 @@ async function migrateHandler(req) {
     const scopedInternship = getScopedInternshipRole(collegeSubdomain);
 
     const [pendingStudents, pendingInternships] = await Promise.all([
-      countByRole(collegeSubdomain, "student"),
-      countByRole(collegeSubdomain, "internship"),
+      safeCountByRole("student"),
+      safeCountByRole("internship"),
     ]);
 
     const studentResult = await migrateRoleBatch({
@@ -161,14 +201,21 @@ export async function GET(req) {
     const denied = assertInstituteAdmin(authReq);
     if (denied) return denied;
 
-    const pendingStudents = await countByRole(DEFAULT_COLLEGE_SUBDOMAIN, "student");
-    const pendingInternships = await countByRole(DEFAULT_COLLEGE_SUBDOMAIN, "internship");
+    const [pendingStudents, pendingInternships] = await Promise.all([
+      safeCountByRole("student"),
+      safeCountByRole("internship"),
+    ]);
+
+    const countsUnavailable =
+      pendingStudents === null || pendingInternships === null;
+
     return new Response(
       JSON.stringify({
         pendingLegacyRoles: {
           student: pendingStudents,
           internship: pendingInternships,
         },
+        countsUnavailable,
         targetRoles: {
           student: getScopedStudentRole(DEFAULT_COLLEGE_SUBDOMAIN),
           internship: getScopedInternshipRole(DEFAULT_COLLEGE_SUBDOMAIN),

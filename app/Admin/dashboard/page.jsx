@@ -96,16 +96,19 @@ function AdminCard({ href, icon: Icon, title, description, color, index }) {
 
 function StudentRoleMigrationPanel() {
   const [status, setStatus] = useState(null);
+  const [statusError, setStatusError] = useState("");
   const [lastResult, setLastResult] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const loadStatus = async () => {
     try {
+      setStatusError("");
       const res = await makeAuthenticatedRequest("/api/admin/migrate-student-roles");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load migration status");
       setStatus(data);
     } catch (e) {
+      setStatusError(e.message || "Could not load migration status");
       console.error(e);
     }
   };
@@ -145,8 +148,10 @@ function StudentRoleMigrationPanel() {
     }
   }
 
-  const pendingStudent = status?.pendingLegacyRoles?.student ?? "—";
-  const pendingInternship = status?.pendingLegacyRoles?.internship ?? "—";
+  const pendingStudent =
+    status?.pendingLegacyRoles?.student ?? (status?.countsUnavailable ? "?" : "—");
+  const pendingInternship =
+    status?.pendingLegacyRoles?.internship ?? (status?.countsUnavailable ? "?" : "—");
 
   return (
     <div className="mb-10 rounded-2xl border border-amber-200 bg-amber-50/80 p-5 sm:p-6">
@@ -160,6 +165,12 @@ function StudentRoleMigrationPanel() {
         <strong>{status?.targetRoles?.internship || "vaweInternship"}</strong>.
         Pending: {pendingStudent} student, {pendingInternship} internship.
       </p>
+      {(statusError || status?.countsUnavailable) && (
+        <p className="text-sm text-amber-800 mb-3">
+          {statusError ||
+            "Counts temporarily unavailable (network). Use Refresh or run a dry run to see batch results."}
+        </p>
+      )}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}

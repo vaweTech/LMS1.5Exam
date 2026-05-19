@@ -6,7 +6,11 @@ import { Search, Users, TrendingUp, CalendarDays, Trophy } from "lucide-react";
 import CheckAdminAuth from "@/lib/CheckAdminAuth";
 import { db } from "@/lib/firebase";
 import { mcqDb } from "@/lib/firebaseMCQs";
-import { isCrtStudentRole, isScopedInternshipRole } from "@/lib/studentRole";
+import {
+  isCrtStudentRole,
+  isScopedInternshipRole,
+  isSkillwinsStudentDoc,
+} from "@/lib/studentRole";
 
 const chunkArray = (arr, size) => {
   const out = [];
@@ -87,7 +91,7 @@ const getAssignmentTopicTitle = (assignment, chapterTitleById) => {
 
 export default function StudentAnalyticsPage() {
   const [students, setStudents] = useState([]);
-  const [classType, setClassType] = useState("course"); // "course" | "internship" | "crt"
+  const [classType, setClassType] = useState("course"); // "course" | "internship" | "crt" | "skillwins"
   const [classes, setClasses] = useState([]);
   const [selectedClass, setSelectedClass] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -116,11 +120,12 @@ export default function StudentAnalyticsPage() {
   const typeFilteredStudents = useMemo(() => {
     return students.filter((student) => {
       const isCrtStudent = student.isCrt === true || isCrtStudentRole(student.role);
+      if (classType === "skillwins") return isSkillwinsStudentDoc(student);
       const isInternshipStudent =
         student.isInternship === true || isScopedInternshipRole(student.role);
       if (classType === "internship") return isInternshipStudent;
       if (classType === "crt") return isCrtStudent;
-      return !isInternshipStudent && !isCrtStudent;
+      return !isInternshipStudent && !isCrtStudent && !isSkillwinsStudentDoc(student);
     });
   }, [students, classType]);
 
@@ -380,6 +385,7 @@ export default function StudentAnalyticsPage() {
                 <option value="course">Course</option>
                 <option value="internship">Internship</option>
                 <option value="crt">CRT</option>
+                <option value="skillwins">vawe.skillwins</option>
               </select>
             </div>
             <div className="bg-white rounded-lg shadow p-4">

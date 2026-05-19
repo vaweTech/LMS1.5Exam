@@ -26,6 +26,9 @@ import {
   isInternshipStudentDoc,
   isRegularStudentDoc,
   isLmsStudentDoc,
+  isSkillwinsStudentDoc,
+  isSkillwinsStudentRole,
+  getScopedSkillwinsRole,
   inferStudentRole,
   formatStudentRoleLabel,
   normalizeStudentsForAdmin,
@@ -478,6 +481,15 @@ export default function UserManagerPage() {
     [students]
   );
 
+  /** Assign to batch: LMS + Skillwins (excludes CRT). */
+  const assignableStudents = useMemo(
+    () =>
+      students.filter(
+        (s) => !(s.isCrt || isCrtStudentRole(getStudentRole(s)))
+      ),
+    [students]
+  );
+
   /** Students table + counts — respects role filter; CRT only when that filter is chosen. */
   const studentsForTable = useMemo(() => {
     if (roleFilter === "crtStudent") {
@@ -491,16 +503,19 @@ export default function UserManagerPage() {
     if (roleFilter === "internship") {
       return lmsStudents.filter((s) => isInternshipStudentDoc(s));
     }
+    if (roleFilter === "skillwins") {
+      return students.filter((s) => isSkillwinsStudentDoc(s));
+    }
     return lmsStudents;
   }, [students, lmsStudents, roleFilter]);
 
   const filteredStudents = useMemo(() => {
     const q = searchEmail.trim().toLowerCase();
-    return lmsStudents.filter((s) => {
+    return assignableStudents.filter((s) => {
       if (!q) return true;
       return (s.email || "").toLowerCase().includes(q);
     });
-  }, [lmsStudents, searchEmail]);
+  }, [assignableStudents, searchEmail]);
 
   const sortedStudents = useMemo(() => [...studentsForTable].sort((a, b) => {
     if (sortBy === "regNo") {
@@ -532,6 +547,7 @@ export default function UserManagerPage() {
       student: lmsStudents.filter((s) => isRegularStudentDoc(s)).length,
       internship: lmsStudents.filter((s) => isInternshipStudentDoc(s)).length,
       crt: students.filter((s) => isCrtStudentRole(getStudentRole(s)) || s.isCrt).length,
+      skillwins: students.filter((s) => isSkillwinsStudentDoc(s)).length,
     }),
     [students, lmsStudents]
   );
@@ -545,7 +561,7 @@ export default function UserManagerPage() {
   }
 
   function handleSelectAllStudents() {
-    setSelectedStudentIds(lmsStudents.map((s) => s.id));
+    setSelectedStudentIds(assignableStudents.map((s) => s.id));
   }
 
   function handleSelectAllFiltered() {
@@ -849,7 +865,8 @@ export default function UserManagerPage() {
                   Clear
                 </button>
                 <span className="text-sm text-gray-600">
-                  Selected: {selectedStudentIds.length} / {lmsStudents.length}
+                  Selected: {selectedStudentIds.length} / {assignableStudents.length}
+                  <span className="text-gray-400"> (LMS + Skillwins)</span>
                 </span>
               </div>
               {filteredStudents.length === 0 ? (
@@ -865,6 +882,9 @@ export default function UserManagerPage() {
                       />
                       <span className="text-sm">
                         {s.name} — {s.email || "No email"}
+                        {isSkillwinsStudentDoc(s) ? (
+                          <span className="ml-1 text-violet-700 text-xs">(skillwins)</span>
+                        ) : null}
                       </span>
                     </li>
                   ))}
@@ -1063,6 +1083,9 @@ export default function UserManagerPage() {
                   Internship — {getScopedInternshipRole(tenantSubdomain)} ({roleCounts.internship})
                 </option>
                 <option value="crtStudent">CRT Student ({roleCounts.crt})</option>
+                <option value="skillwins">
+                  vawe.skillwins — {getScopedSkillwinsRole(tenantSubdomain)} ({roleCounts.skillwins})
+                </option>
               </select>
               <label className="text-sm text-gray-600">Sort by:</label>
               <select
@@ -1076,7 +1099,7 @@ export default function UserManagerPage() {
               <span className="text-sm text-gray-500">
                 {roleFilter
                   ? `Showing ${sortedStudents.length}`
-                  : `LMS: ${roleCounts.all} · CRT: ${roleCounts.crt}`}
+                  : `LMS: ${roleCounts.all} · CRT: ${roleCounts.crt} · Skillwins: ${roleCounts.skillwins}`}
               </span>
             </div>
           </div>
@@ -1110,6 +1133,7 @@ export default function UserManagerPage() {
                       <td className="border p-2">
                         <span className={`text-xs px-2 py-0.5 rounded ${
                           isCrtStudentRole(getStudentRole(s)) ? "bg-blue-100 text-blue-700" :
+                          isSkillwinsStudentRole(getStudentRole(s)) ? "bg-violet-100 text-violet-800" :
                           isScopedInternshipRole(getStudentRole(s)) ? "bg-emerald-100 text-emerald-700" :
                           isScopedStudentRole(getStudentRole(s)) ? "bg-gray-100 text-gray-700" :
                           "bg-amber-100 text-amber-800"

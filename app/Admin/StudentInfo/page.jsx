@@ -11,6 +11,7 @@ import { makeAuthenticatedRequest, handleAuthError } from "@/lib/authUtils";
 import {
   isCrtStudentRole,
   isScopedInternshipRole,
+  isSkillwinsStudentRole,
   matchesStudentRoleFilter,
   inferStudentRole,
   formatStudentRoleLabel,
@@ -940,6 +941,7 @@ export default function StudentListPage() {
             <option value="student">Student</option>
             <option value="internship">Internship</option>
             <option value="crtStudent">CRT Student</option>
+            <option value="skillwins">vawe.skillwins</option>
           </select>
         </div>
 
@@ -1029,10 +1031,12 @@ export default function StudentListPage() {
                     <td className="border p-2">
                       <span className={`text-xs px-2 py-0.5 rounded ${
                         isCrtStudentRole(getStudentRole(s)) ? "bg-blue-100 text-blue-700" :
+                        isSkillwinsStudentRole(getStudentRole(s)) ? "bg-violet-100 text-violet-800" :
                         isScopedInternshipRole(getStudentRole(s)) ? "bg-emerald-100 text-emerald-700" :
                         "bg-gray-100 text-gray-700"
                       }`}>
                         {isCrtStudentRole(getStudentRole(s)) ? getStudentRole(s) :
+                         isSkillwinsStudentRole(getStudentRole(s)) ? getStudentRole(s) :
                          formatStudentRoleLabel(getStudentRole(s))}
                       </span>
                     </td>

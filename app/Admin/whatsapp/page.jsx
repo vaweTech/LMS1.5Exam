@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { makeAuthenticatedRequest } from "@/lib/authUtils";
 import {
   isCrtStudentRole,
+  isSkillwinsStudentRole,
   inferStudentRole,
   formatStudentRoleLabel,
   normalizeStudentsForAdmin,
@@ -315,7 +316,19 @@ export default function WhatsAppMessagingPage() {
                         <tr key={s.id} className="hover:bg-gray-50">
                           <td className="border p-2">{s.name || '-'}</td>
                           <td className="border p-2">
-                            {formatStudentRoleLabel(inferStudentRole(s))}
+                            <span
+                              className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                isCrtStudentRole(inferStudentRole(s))
+                                  ? "bg-blue-100 text-blue-700"
+                                  : isSkillwinsStudentRole(inferStudentRole(s))
+                                  ? "bg-violet-100 text-violet-800"
+                                  : "bg-gray-100 text-gray-700"
+                              }`}
+                            >
+                              {isSkillwinsStudentRole(inferStudentRole(s))
+                                ? inferStudentRole(s)
+                                : formatStudentRoleLabel(inferStudentRole(s))}
+                            </span>
                           </td>
                           <td className="border p-2">{s.phone1 || s.phone || '-'}</td>
                           <td className="border p-2">{s.classId || '-'}</td>

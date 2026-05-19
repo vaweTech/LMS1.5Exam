@@ -753,6 +753,7 @@ import { getClientCollegeSubdomain } from "@/lib/tenantPath";
 import {
   getScopedCrtStudentRole,
   getScopedInternshipRole,
+  getScopedSkillwinsRole,
   getScopedStudentRole,
   resolveCollegeSubdomain,
 } from "@/lib/studentRole";
@@ -801,6 +802,7 @@ export default function AdmissionForm({ onStudentAdded }) {
     remarks: "",
     isInternship: false,
     isCrt: false,
+    isSkillwins: false,
   });
 
   const [lastRegdNo, setLastRegdNo] = useState("0");
@@ -1034,11 +1036,19 @@ export default function AdmissionForm({ onStudentAdded }) {
         workCompany: formData.workCompany,
         skillSet: formData.skillSet,
         remarks: formData.remarks,
-        isInternship: isCollegeDomain ? false : formData.isInternship,
-        isCrt: formData.isCrt,
+        isInternship: formData.isSkillwins
+          ? false
+          : isCollegeDomain
+          ? false
+          : formData.isInternship,
+        isCrt: formData.isSkillwins ? false : formData.isCrt,
+        isSkillwins: formData.isSkillwins,
         collegeSubdomain: formData.isCrt ? collegeSubdomain || tenantSubdomain : tenantSubdomain,
+        portal: formData.isSkillwins ? "vawe.skillwins" : undefined,
         role: formData.isCrt
           ? crtRole
+          : formData.isSkillwins
+          ? getScopedSkillwinsRole(tenantSubdomain)
           : formData.isInternship
           ? getScopedInternshipRole(tenantSubdomain)
           : getScopedStudentRole(tenantSubdomain),
@@ -1093,6 +1103,7 @@ export default function AdmissionForm({ onStudentAdded }) {
         remarks: "",
         isInternship: false,
         isCrt: false,
+        isSkillwins: false,
       });
       setOtp("");
       setOtpVerified(false);
@@ -1130,6 +1141,8 @@ export default function AdmissionForm({ onStudentAdded }) {
                       setFormData((prev) => ({
                         ...prev,
                         isInternship: e.target.checked,
+                        isSkillwins: e.target.checked ? false : prev.isSkillwins,
+                        isCrt: e.target.checked ? false : prev.isCrt,
                       }))
                     }
                     className="h-4 w-4 accent-emerald-600"
@@ -1145,17 +1158,35 @@ export default function AdmissionForm({ onStudentAdded }) {
                     setFormData((prev) => ({
                       ...prev,
                       isCrt: e.target.checked,
+                      isSkillwins: e.target.checked ? false : prev.isSkillwins,
+                      isInternship: e.target.checked ? false : prev.isInternship,
                     }))
                   }
                   className="h-4 w-4 accent-blue-600"
                 />
                 CRT Student
               </label>
+              <label className="flex items-center gap-2 text-sm font-semibold text-violet-800">
+                <input
+                  type="checkbox"
+                  checked={formData.isSkillwins}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      isSkillwins: e.target.checked,
+                      isCrt: e.target.checked ? false : prev.isCrt,
+                      isInternship: e.target.checked ? false : prev.isInternship,
+                    }))
+                  }
+                  className="h-4 w-4 accent-violet-600"
+                />
+                vawe.skillwins only
+              </label>
             </div>
             <p className="text-xs text-slate-500">
               {isCollegeDomain
-                ? "CRT Student: eligible for CRT programs and appears in CRT Manager."
-                : "Internship: tag as intern. CRT Student: eligible for CRT programs and appears in CRT Manager."}
+                ? "CRT or vawe.skillwins — choose one type per student."
+                : "Internship, CRT, or vawe.skillwins only — choose one type per student."}
             </p>
           </div>
         </div>

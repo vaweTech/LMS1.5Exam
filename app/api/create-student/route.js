@@ -9,14 +9,17 @@ import path from 'path';
 import {
   getScopedCrtStudentRole,
   getScopedInternshipRole,
+  getScopedSkillwinsRole,
   getScopedStudentRole,
   isCrtStudentRole,
+  isSkillwinsStudentRole,
   isScopedInternshipRole,
   isScopedStudentRole,
   isLegacyInternshipRole,
   isLegacyStudentRole,
   resolveCollegeSubdomain,
   getStudentLimitRoles,
+  normalizeStudentTypeFlags,
 } from "@/lib/studentRole";
 
 let cachedServiceAccount = null;
@@ -173,7 +176,15 @@ function deriveStudentRole(body, reqUser) {
     return incomingRole;
   }
 
+  if (body.isSkillwins || body.isSkillWins) {
+    if (isSkillwinsStudentRole(incomingRole)) return incomingRole;
+    return getScopedSkillwinsRole(targetSubdomain);
+  }
+
   if (incomingRole) {
+    if (isSkillwinsStudentRole(incomingRole)) {
+      return getScopedSkillwinsRole(targetSubdomain);
+    }
     if (isScopedInternshipRole(incomingRole) || isLegacyInternshipRole(incomingRole)) {
       return getScopedInternshipRole(targetSubdomain);
     }
@@ -450,8 +461,9 @@ async function createStudentHandler(req) {
     
     try {
       const phoneNormalized = normalizeToE164(body.phone || body.phone1);
-      const isCrt = !!body.isCrt;
-      
+      const typeFlags = normalizeStudentTypeFlags(derivedRole);
+      const { isCrt, isSkillwins, isInternship } = typeFlags;
+
       const studentData = {
         ...body, // regdNo, fatherName, address, phones, education, fees, etc.
         email,
@@ -461,6 +473,9 @@ async function createStudentHandler(req) {
         uid: studentUid,
         role: derivedRole,
         isCrt,
+        isSkillwins,
+        isInternship,
+        portal: typeFlags.portal || body.portal || null,
         collegeSubdomain: targetSubdomain || null,
         // Store default password for admin visibility in Student Info (note: security trade-off as requested)
         password: DEFAULT_STUDENT_PASSWORD,
