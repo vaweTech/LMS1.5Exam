@@ -1994,6 +1994,29 @@ export default function TakeInterviewExamPage() {
                     />
                   </div>
                 ) : null}
+                {q.type === "mcq" &&
+                (q.showDescription ||
+                  String(q.questionDescription || "").trim() ||
+                  String(q.questionDescriptionImage || "").trim()) ? (
+                  <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50/80 px-4 py-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                      Description
+                    </p>
+                    {String(q.questionDescription || "").trim() ? (
+                      <MathTextDisplay className="mb-3 text-gray-800">
+                        {q.questionDescription}
+                      </MathTextDisplay>
+                    ) : null}
+                    {q.questionDescriptionImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={q.questionDescriptionImage}
+                        alt=""
+                        className="max-w-full max-h-72 rounded-lg border border-gray-200 object-contain bg-white"
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
                 {mcqTags.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2 mb-3">
                     <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tags</span>

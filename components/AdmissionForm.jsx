@@ -749,6 +749,7 @@ import { useState, useEffect } from "react";
 import { makeAuthenticatedRequest } from "@/lib/authUtils";
  
 import CheckAdminAuth from "@/lib/CheckAdminAuth";
+import { useAdminAccess } from "@/app/Admin/AdminAccessContext";
 import { getClientCollegeSubdomain } from "@/lib/tenantPath";
 import {
   getScopedCrtStudentRole,
@@ -770,10 +771,13 @@ function Label({ children, required }) {
 }
 
 export default function AdmissionForm({ onStudentAdded }) { 
+  const { role: adminRole } = useAdminAccess();
   const collegeSubdomain = getClientCollegeSubdomain();
   const tenantSubdomain = resolveCollegeSubdomain(collegeSubdomain);
   const crtRole = getScopedCrtStudentRole(tenantSubdomain);
-  const isCollegeDomain = !!collegeSubdomain;
+  /** Institute admin / superadmin only — not collegeAdmin. */
+  const showInternshipAdmission =
+    adminRole === "admin" || adminRole === "superadmin";
   const [formData, setFormData] = useState({
     regdNo: "",
     studentName: "",
@@ -1036,11 +1040,10 @@ export default function AdmissionForm({ onStudentAdded }) {
         workCompany: formData.workCompany,
         skillSet: formData.skillSet,
         remarks: formData.remarks,
-        isInternship: formData.isSkillwins
-          ? false
-          : isCollegeDomain
-          ? false
-          : formData.isInternship,
+        isInternship:
+          formData.isSkillwins || !showInternshipAdmission
+            ? false
+            : formData.isInternship,
         isCrt: formData.isSkillwins ? false : formData.isCrt,
         isSkillwins: formData.isSkillwins,
         collegeSubdomain: formData.isCrt ? collegeSubdomain || tenantSubdomain : tenantSubdomain,
@@ -1132,7 +1135,7 @@ export default function AdmissionForm({ onStudentAdded }) {
           </h2>
           <div className="flex flex-col items-end gap-3 text-right">
             <div className="flex flex-wrap items-center justify-end gap-6">
-              {!isCollegeDomain && (
+              {showInternshipAdmission && (
                 <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                   <input
                     type="checkbox"
@@ -1184,9 +1187,9 @@ export default function AdmissionForm({ onStudentAdded }) {
               </label>
             </div>
             <p className="text-xs text-slate-500">
-              {isCollegeDomain
-                ? "CRT or vawe.skillwins — choose one type per student."
-                : "Internship, CRT, or vawe.skillwins only — choose one type per student."}
+              {showInternshipAdmission
+                ? "Internship, CRT, or vawe.skillwins — choose one type per student."
+                : "CRT or vawe.skillwins — choose one type per student."}
             </p>
           </div>
         </div>

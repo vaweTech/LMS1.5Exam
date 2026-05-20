@@ -542,6 +542,9 @@ export default function AdminInterviewExamsPage() {
         type: "mcq",
         question: "",
         questionImage: "",
+        showDescription: false,
+        questionDescription: "",
+        questionDescriptionImage: "",
         options: ["", "", "", ""],
         optionImages: ["", "", "", ""],
         correctAnswers: [],
@@ -562,6 +565,9 @@ export default function AdminInterviewExamsPage() {
         type: "mcq",
         question: "",
         questionImage: "",
+        showDescription: false,
+        questionDescription: "",
+        questionDescriptionImage: "",
         options: ["", "", "", ""],
         optionImages: ["", "", "", ""],
         correctAnswers: [],
@@ -603,13 +609,22 @@ export default function AdminInterviewExamsPage() {
   };
 
   const runMcqImageUpload = async (file, qid, mode, optIndex) => {
-    const key = mode === "question" ? `${qid}:q` : `${qid}:o${optIndex}`;
+    const key =
+      mode === "question"
+        ? `${qid}:q`
+        : mode === "description"
+        ? `${qid}:desc`
+        : `${qid}:o${optIndex}`;
     setMcqImageUploadKey(key);
     const url = await uploadInterviewMcqImage(file);
     setMcqImageUploadKey("");
     if (!url) return;
     if (mode === "question") {
       updateQuestion(qid, { questionImage: url });
+      return;
+    }
+    if (mode === "description") {
+      updateQuestion(qid, { questionDescriptionImage: url });
       return;
     }
     setQuestions((prev) =>
@@ -654,10 +669,18 @@ export default function AdminInterviewExamsPage() {
           const optionImages = optionTexts.map((_, i) =>
             String(fromParallel[i] || fromObjects[i] || "").trim()
           );
+          const showDesc = Boolean(q.showDescription);
           return {
             type: "mcq",
             question: formatMathNotation(String(q.question || "").trim()),
             questionImage: String(q.questionImage || "").trim(),
+            showDescription: showDesc,
+            questionDescription: showDesc
+              ? formatMathNotation(String(q.questionDescription || "").trim())
+              : "",
+            questionDescriptionImage: showDesc
+              ? String(q.questionDescriptionImage || "").trim()
+              : "",
             options: optionTexts,
             optionImages,
             correctAnswers: Array.isArray(q.correctAnswers)
@@ -770,9 +793,16 @@ export default function AdminInterviewExamsPage() {
               typeof o === "object" && o != null && o.image ? String(o.image || "") : ""
             );
             const optionImages = optionTexts.map((_, i) => fromParallel[i] || fromObjects[i] || "");
+            const descText = String(q?.questionDescription || "").trim();
+            const descImg = String(q?.questionDescriptionImage || "").trim();
+            const showDesc =
+              Boolean(q?.showDescription) || Boolean(descText) || Boolean(descImg);
             return {
               ...base,
               questionImage: String(q?.questionImage || "").trim(),
+              showDescription: showDesc,
+              questionDescription: descText,
+              questionDescriptionImage: descImg,
               options: optionTexts,
               optionImages,
               correctAnswers: Array.isArray(q?.correctAnswers) ? q.correctAnswers : [],
@@ -1076,6 +1106,9 @@ export default function AdminInterviewExamsPage() {
                         type: "mcq",
                         question: questionText,
                         questionImage: "",
+                        showDescription: false,
+                        questionDescription: "",
+                        questionDescriptionImage: "",
                         options: [o1, o2, o3, o4].map((x) => String(x ?? "")),
                         optionImages: ["", "", "", ""],
                         correctAnswers: Array.from(new Set(mapCorrect(corr))),
@@ -1270,6 +1303,84 @@ export default function AdminInterviewExamsPage() {
                             />
                           ) : null}
                         </div>
+                        <label className="flex items-center gap-2 mb-3 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(q.showDescription)}
+                            onChange={(e) => {
+                              const on = e.target.checked;
+                              updateQuestion(q.id, {
+                                showDescription: on,
+                                ...(!on
+                                  ? {
+                                      questionDescription: "",
+                                      questionDescriptionImage: "",
+                                    }
+                                  : {}),
+                              });
+                            }}
+                            className="w-4 h-4 rounded border-gray-300 text-[#00448a] focus:ring-[#00448a]/30"
+                          />
+                          <span className="text-sm font-medium text-gray-700">
+                            Add question description
+                          </span>
+                        </label>
+                        {q.showDescription ? (
+                          <div className="mb-3 rounded-lg border border-dashed border-[#00448a]/30 bg-[#00448a]/5 px-3 py-3">
+                            <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                              Description
+                            </label>
+                            <MathQuestionField
+                              className="mb-3"
+                              placeholder="Description — extra context for the question (math symbols supported)"
+                              value={q.questionDescription || ""}
+                              onChange={(text) =>
+                                updateQuestion(q.id, { questionDescription: text })
+                              }
+                              minRows={3}
+                            />
+                            <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                              Description image (optional)
+                            </label>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                disabled={Boolean(
+                                  mcqImageUploadKey && mcqImageUploadKey.startsWith(q.id)
+                                )}
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0];
+                                  e.target.value = "";
+                                  if (f) runMcqImageUpload(f, q.id, "description");
+                                }}
+                                className="text-xs w-full sm:w-auto max-w-[220px] border rounded-lg px-2 py-1.5 bg-white"
+                              />
+                              {mcqImageUploadKey === `${q.id}:desc` ? (
+                                <span className="text-xs text-gray-500">Uploading…</span>
+                              ) : null}
+                              {q.questionDescriptionImage ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateQuestion(q.id, { questionDescriptionImage: "" })
+                                  }
+                                  className="text-xs font-medium text-red-600 hover:text-red-700"
+                                >
+                                  Remove image
+                                </button>
+                              ) : null}
+                            </div>
+                            {q.questionDescriptionImage ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={q.questionDescriptionImage}
+                                alt=""
+                                className="mt-2 max-h-44 w-full max-w-md rounded-lg border border-gray-200 object-contain bg-white"
+                              />
+                            ) : null}
+                          </div>
+                        ) : null}
                         <McqTopicTagsField questionId={q.id} topics={q.topics} updateQuestion={updateQuestion} />
                         <div className="grid sm:grid-cols-2 gap-3">
                           {(q.options || []).map((opt, i) => {
