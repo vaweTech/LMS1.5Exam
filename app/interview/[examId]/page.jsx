@@ -6,6 +6,25 @@ import { requestWhatsAppOtp, verifyWhatsAppOtp } from "@/lib/whatsappOtpClient";
 import MathTextDisplay from "@/components/MathTextDisplay";
 import { auth, firebaseAuth, db, firestoreHelpers } from "../../../lib/firebase";
 
+/** Last 10 digits — consistent key for OTP phone checks and Firestore queries. */
+function normalizeInterviewPhone(raw) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (digits.length >= 10) return digits.slice(-10);
+  return digits;
+}
+
+async function submissionExistsForPhone(subCol, phoneDigits) {
+  const normalized = normalizeInterviewPhone(phoneDigits);
+  if (!normalized || normalized.length < 10) return false;
+  const variants = [normalized, `91${normalized}`];
+  const q = firestoreHelpers.query(
+    subCol,
+    firestoreHelpers.where("phone", "in", variants)
+  );
+  const snap = await firestoreHelpers.getDocs(q);
+  return !snap.empty;
+}
+
 /** Topic tags on MCQs: array or comma-separated string (matches admin exam editor). */
 function normalizeTopicsFromUnknown(raw) {
   if (raw == null) return [];
@@ -133,9 +152,10 @@ export default function TakeInterviewExamPage() {
 
   const checkBlockStatus = useCallback(async (phoneDigits) => {
     if (!examId) return { blocked: false };
+    const normalized = normalizeInterviewPhone(phoneDigits);
     try {
       const blocksCol = firestoreHelpers.collection(db, "interviewExams", String(examId), "blocks");
-      const qBlock = firestoreHelpers.query(blocksCol, firestoreHelpers.where("phone", "==", phoneDigits));
+      const qBlock = firestoreHelpers.query(blocksCol, firestoreHelpers.where("phone", "==", normalized));
       const blockSnap = await firestoreHelpers.getDocs(qBlock);
       if (!blockSnap.empty) {
         const blockData = blockSnap.docs[0].data();
@@ -165,7 +185,7 @@ export default function TakeInterviewExamPage() {
   // Check block status when phone number is entered
   useEffect(() => {
     async function checkBlock() {
-      const phoneDigits = phone.replace(/\D/g, "");
+      const phoneDigits = normalizeInterviewPhone(phone);
       if (phoneDigits.length >= 10 && examId) {
         const blockStatus = await checkBlockStatus(phoneDigits);
         if (blockStatus.blocked) {
@@ -338,6 +358,37 @@ export default function TakeInterviewExamPage() {
             doc.text(tl, margin, y);
             if (i === 0) {
               doc.setTextColor(4, 120, 87);
+              doc.text(`${pct}%`, pageW - margin, y, { align: "right" });
+            }
+            y += 5;
+          });
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(148, 163, 184);
+          doc.setFontSize(9);
+          writeLines(`${d.correct}/${d.total} correct`, 9, 4);
+          y += 2;
+        });
+      y += 2;
+    }
+
+    if (examResults.mcqCompanyScores && Object.keys(examResults.mcqCompanyScores).length > 0) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(30, 41, 59);
+      writeLines("Company-wise results", 12, 6);
+      doc.setFontSize(10);
+      Object.entries(examResults.mcqCompanyScores)
+        .sort(([a], [b]) => String(a).localeCompare(String(b)))
+        .forEach(([company, d]) => {
+          const pct = topicTagAccuracyPercent(d.correct, d.total);
+          const companyLines = doc.splitTextToSize(String(company), maxW - 22);
+          ensureSpace(companyLines.length * 5 + 10);
+          companyLines.forEach((cl, i) => {
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(30, 41, 59);
+            doc.text(cl, margin, y);
+            if (i === 0) {
+              doc.setTextColor(180, 83, 9);
               doc.text(`${pct}%`, pageW - margin, y, { align: "right" });
             }
             y += 5;
@@ -714,7 +765,7 @@ export default function TakeInterviewExamPage() {
 
   // Function to block the exam
   const blockExamForPhone = useCallback(async (reason, count) => {
-    const phoneDigits = phone.replace(/\D/g, "");
+    const phoneDigits = normalizeInterviewPhone(phone);
     if (phoneDigits.length < 10) return;
     
     try {
@@ -874,21 +925,20 @@ export default function TakeInterviewExamPage() {
   }, [started, handleViolation, isBlocked]);
 
   const prepareAttempt = useCallback(async (phoneDigits) => {
+    const normalizedPhone = normalizeInterviewPhone(phoneDigits);
     const duration = Number(exam?.durationMinutes) || 0;
     
     // Check if exam is blocked for this phone
-    const blockStatus = await checkBlockStatus(phoneDigits);
+    const blockStatus = await checkBlockStatus(normalizedPhone);
     if (blockStatus.blocked) {
       setIsBlocked(true);
       setBlockReason(blockStatus.reason || "Exam blocked due to multiple tab switches");
       return { blocked: true };
     }
     
-    // Block if already submitted for this phone
+    // Block if already submitted for this phone (not by logged-in account alone)
     const subCol = firestoreHelpers.collection(db, "interviewExams", String(examId), "submissions");
-    const qPhone = firestoreHelpers.query(subCol, firestoreHelpers.where("phone", "==", phoneDigits));
-    const existingPhone = await firestoreHelpers.getDocs(qPhone);
-    if (!existingPhone.empty) {
+    if (await submissionExistsForPhone(subCol, normalizedPhone)) {
       alert("A submission has already been received for this phone number.");
       return { blocked: true };
     }
@@ -896,7 +946,10 @@ export default function TakeInterviewExamPage() {
       return { blocked: false, remainingMs: null };
     }
     const attemptsCol = firestoreHelpers.collection(db, "interviewExams", String(examId), "attempts");
-    const qAttempt = firestoreHelpers.query(attemptsCol, firestoreHelpers.where("phone", "==", phoneDigits));
+    const qAttempt = firestoreHelpers.query(
+      attemptsCol,
+      firestoreHelpers.where("phone", "==", normalizedPhone)
+    );
     const attemptSnap = await firestoreHelpers.getDocs(qAttempt);
     let startedAt = null;
     let attemptDocRef = null;
@@ -906,7 +959,10 @@ export default function TakeInterviewExamPage() {
       attemptDocRef = firestoreHelpers.doc(db, "interviewExams", String(examId), "attempts", firstDoc.id);
     } else {
       startedAt = Date.now();
-      const createdRef = await firestoreHelpers.addDoc(attemptsCol, { phone: phoneDigits, startedAt });
+      const createdRef = await firestoreHelpers.addDoc(attemptsCol, {
+        phone: normalizedPhone,
+        startedAt,
+      });
       attemptDocRef = firestoreHelpers.doc(db, "interviewExams", String(examId), "attempts", createdRef.id);
     }
     let remainingMs = duration * 60 * 1000 - (Date.now() - Number(startedAt || Date.now()));
@@ -921,7 +977,7 @@ export default function TakeInterviewExamPage() {
   }, [exam, examId, checkBlockStatus]);
 
   const handleSendWhatsappOtp = async () => {
-    const phoneDigits = phone.replace(/\D/g, "");
+    const phoneDigits = normalizeInterviewPhone(phone);
     if (phoneDigits.length < 10) {
       alert("Enter a valid 10-digit mobile number before requesting OTP.");
       return;
@@ -991,7 +1047,7 @@ export default function TakeInterviewExamPage() {
 
   const startExam = async () => {
     // Validate before starting
-    const phoneDigits = phone.replace(/\D/g, "");
+    const phoneDigits = normalizeInterviewPhone(phone);
     if (isBlocked) {
       alert("This exam is blocked. Please contact the administrator to unblock it.");
       return;
@@ -1001,7 +1057,7 @@ export default function TakeInterviewExamPage() {
       return;
     }
     if (phoneDigits.length < 10) {
-      alert("Please enter a valid phone number (10+ digits).");
+      alert("Please enter a valid 10-digit mobile number.");
       return;
     }
     if (!phoneVerified) {
@@ -1042,37 +1098,25 @@ export default function TakeInterviewExamPage() {
       alert("Please enter your name.");
       return;
     }
-    const phoneDigits = phone.replace(/\D/g, "");
+    const phoneDigits = normalizeInterviewPhone(phone);
     if (phoneDigits.length < 10) {
-      alert("Please enter a valid phone number (10+ digits).");
+      alert("Please enter a valid 10-digit mobile number.");
       return;
     }
     setSubmitting(true);
     try {
-      // Prevent duplicate submissions per user
       const subCol = firestoreHelpers.collection(db, "interviewExams", String(examId), "submissions");
-      if (userId) {
-        const qUser = firestoreHelpers.query(subCol, firestoreHelpers.where("userId", "==", userId));
-        const existingUser = await firestoreHelpers.getDocs(qUser);
-        if (!existingUser.empty) {
-          alert("A submission has already been received for this user.");
-          setSubmitting(false);
-          return;
-        }
-      } else {
-        const qPhone = firestoreHelpers.query(subCol, firestoreHelpers.where("phone", "==", phoneDigits));
-        const existingPhone = await firestoreHelpers.getDocs(qPhone);
-        if (!existingPhone.empty) {
-          alert("A submission has already been received for this phone number.");
-          setSubmitting(false);
-          return;
-        }
+      if (await submissionExistsForPhone(subCol, phoneDigits)) {
+        alert("A submission has already been received for this phone number.");
+        setSubmitting(false);
+        return;
       }
       // MCQ score: 1 per correct answer + section-wise breakdown + topic-tag breakdown
       let mcqCorrect = 0;
       let mcqTotal = 0;
       const mcqSectionScores = {}; // { sectionName: { correct, total, score } }
       const mcqTopicScores = {}; // { tag: { correct: MCQs right, total: MCQs with tag, score: same as correct } }
+      const mcqCompanyScores = {}; // { company: { correct, total, score } }
 
       (exam?.questions || []).forEach((q, i) => {
         if (!q || q.type !== "mcq") return;
@@ -1115,6 +1159,18 @@ export default function TakeInterviewExamPage() {
             mcqTopicScores[tag].score += 1;
           }
         });
+
+        const companyTags = normalizeTopicsFromUnknown(q?.companyNames ?? q?.companyName);
+        companyTags.forEach((company) => {
+          if (!mcqCompanyScores[company]) {
+            mcqCompanyScores[company] = { correct: 0, total: 0, score: 0 };
+          }
+          mcqCompanyScores[company].total += 1;
+          if (isCorrect) {
+            mcqCompanyScores[company].correct += 1;
+            mcqCompanyScores[company].score += 1;
+          }
+        });
       });
 
       const mcqScore = {
@@ -1123,6 +1179,7 @@ export default function TakeInterviewExamPage() {
         score: mcqCorrect,
         sectionScores: mcqSectionScores,
         topicScores: mcqTopicScores,
+        companyScores: mcqCompanyScores,
       };
 
       // Coding score: for each question, maxScore * (passed / total test cases) + per-question details
@@ -1199,6 +1256,7 @@ export default function TakeInterviewExamPage() {
         percentage,
         mcqSectionScores: mcqSectionScores,
         mcqTopicScores,
+        mcqCompanyScores,
         codingQuestionDetails: codingQuestionDetails,
       });
       setStarted(false);
@@ -1431,6 +1489,44 @@ export default function TakeInterviewExamPage() {
                               <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
                                 <div
                                   className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-600 transition-all duration-500"
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                              <p className="text-[10px] text-gray-400 mt-0.5">
+                                {d.correct}/{d.total} correct
+                              </p>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                </details>
+              )}
+
+              {/* Company-wise: expand on click */}
+              {examResults.mcqCompanyScores && Object.keys(examResults.mcqCompanyScores).length > 0 && (
+                <details className="mb-4">
+                  <summary className="cursor-pointer list-none bg-white rounded-lg shadow-md p-3 sm:p-4 text-sm font-semibold text-gray-800 hover:bg-gray-50 transition-colors border-2 border-amber-100 [&::-webkit-details-marker]:hidden flex items-center justify-center gap-2">
+                    <span>Company-wise results</span>
+                    <span className="text-amber-700 text-xs font-normal">(tap to expand)</span>
+                  </summary>
+                  <div className="mt-3 bg-white rounded-lg shadow-md p-4 sm:p-5 border-2 border-amber-100">
+                    <div className="space-y-3">
+                      {Object.entries(examResults.mcqCompanyScores)
+                        .sort(([a], [b]) => a.localeCompare(b))
+                        .map(([company, d]) => {
+                          const pct = topicTagAccuracyPercent(d.correct, d.total);
+                          return (
+                            <div key={company}>
+                              <div className="flex items-center justify-between gap-3 text-xs sm:text-sm mb-1">
+                                <span className="font-medium text-gray-800 truncate" title={company}>
+                                  {company}
+                                </span>
+                                <span className="shrink-0 font-semibold text-amber-800 tabular-nums">{pct}%</span>
+                              </div>
+                              <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-600 transition-all duration-500"
                                   style={{ width: `${pct}%` }}
                                 />
                               </div>
@@ -1983,6 +2079,25 @@ export default function TakeInterviewExamPage() {
                     Question {currentPos + 1} of {totalInSection}
                   </p>
                 </div>
+                {(() => {
+                  const companies = normalizeTopicsFromUnknown(q?.companyNames ?? q?.companyName);
+                  if (companies.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap items-center gap-2 mb-3">
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                        Companies
+                      </span>
+                      {companies.map((name) => (
+                        <span
+                          key={name}
+                          className="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-900 border border-amber-200/90"
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <MathTextDisplay className="mb-4">{q.question}</MathTextDisplay>
                 {q.type === "mcq" && q.questionImage ? (
                   <div className="mb-4">

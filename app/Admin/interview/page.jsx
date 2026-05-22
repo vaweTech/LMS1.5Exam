@@ -140,6 +140,76 @@ function McqTopicTagsField({ questionId, topics, updateQuestion }) {
   );
 }
 
+function QuestionCompanyNamesField({ questionId, companyNames, updateQuestion }) {
+  const [draft, setDraft] = useState("");
+  const list = normalizeTopicsFromUnknown(companyNames);
+
+  const commit = () => {
+    const t = draft.trim();
+    if (!t) return;
+    const exists = list.some((x) => x.toLowerCase() === t.toLowerCase());
+    if (!exists) updateQuestion(questionId, { companyNames: [...list, t] });
+    setDraft("");
+  };
+
+  const remove = (tag) => {
+    updateQuestion(questionId, { companyNames: list.filter((x) => x !== tag) });
+  };
+
+  return (
+    <div className="mb-3">
+      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+        Company names
+      </label>
+      <div className="flex flex-wrap gap-2 mb-2 min-h-[32px]">
+        {list.length === 0 ? (
+          <span className="text-xs text-gray-400 italic">No companies yet</span>
+        ) : (
+          list.map((t) => (
+            <span
+              key={t}
+              className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-900 border border-amber-200/90 px-2.5 py-1 text-xs font-medium"
+            >
+              {t}
+              <button
+                type="button"
+                onClick={() => remove(t)}
+                className="rounded-full p-0.5 hover:bg-amber-200/80 text-amber-900 leading-none"
+                aria-label={`Remove company ${t}`}
+              >
+                ×
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            }
+          }}
+          placeholder="Type a company, then Enter or Add"
+          className="flex-1 min-w-[160px] border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#00448a]/20 focus:border-[#00448a] outline-none"
+        />
+        <button
+          type="button"
+          onClick={commit}
+          className="px-3 py-2 text-sm font-semibold rounded-xl border border-gray-200 bg-white text-gray-800 hover:border-[#00448a]/40 hover:text-[#00448a] transition-colors shrink-0"
+        >
+          Add
+        </button>
+      </div>
+      <p className="text-[11px] text-gray-500 mt-1">Add one or more company tags for this question (optional).</p>
+    </div>
+  );
+}
+
 export default function AdminInterviewExamsPage() {
   const router = useRouter();
   const [title, setTitle] = useState("");
@@ -541,6 +611,7 @@ export default function AdminInterviewExamsPage() {
         id: crypto.randomUUID(),
         type: "mcq",
         question: "",
+        companyNames: [],
         questionImage: "",
         showDescription: false,
         questionDescription: "",
@@ -564,6 +635,7 @@ export default function AdminInterviewExamsPage() {
         id: crypto.randomUUID(),
         type: "mcq",
         question: "",
+        companyNames: [],
         questionImage: "",
         showDescription: false,
         questionDescription: "",
@@ -584,6 +656,7 @@ export default function AdminInterviewExamsPage() {
         id: crypto.randomUUID(),
         type: "descriptive",
         question: "",
+        companyNames: [],
         maxScore: 10,
       },
     ]);
@@ -595,6 +668,7 @@ export default function AdminInterviewExamsPage() {
         id: crypto.randomUUID(),
         type: "coding",
         question: "",
+        companyNames: [],
         section: "easy",
         testCases: [{ input: "", output: "" }],
         maxScore: 10,
@@ -673,6 +747,7 @@ export default function AdminInterviewExamsPage() {
           return {
             type: "mcq",
             question: formatMathNotation(String(q.question || "").trim()),
+            companyNames: normalizeTopicsFromUnknown(q.companyNames ?? q.companyName),
             questionImage: String(q.questionImage || "").trim(),
             showDescription: showDesc,
             questionDescription: showDesc
@@ -694,6 +769,7 @@ export default function AdminInterviewExamsPage() {
           return {
             type: "coding",
             question: formatMathNotation(String(q.question || "").trim()),
+            companyNames: normalizeTopicsFromUnknown(q.companyNames ?? q.companyName),
             section: String(q.section || "easy").trim(),
             testCases: Array.isArray(q.testCases)
               ? q.testCases
@@ -709,6 +785,7 @@ export default function AdminInterviewExamsPage() {
         return {
           type: "descriptive",
           question: formatMathNotation(String(q.question || "").trim()),
+          companyNames: normalizeTopicsFromUnknown(q.companyNames ?? q.companyName),
           maxScore: Number.isFinite(Number(q.maxScore)) ? Number(q.maxScore) : 10,
         };
       });
@@ -779,6 +856,7 @@ export default function AdminInterviewExamsPage() {
                 ? "coding"
                 : "mcq",
             question: String(q?.question || ""),
+            companyNames: normalizeTopicsFromUnknown(q?.companyNames ?? q?.companyName),
           };
           
           if (q?.type === "mcq") {
@@ -1105,6 +1183,7 @@ export default function AdminInterviewExamsPage() {
                         id: crypto.randomUUID(),
                         type: "mcq",
                         question: questionText,
+                        companyNames: [],
                         questionImage: "",
                         showDescription: false,
                         questionDescription: "",
@@ -1258,6 +1337,11 @@ export default function AdminInterviewExamsPage() {
                             </button>
                           </div>
                         </div>
+                        <QuestionCompanyNamesField
+                          questionId={q.id}
+                          companyNames={q.companyNames}
+                          updateQuestion={updateQuestion}
+                        />
                         <MathQuestionField
                           className="mb-2"
                           placeholder="Question — type or paste text (math symbols supported)"
@@ -1493,6 +1577,11 @@ export default function AdminInterviewExamsPage() {
                             Remove
                           </button>
                         </div>
+                        <QuestionCompanyNamesField
+                          questionId={q.id}
+                          companyNames={q.companyNames}
+                          updateQuestion={updateQuestion}
+                        />
                         <MathQuestionField
                           className="mb-3"
                           placeholder="Descriptive question — math symbols supported"
@@ -1561,6 +1650,11 @@ export default function AdminInterviewExamsPage() {
                             />
                           </div>
                         </div>
+                        <QuestionCompanyNamesField
+                          questionId={q.id}
+                          companyNames={q.companyNames}
+                          updateQuestion={updateQuestion}
+                        />
                         <MathQuestionField
                           className="mb-3"
                           placeholder="Coding problem statement — math symbols supported"
